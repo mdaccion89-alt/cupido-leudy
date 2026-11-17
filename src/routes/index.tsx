@@ -258,7 +258,7 @@ function Studio() {
               <h2 className="text-2xl font-semibold sm:text-3xl">Mis Creaciones</h2>
               <p className="mt-1 text-sm text-muted-foreground">Escucha y descarga tus canciones anteriores.</p>
             </div>
-            {songs.length > 0 && <span className="text-sm text-muted-foreground">{songs.length} {songs.length === 1 ? "canción" : "canciones"}</span>}
+            {songs.length > 0 && <span className="shrink-0 whitespace-nowrap text-sm text-muted-foreground">{songs.length} {songs.length === 1 ? "canción" : "canciones"}</span>}
           </div>
           {session ? (
             <CreationsList

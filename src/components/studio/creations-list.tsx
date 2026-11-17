@@ -33,7 +33,7 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
     );
   }
   return (
-    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {songs.map((song, i) => {
         const selected = song.id === selectedId;
         const ready = song.status === "ready";
@@ -41,7 +41,7 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
           <li
             key={song.id}
             className={cn(
-              "panel group flex animate-float-in items-center gap-4 p-4 transition-colors",
+              "panel group flex min-w-0 animate-float-in items-center gap-4 p-4 transition-colors",
               selected && "border-primary/60",
             )}
             style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}
