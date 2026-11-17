@@ -54,7 +54,7 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
               disabled={!ready}
               onClick={() => onSelect(song)}
             >
-              {song.status === "generating" ? (
+              {(song.status === "generating" || song.status === "saving") ? (
                 <Loader2 className="animate-spin" />
               ) : song.status === "failed" ? (
                 <AlertCircle />
@@ -73,7 +73,7 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
                   {song.error ?? "No se pudo generar"}
                 </p>
               )}
-              {song.status === "generating" && <p className="mt-1 text-xs text-primary">Componiendo…</p>}
+              {(song.status === "generating" || song.status === "saving") && <p className="mt-1 text-xs text-primary">Componiendo…</p>}
             </div>
             {selected && ready && <Equalizer bars={3} className="h-4" />}
             <Button
