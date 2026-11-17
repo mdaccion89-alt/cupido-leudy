@@ -59,6 +59,8 @@ function Studio() {
   const songsQuery = useQuery({
     queryKey: ["songs", userId],
     enabled: Boolean(userId),
+    refetchInterval: (query) =>
+      query.state.data?.some((s) => s.status === "generating") ? 5000 : false,
     queryFn: async () => {
       const { data, error } = await supabase.from("songs").select("*").order("created_at", { ascending: false });
       if (error) throw error;
@@ -119,8 +121,8 @@ function Studio() {
     }
     if (!canGenerate) return;
     if (mutation.isPending) return;
-    queryClient.invalidateQueries({ queryKey: ["songs", userId] });
     mutation.mutate();
+    setTimeout(() => queryClient.invalidateQueries({ queryKey: ["songs", userId] }), 2500);
   };
 
   const onDelete = async (song: Song) => {
@@ -256,7 +258,7 @@ function Studio() {
               <h2 className="text-2xl font-semibold sm:text-3xl">Mis Creaciones</h2>
               <p className="mt-1 text-sm text-muted-foreground">Escucha y descarga tus canciones anteriores.</p>
             </div>
-            {songs.length > 0 && <span className="text-sm text-muted-foreground">{songs.length} canciones</span>}
+            {songs.length > 0 && <span className="text-sm text-muted-foreground">{songs.length} {songs.length === 1 ? "canción" : "canciones"}</span>}
           </div>
           {session ? (
             <CreationsList
