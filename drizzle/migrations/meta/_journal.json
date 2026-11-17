@@ -15,6 +15,13 @@
       "when": 1794929252272,
       "tag": "0001_platform_roles_credits_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794929405791,
+      "tag": "0002_lock_creation_writes",
+      "breakpoints": true
     }
   ]
 }

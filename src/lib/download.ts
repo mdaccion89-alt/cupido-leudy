@@ -23,7 +23,7 @@ export async function deliverFile(blob: Blob, filename: string) {
   downloadBlob(blob, filename);
 }
 
-export function safeFilename(title: string) {
+export function safeFilename(title: string, ext = "mp3") {
   const base = title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9 _-]/g, "").trim();
-  return `${(base || "cancion").replace(/\s+/g, "-").toLowerCase()}.mp3`;
+  return `${(base || "cancion").replace(/\s+/g, "-").toLowerCase()}.${ext}`;
 }
