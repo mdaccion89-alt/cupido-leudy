@@ -9,6 +9,11 @@ import { NodeRequest, sendNodeResponse } from "srvx/node";
 
 export default defineConfig((env) => {
   const isCapacitorBuild = process.env["CAPACITOR_BUILD"] === "1";
+  const isVercelBuild =
+    process.env["VERCEL"] === "1" ||
+    process.env["VERCEL_ENV"] !== undefined ||
+    process.env["NITRO_PRESET"] === "vercel";
+  const nitroPreset = isVercelBuild ? "vercel" : "cloudflare-module";
   const publicEnv = loadEnv(env.mode, process.cwd(), ["VITE_", "NEXT_PUBLIC_"]);
   const serverEnv = loadEnv(env.mode, process.cwd(), [
     "VITE_",
@@ -82,7 +87,7 @@ export default defineConfig((env) => {
         server: { entry: "server" },
       }),
       ...(env.command === "build" && !isCapacitorBuild
-        ? [nitro({ defaultPreset: "cloudflare-module", preset: "cloudflare-module" })]
+        ? [nitro({ defaultPreset: nitroPreset, preset: nitroPreset })]
         : []),
       viteReact(),
       {
