@@ -1,24 +1,49 @@
 // Pure music-generation rules shared by the browser and the server functions.
 
 export const GENRES = [
-  "Bachata",
   "Dembow",
+  "Bachata",
   "Reguetón",
+  "Trap",
   "Salsa",
   "Merengue",
-  "Trap",
-  "Corridos",
-  "Cumbia",
   "Pop",
   "Rock",
-  "Electrónica",
+  "Hip Hop",
   "Hip-Hop",
+  "Dance Pop",
+  "Synth-pop",
+  "Cyberpunk",
+  "Afrobeat",
+  "Drill",
   "R&B",
-  "Jazz",
+  "Corridos",
+  "Electrónica",
   "Lo-Fi",
+  "Jazz",
+  "Gospel",
+  "Balada",
+  "K-Pop",
+  "House",
+  "Cumbia",
   "Cine/Épico",
 ] as const;
-export type Genre = (typeof GENRES)[number];
+export type Genre = string;
+
+export const ENGINES = [
+  { id: "v7-pro", label: "V7 Pro", provider: "fal" },
+  { id: "v6-studio", label: "V6 Studio", provider: "fal" },
+  { id: "v5-fast", label: "V5 Rápido", provider: "fal" },
+  { id: "minimax-3", label: "MiniMax 3.0", provider: "fal" },
+  { id: "elevenlabs-v2", label: "ElevenLabs V2", provider: "fal" },
+  { id: "musicgen-free", label: "MusicGen Free", provider: "hf" },
+  { id: "yue-vocal", label: "YuE Vocal", provider: "hf" },
+] as const;
+export type EngineId = (typeof ENGINES)[number]["id"];
+export type EngineProvider = (typeof ENGINES)[number]["provider"];
+
+export const CREATION_MODES = ["simple", "custom"] as const;
+export type CreationMode = (typeof CREATION_MODES)[number];
 
 export const VOICE_TYPES = [
   "Masculina",
@@ -48,13 +73,14 @@ export type DurationSeconds = (typeof DURATIONS)[number]["seconds"];
 export const BPM_MIN = 60;
 export const BPM_MAX = 180;
 export const MAX_PROMPT_LENGTH = 600;
+export const MAX_GENRE_LENGTH = 600;
 export const MAX_LYRICS_LENGTH = 3000;
 export const MAX_ADVANCED_LENGTH = 400;
 
 const CLIP_MODEL = "google/lyria-3-clip-preview";
 const PRO_MODEL = "google/lyria-3-pro-preview";
 
-export const GENRE_DEFAULT_BPM: Record<Genre, number> = {
+export const GENRE_DEFAULT_BPM: Record<string, number> = {
   Bachata: 128,
   Dembow: 120,
   Reguetón: 92,
@@ -66,14 +92,24 @@ export const GENRE_DEFAULT_BPM: Record<Genre, number> = {
   Pop: 116,
   Rock: 132,
   Electrónica: 126,
+  "Hip Hop": 90,
   "Hip-Hop": 90,
+  "Dance Pop": 124,
+  "Synth-pop": 118,
+  Cyberpunk: 140,
+  Afrobeat: 112,
+  Drill: 145,
   "R&B": 80,
+  Gospel: 96,
+  Balada: 76,
+  "K-Pop": 128,
+  House: 124,
   Jazz: 120,
   "Lo-Fi": 75,
   "Cine/Épico": 100,
 };
 
-const GENRE_DIRECTION: Record<Genre, string> = {
+const GENRE_DIRECTION: Record<string, string> = {
   Bachata:
     "Romantic Dominican bachata with requinto lead guitar arpeggios, rhythm guitar, bongos, güira and bass.",
   Dembow:
@@ -93,10 +129,30 @@ const GENRE_DIRECTION: Record<Genre, string> = {
   Rock: "Driving rock with overdriven electric guitars, live drums, bass guitar and passionate vocals.",
   Electrónica:
     "Energetic electronic dance music with pulsing synth bass, rising build-ups and a powerful drop.",
+  "Hip Hop":
+    "Boom-bap and modern hip-hop with hard-hitting drums, sampled textures, deep bass and rhythmic rap flows.",
   "Hip-Hop":
     "Boom-bap and modern hip-hop with hard-hitting drums, sampled textures, deep bass and rhythmic rap flows.",
+  "Dance Pop":
+    "Energetic dance-pop with four-on-the-floor kicks, bright synth hooks, claps and a radio-friendly chorus.",
+  "Synth-pop":
+    "Retro synth-pop with analog synthesizers, gated drums, melodic bass lines and nostalgic new-wave textures.",
+  Cyberpunk:
+    "Cyberpunk soundscape with distorted bass, industrial percussion, neon synths and a futuristic dark atmosphere.",
+  Afrobeat:
+    "Afrobeat with polyrhythmic percussion, talking-drum textures, groovy bass and bright horn accents.",
+  Drill:
+    "Dark drill with sliding 808s, rapid hi-hat patterns, sparse piano loops and intense melodic flows.",
   "R&B":
     "Smooth contemporary R&B with silky chords, laid-back drums, warm bass and soulful vocal runs.",
+  Gospel:
+    "Soulful gospel with powerful choir harmonies, piano, organ, handclaps and an uplifting crescendo.",
+  Balada:
+    "Emotional Latin ballad with expressive piano or guitar, strings, dramatic pauses and heartfelt vocals.",
+  "K-Pop":
+    "Polished K-pop with bright synths, tight choreography-ready percussion, rap sections and a huge hook.",
+  House:
+    "Club house with a steady four-on-the-floor beat, filtered chords, groovy bass and uplifting energy.",
   Jazz: "Acoustic jazz combo with upright bass, brushed drums, piano comping and expressive improvised solos.",
   "Lo-Fi":
     "Mellow lo-fi hip-hop with dusty drums, vinyl crackle, warm Rhodes chords and a relaxed head-nodding groove.",
@@ -212,7 +268,52 @@ export function sanitizePrompt(text: string, max = MAX_PROMPT_LENGTH): string {
 }
 
 export function isGenre(value: unknown): value is Genre {
-  return typeof value === "string" && (GENRES as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.trim().length <= MAX_GENRE_LENGTH &&
+    sanitizePrompt(value, MAX_GENRE_LENGTH) === value.trim()
+  );
+}
+export function isEngineId(value: unknown): value is EngineId {
+  return typeof value === "string" && ENGINES.some((engine) => engine.id === value);
+}
+export function isCreationMode(value: unknown): value is CreationMode {
+  return typeof value === "string" && (CREATION_MODES as readonly string[]).includes(value);
+}
+export function engineById(id: EngineId | undefined): (typeof ENGINES)[number] {
+  return ENGINES.find((engine) => engine.id === id) ?? ENGINES[0];
+}
+export function isHfEngine(id: EngineId | undefined): boolean {
+  return engineById(id).provider === "hf";
+}
+export function engineModel(id: EngineId | undefined): string {
+  switch (id) {
+    case "minimax-3":
+      return "fal-ai/minimax/music-03";
+    case "elevenlabs-v2":
+      return "fal-ai/elevenlabs/music-v2";
+    case "yue-vocal":
+      return "m-a-p/YuE-s1-7B-anneal-en-cot";
+    case "musicgen-free":
+      return "facebook/musicgen-small";
+    default:
+      return "fal-ai/lyria-2";
+  }
+}
+export function bpmForGenre(genre: string): number {
+  return GENRE_DEFAULT_BPM[genre] ?? 110;
+}
+export function parseTokenList(value: string | undefined): string[] {
+  if (!value) return [];
+  return [
+    ...new Set(
+      value
+        .split(/[\s,;]+/)
+        .map((token) => token.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 export function isVoiceType(value: unknown): value is VoiceType {
   return typeof value === "string" && (VOICE_TYPES as readonly string[]).includes(value);
@@ -274,14 +375,24 @@ export type SongRequest = {
   bpm: number;
   seconds: DurationSeconds;
   mode?: StudioMode;
+  engine?: EngineId;
+  creationMode?: CreationMode;
   advanced?: AdvancedParams;
 };
 
 export function buildMusicPrompt(req: SongRequest): string {
+  const genreNames = req.genre
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const genreDirections = genreNames
+    .map((name) => GENRE_DIRECTION[name] ?? `${name} with a polished, coherent musical identity.`)
+    .join(" ");
   const lines = [
-    `Genre: ${req.genre}. ${GENRE_DIRECTION[req.genre]} Stay strictly within this genre's rhythm and style.`,
+    `Genre: ${req.genre}. ${genreDirections} Stay strictly within these genres' rhythms and styles.`,
     `Tempo: exactly ${req.bpm} BPM.`,
     VOICE_DIRECTION[req.voice],
+    `Generation engine: ${engineById(req.engine).label}. Deliver the highest quality allowed by that engine.`,
     req.description.trim() ? `Song idea: ${req.description.trim()}` : "",
     structureFor(req.seconds),
   ];
@@ -289,7 +400,7 @@ export function buildMusicPrompt(req: SongRequest): string {
     lines.push(
       "Studio mode: real acoustic instruments performed by human session musicians, recorded in a high-end studio with natural dynamics and room ambience. Avoid synthetic or robotic sounds.",
     );
-  if (req.mode === "admin_pro" && req.advanced) {
+  if (req.advanced) {
     const a = req.advanced;
     if (a.key?.trim()) lines.push(`Musical key: ${a.key.trim()}.`);
     if (a.mood?.trim()) lines.push(`Mood: ${a.mood.trim()}.`);

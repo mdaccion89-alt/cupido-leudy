@@ -16,6 +16,7 @@ export default defineConfig((env) => {
     "SUPABASE_",
     "HF_",
     "FAL_",
+    "GEMINI_",
     "OPENAI_",
     "PAYPAL_",
   ]);

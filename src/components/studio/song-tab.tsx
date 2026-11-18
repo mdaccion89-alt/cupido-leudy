@@ -1,33 +1,80 @@
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Loader2, PenLine, Wand2 } from "lucide-react";
+import { Loader2, PenLine, Sparkles, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CREDIT_COSTS } from "@/lib/credits";
 import {
   BPM_MAX,
   BPM_MIN,
   DURATIONS,
+  ENGINES,
   GENRES,
-  GENRE_DEFAULT_BPM,
   INSTRUMENTAL,
+  MAX_GENRE_LENGTH,
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
   VOICE_TYPES,
+  bpmForGenre,
   findBlockedArtist,
+  type CreationMode,
   type DurationSeconds,
-  type Genre,
+  type EngineId,
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { generateSong, writeLyrics, type ActionResult } from "@/lib/music.functions";
+import { generateSong, improvePrompt, writeLyrics, type ActionResult } from "@/lib/music.functions";
 import { OptionGroup } from "./option-group";
 import type { StudioTabProps } from "./types";
+
+const QUICK_STYLES = [
+  "Dembow",
+  "Bachata",
+  "Reguetón",
+  "Trap",
+  "Salsa",
+  "Merengue",
+  "Pop",
+  "Rock",
+  "Hip Hop",
+  "Dance Pop",
+  "Synth-pop",
+  "Cyberpunk",
+  "Afrobeat",
+  "Drill",
+  "R&B",
+  "Corridos",
+  "Electrónica",
+  "Lo-Fi",
+  "Jazz",
+  "Gospel",
+  "Balada",
+  "K-Pop",
+  "House",
+] as const;
+
+function cleanStyle(value: string): string {
+  return value
+    .replace(/[<>{}`$\\|^~]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
 
 export function SongTab({
   signedIn,
@@ -39,17 +86,51 @@ export function SongTab({
 }: StudioTabProps) {
   const generate = useServerFn(generateSong);
   const lyricsFn = useServerFn(writeLyrics);
+  const improveFn = useServerFn(improvePrompt);
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
-  const [genre, setGenre] = useState<Genre>("Reguetón");
+  const [styles, setStyles] = useState<string[]>(["Reguetón"]);
+  const [styleSearch, setStyleSearch] = useState("");
+  const [stylesOpen, setStylesOpen] = useState(false);
+  const [engine, setEngine] = useState<EngineId>("v7-pro");
+  const [creationMode, setCreationMode] = useState<CreationMode>("simple");
   const [voice, setVoice] = useState<VoiceType>("Masculina");
-  const [bpm, setBpm] = useState(GENRE_DEFAULT_BPM["Reguetón"]);
+  const [instrumental, setInstrumental] = useState(false);
+  const [bpm, setBpm] = useState(bpmForGenre("Reguetón"));
   const [duration, setDuration] = useState<DurationSeconds>(60);
   const [mode, setMode] = useState<StudioMode>("standard");
   const [advanced, setAdvanced] = useState({ key: "", mood: "", instruments: "", extra: "" });
 
+  const genre = styles.join(", ").slice(0, MAX_GENRE_LENGTH) || "Reguetón";
+  const effectiveVoice: VoiceType = instrumental ? INSTRUMENTAL : voice;
+  const styleText = styles.join(", ");
+
+  const setStyleList = (next: string[]) => {
+    const unique = [...new Set(next.map(cleanStyle).filter(Boolean))].slice(0, 100);
+    setStyles(unique);
+    const first = unique[0];
+    if (first) setBpm(bpmForGenre(first));
+  };
+
+  const toggleStyle = (style: string) => {
+    const clean = cleanStyle(style);
+    if (!clean) return;
+    setStyleList(styles.includes(clean) ? styles.filter((s) => s !== clean) : [...styles, clean]);
+  };
+
+  const improveMutation = useMutation({
+    mutationFn: () => improveFn({ data: { prompt, genre, voice: effectiveVoice } }),
+    onSuccess: (r) => {
+      if (r.ok) {
+        setPrompt(r.prompt);
+        toast.success("Prompt mejorado con IA.");
+      } else toast.error(r.message);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "No se pudo mejorar el prompt."),
+  });
+
   const lyricsMutation = useMutation({
-    mutationFn: () => lyricsFn({ data: { idea: prompt, genre, voice } }),
+    mutationFn: () => lyricsFn({ data: { idea: prompt, genre, voice: effectiveVoice } }),
     onSuccess: (r) => {
       if (r.ok) {
         setLyrics(r.lyrics);
@@ -72,11 +153,13 @@ export function SongTab({
           prompt,
           lyrics,
           genre,
-          voice,
+          voice: effectiveVoice,
           bpm,
           duration,
+          engine,
+          creationMode,
           ...(isAdmin ? { mode } : {}),
-          ...(mode === "admin_pro" ? { advanced } : {}),
+          ...(creationMode === "custom" ? { advanced } : {}),
         },
       });
     },
@@ -91,15 +174,28 @@ export function SongTab({
 
   const canGenerate =
     (prompt.trim().length >= 3 || lyrics.trim().length >= 3) &&
+    (creationMode !== "custom" || Object.values(advanced).some(Boolean)) &&
     !mutation.isPending &&
     !disabledReason;
 
   return (
     <div className="space-y-7">
       <div>
-        <label htmlFor="song-prompt" className="mb-3 block font-display text-sm">
-          Describe tu canción
-        </label>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="song-prompt" className="font-display text-sm">
+            Describe tu canción
+          </label>
+          <Button
+            type="button"
+            variant="glass"
+            size="sm"
+            disabled={improveMutation.isPending || prompt.trim().length < 3}
+            onClick={() => (signedIn ? improveMutation.mutate() : requireSignIn())}
+          >
+            {improveMutation.isPending ? <Loader2 className="animate-spin" /> : <Sparkles />}✨
+            Mejorar
+          </Button>
+        </div>
         <Textarea
           id="song-prompt"
           value={prompt}
@@ -119,9 +215,7 @@ export function SongTab({
             type="button"
             variant="glass"
             size="sm"
-            disabled={
-              lyricsMutation.isPending || prompt.trim().length < 3 || voice === INSTRUMENTAL
-            }
+            disabled={lyricsMutation.isPending || prompt.trim().length < 3 || instrumental}
             onClick={() => (signedIn ? lyricsMutation.mutate() : requireSignIn())}
           >
             {lyricsMutation.isPending ? <Loader2 className="animate-spin" /> : <PenLine />}
@@ -133,21 +227,124 @@ export function SongTab({
           value={lyrics}
           maxLength={MAX_LYRICS_LENGTH}
           onChange={(e) => setLyrics(e.target.value)}
-          disabled={voice === INSTRUMENTAL}
+          disabled={instrumental}
           placeholder={"[Verso 1]\nEscribe aquí tu letra…\n\n[Coro]\n…"}
           className="min-h-36 resize-y rounded-xl border-border bg-surface/80 p-4 font-mono text-sm placeholder:text-muted-foreground/60"
         />
       </div>
 
       <OptionGroup
-        label="Género musical"
-        options={GENRES.map((g) => ({ value: g, label: g }))}
-        value={genre}
-        onChange={(g) => {
-          setGenre(g);
-          setBpm(GENRE_DEFAULT_BPM[g]);
-        }}
+        label="Motor / Versión"
+        options={ENGINES.map((e) => ({ value: e.id, label: e.label }))}
+        value={engine}
+        onChange={setEngine}
       />
+
+      <OptionGroup
+        label="Creación"
+        variant="segmented"
+        options={[
+          { value: "simple", label: "Sencillo" },
+          { value: "custom", label: "Personalizado" },
+        ]}
+        value={creationMode}
+        onChange={(v) => setCreationMode(v as CreationMode)}
+      />
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="font-display text-sm">Estilos musicales</span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={styles.length === 0}
+              onClick={() => setStyleList([])}
+            >
+              <X /> Limpiar
+            </Button>
+            <Button type="button" variant="glass" size="sm" onClick={() => setStylesOpen(true)}>
+              Todos los estilos &gt;
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {QUICK_STYLES.map((style) => (
+            <Button
+              key={style}
+              type="button"
+              variant="chip"
+              size="pill"
+              aria-pressed={styles.includes(style)}
+              data-active={styles.includes(style)}
+              onClick={() => toggleStyle(style)}
+            >
+              {style}
+            </Button>
+          ))}
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="song-style">Estilo</Label>
+          <Input
+            id="song-style"
+            value={styleText}
+            placeholder="Dembow, Bachata, Trap…"
+            onChange={(e) => setStyleList(e.target.value.split(/[,;]+/))}
+            className="rounded-xl border-border bg-surface/80"
+          />
+        </div>
+        <CommandDialog open={stylesOpen} onOpenChange={setStylesOpen}>
+          <DialogTitle className="sr-only">Todos los estilos</DialogTitle>
+          <CommandInput
+            value={styleSearch}
+            onValueChange={setStyleSearch}
+            placeholder="Buscar estilo musical…"
+          />
+          <CommandList>
+            <CommandEmpty>No se encontraron estilos.</CommandEmpty>
+            <CommandGroup heading={styleSearch ? "Crear estilo" : "Estilos disponibles"}>
+              {cleanStyle(styleSearch) &&
+                !(GENRES as readonly string[]).includes(cleanStyle(styleSearch)) && (
+                  <CommandItem
+                    value={`crear-${styleSearch}`}
+                    onSelect={() => {
+                      toggleStyle(cleanStyle(styleSearch));
+                      setStyleSearch("");
+                      setStylesOpen(false);
+                    }}
+                  >
+                    Añadir “{cleanStyle(styleSearch)}”
+                  </CommandItem>
+                )}
+              {GENRES.filter((g) => g.toLowerCase().includes(styleSearch.trim().toLowerCase())).map(
+                (style) => (
+                  <CommandItem
+                    key={style}
+                    value={style}
+                    onSelect={() => {
+                      toggleStyle(style);
+                      setStylesOpen(false);
+                    }}
+                  >
+                    {style}
+                  </CommandItem>
+                ),
+              )}
+            </CommandGroup>
+          </CommandList>
+        </CommandDialog>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface/60 p-4">
+        <div>
+          <Label htmlFor="song-instrumental">Instrumental (sin voz)</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Desactiva la letra y genera solo música.
+          </p>
+        </div>
+        <Switch id="song-instrumental" checked={instrumental} onCheckedChange={setInstrumental} />
+      </div>
 
       <OptionGroup
         label="Tipo de voz"
@@ -183,6 +380,46 @@ export function SongTab({
         />
       </div>
 
+      {creationMode === "custom" && (
+        <div className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <p className="font-display text-sm">Ajustes personalizados</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Tonalidad</Label>
+              <Input
+                value={advanced.key}
+                onChange={(e) => setAdvanced({ ...advanced, key: e.target.value })}
+                placeholder="Ej.: D menor"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Estado de ánimo</Label>
+              <Input
+                value={advanced.mood}
+                onChange={(e) => setAdvanced({ ...advanced, mood: e.target.value })}
+                placeholder="Ej.: nostálgico"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Instrumentos destacados</Label>
+              <Input
+                value={advanced.instruments}
+                onChange={(e) => setAdvanced({ ...advanced, instruments: e.target.value })}
+                placeholder="Ej.: piano, requinto"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Notas del productor</Label>
+              <Input
+                value={advanced.extra}
+                onChange={(e) => setAdvanced({ ...advanced, extra: e.target.value })}
+                placeholder="Ej.: final con coro"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {isAdmin && (
         <div className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
           <OptionGroup
@@ -195,42 +432,6 @@ export function SongTab({
             value={mode}
             onChange={(v) => setMode(v as StudioMode)}
           />
-          {mode === "admin_pro" && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label>Tonalidad</Label>
-                <Input
-                  value={advanced.key}
-                  onChange={(e) => setAdvanced({ ...advanced, key: e.target.value })}
-                  placeholder="Ej.: D menor"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Estado de ánimo</Label>
-                <Input
-                  value={advanced.mood}
-                  onChange={(e) => setAdvanced({ ...advanced, mood: e.target.value })}
-                  placeholder="Ej.: nostálgico"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Instrumentos destacados</Label>
-                <Input
-                  value={advanced.instruments}
-                  onChange={(e) => setAdvanced({ ...advanced, instruments: e.target.value })}
-                  placeholder="Ej.: piano, requinto"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Notas del productor</Label>
-                <Input
-                  value={advanced.extra}
-                  onChange={(e) => setAdvanced({ ...advanced, extra: e.target.value })}
-                  placeholder="Ej.: final con coro"
-                />
-              </div>
-            </div>
-          )}
         </div>
       )}
 

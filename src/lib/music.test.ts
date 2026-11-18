@@ -9,41 +9,86 @@ import {
   isVerifiedCreator,
 } from "./credits";
 import {
+  CREATION_MODES,
   DURATIONS,
+  ENGINES,
   GENRES,
   INSTRUMENTAL,
+  MAX_GENRE_LENGTH,
   VOICE_TYPES,
   buildMusicPrompt,
+  bpmForGenre,
+  engineModel,
   findBlockedArtist,
   isBpm,
+  isCreationMode,
   isDuration,
+  isEngineId,
   isGenre,
   modelForDuration,
+  parseTokenList,
   sanitizePrompt,
   titleFromPrompt,
 } from "./music";
 
 describe("music rules", () => {
-  it("offers exactly the requested 16 genres", () => {
-    expect([...GENRES]).toEqual([
-      "Bachata",
-      "Dembow",
-      "Reguetón",
-      "Salsa",
-      "Merengue",
-      "Trap",
-      "Corridos",
-      "Cumbia",
-      "Pop",
-      "Rock",
-      "Electrónica",
-      "Hip-Hop",
-      "R&B",
-      "Jazz",
-      "Lo-Fi",
-      "Cine/Épico",
+  it("offers the requested styles and accepts custom genres", () => {
+    expect(GENRES).toEqual(
+      expect.arrayContaining([
+        "Dembow",
+        "Bachata",
+        "Reguetón",
+        "Trap",
+        "Salsa",
+        "Merengue",
+        "Pop",
+        "Rock",
+        "Hip Hop",
+        "Dance Pop",
+        "Synth-pop",
+        "Cyberpunk",
+        "Afrobeat",
+        "Drill",
+        "R&B",
+        "Corridos",
+        "Electrónica",
+        "Lo-Fi",
+        "Jazz",
+        "Gospel",
+        "Balada",
+        "K-Pop",
+        "House",
+      ]),
+    );
+    expect(isGenre("Opera")).toBe(true);
+    expect(isGenre("Dembow, Bachata, Trap, Reguetón, Salsa")).toBe(true);
+    expect(isGenre("x".repeat(MAX_GENRE_LENGTH + 1))).toBe(false);
+    expect(isGenre(" ")).toBe(false);
+    expect(bpmForGenre("Ópera")).toBe(110);
+  });
+
+  it("offers all seven music engines and both creation modes", () => {
+    expect(ENGINES.map((e) => e.id)).toEqual([
+      "v7-pro",
+      "v6-studio",
+      "v5-fast",
+      "minimax-3",
+      "elevenlabs-v2",
+      "musicgen-free",
+      "yue-vocal",
     ]);
-    expect(isGenre("Opera")).toBe(false);
+    expect(isEngineId("yue-vocal")).toBe(true);
+    expect(isEngineId("unknown")).toBe(false);
+    expect(engineModel("minimax-3")).toBe("fal-ai/minimax/music-03");
+    expect(engineModel("yue-vocal")).toBe("m-a-p/YuE-s1-7B-anneal-en-cot");
+    expect(CREATION_MODES).toEqual(["simple", "custom"]);
+    expect(isCreationMode("custom")).toBe(true);
+    expect(isCreationMode("pro")).toBe(false);
+  });
+
+  it("parses multiple Hugging Face tokens without duplicates", () => {
+    expect(parseTokenList("hf_a, hf_b\nhf_a; hf_c")).toEqual(["hf_a", "hf_b", "hf_c"]);
+    expect(parseTokenList(undefined)).toEqual([]);
   });
 
   it("offers the seven requested voices", () => {
@@ -85,6 +130,7 @@ describe("music rules", () => {
     const sung = buildMusicPrompt({ ...base, voice: "Femenina" });
     expect(sung).toContain("128 BPM");
     expect(sung).toContain("female");
+    expect(sung).toContain("V7 Pro");
     expect(sung).toContain("Lyrics:\n[Coro]\nBaila conmigo");
     expect(buildMusicPrompt({ ...base, voice: INSTRUMENTAL })).not.toContain("Lyrics:");
     expect(buildMusicPrompt({ ...base, voice: "Femenina", seconds: 240 })).toContain(
@@ -92,7 +138,7 @@ describe("music rules", () => {
     );
   });
 
-  it("adds admin advanced parameters only in admin Pro mode", () => {
+  it("adds custom advanced parameters for any user and keeps Pro studio mode separate", () => {
     const base = {
       description: "x",
       genre: "Jazz" as const,
@@ -101,8 +147,8 @@ describe("music rules", () => {
       seconds: 60 as const,
       advanced: { key: "D minor" },
     };
+    expect(buildMusicPrompt(base)).toContain("D minor");
     expect(buildMusicPrompt({ ...base, mode: "admin_pro" })).toContain("D minor");
-    expect(buildMusicPrompt({ ...base, mode: "user_pro" })).not.toContain("D minor");
     expect(buildMusicPrompt({ ...base, mode: "user_pro" })).toContain("human session musicians");
   });
 

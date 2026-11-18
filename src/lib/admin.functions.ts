@@ -5,7 +5,7 @@ import path from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
-import { getAdminClient } from "./server-helpers";
+import { getAdminClient, hfTokens } from "./server-helpers";
 
 type AdminContext = { supabase: SupabaseClient<Database>; userId: string };
 
@@ -108,7 +108,9 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       distributions: distributionsWithVoice,
       secrets: {
         fal: Boolean(process.env["FAL_KEY"]),
-        huggingFace: Boolean(process.env["HF_TOKEN"]),
+        huggingFace: hfTokens().length > 0,
+        huggingFaceCount: hfTokens().length,
+        gemini: Boolean(process.env["GEMINI_API_KEY"]),
         openai: Boolean(process.env["OPENAI_API_KEY"]),
         paypalClient: Boolean(process.env["PAYPAL_CLIENT_ID"] && process.env["PAYPAL_SECRET"]),
       },
@@ -188,6 +190,8 @@ export const saveIntegrationSecrets = createServerFn({ method: "POST" })
       paypalSecret?: string;
       falKey?: string;
       huggingFaceToken?: string;
+      huggingFaceTokens?: string;
+      geminiApiKey?: string;
       openaiKey?: string;
     }) => input,
   )
@@ -198,6 +202,8 @@ export const saveIntegrationSecrets = createServerFn({ method: "POST" })
       PAYPAL_SECRET: data.paypalSecret ?? "",
       FAL_KEY: data.falKey ?? "",
       HF_TOKEN: data.huggingFaceToken ?? "",
+      HF_TOKENS: data.huggingFaceTokens ?? "",
+      GEMINI_API_KEY: data.geminiApiKey ?? "",
       OPENAI_API_KEY: data.openaiKey ?? "",
     });
     return { ok: true };

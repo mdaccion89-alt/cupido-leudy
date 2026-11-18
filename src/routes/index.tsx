@@ -5,10 +5,12 @@ import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
 import { CreationsList } from "@/components/studio/creations-list";
+import { FireflyTab } from "@/components/studio/firefly-tab";
 import { MediaPlayer } from "@/components/studio/media-player";
 import { SiteHeader } from "@/components/studio/site-header";
 import { SongTab } from "@/components/studio/song-tab";
 import { isWorking, type Song } from "@/components/studio/types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -159,20 +161,42 @@ function Studio() {
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] [&>*]:min-w-0">
           <div className="panel grain p-6 sm:p-8">
-            <SongTab
-              signedIn={Boolean(session)}
-              userId={userId}
-              songs={songs}
-              requireSignIn={() => navigate({ to: "/auth" })}
-              onPendingChange={(on, label) => setPending({ on, label })}
-              onResult={onResult}
-              disabledReason={
-                settings.songs_enabled
-                  ? undefined
-                  : "La creación de canciones está desactivada por ahora."
-              }
-              isAdmin={isAdmin}
-            />
+            <Tabs defaultValue="music">
+              <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-border bg-surface/80 p-1.5">
+                <TabsTrigger value="music" className="py-2 text-xs sm:text-sm">
+                  Música IA
+                </TabsTrigger>
+                <TabsTrigger value="firefly" className="py-2 text-xs sm:text-sm">
+                  Video e Imagen IA
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="music">
+                <SongTab
+                  signedIn={Boolean(session)}
+                  userId={userId}
+                  songs={songs}
+                  requireSignIn={() => navigate({ to: "/auth" })}
+                  onPendingChange={(on, label) => setPending({ on, label })}
+                  onResult={onResult}
+                  {...(settings.songs_enabled
+                    ? {}
+                    : { disabledReason: "La creación de canciones está desactivada por ahora." })}
+                  isAdmin={isAdmin}
+                />
+              </TabsContent>
+              <TabsContent value="firefly">
+                <FireflyTab
+                  signedIn={Boolean(session)}
+                  requireSignIn={() => navigate({ to: "/auth" })}
+                  {...(settings.videos_enabled
+                    ? {}
+                    : {
+                        disabledReason:
+                          "La creación de videos e imágenes está desactivada por ahora.",
+                      })}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
           <MediaPlayer
             song={pending.on ? null : selected}

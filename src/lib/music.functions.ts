@@ -2,18 +2,27 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
 import {
+  MAX_ADVANCED_LENGTH,
+  MAX_GENRE_LENGTH,
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
   buildMusicPrompt,
+  engineModel,
   findBlockedArtist,
   isBpm,
+  isCreationMode,
   isDuration,
+  isEngineId,
   isGenre,
+  isHfEngine,
   isStudioMode,
   isVoiceType,
+  sanitizePrompt,
   titleFromPrompt,
   type AdvancedParams,
+  type CreationMode,
   type DurationSeconds,
+  type EngineId,
   type Genre,
   type StudioMode,
   type VoiceType,
@@ -25,9 +34,11 @@ import {
   falSubmit,
   falWait,
   failCreation,
+  geminiErrorMessage,
+  geminiText,
   getAdminClient,
   hfErrorMessage,
-  hfToken,
+  hfTokens,
   huggingFaceAudio,
   isFalBalanceError,
   type GeneratedAudio,
@@ -41,8 +52,33 @@ type GenerateInput = {
   bpm: number;
   duration: DurationSeconds;
   mode?: StudioMode;
+  engine?: EngineId;
+  creationMode?: CreationMode;
   advanced?: AdvancedParams;
 };
+
+function sanitizeAdvanced(value: unknown): AdvancedParams | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const input = value as Record<string, unknown>;
+  const advanced: AdvancedParams = {
+    key: typeof input["key"] === "string" ? sanitizePrompt(input["key"], MAX_ADVANCED_LENGTH) : "",
+    mood:
+      typeof input["mood"] === "string" ? sanitizePrompt(input["mood"], MAX_ADVANCED_LENGTH) : "",
+    instruments:
+      typeof input["instruments"] === "string"
+        ? sanitizePrompt(input["instruments"], MAX_ADVANCED_LENGTH)
+        : "",
+    extra:
+      typeof input["extra"] === "string" ? sanitizePrompt(input["extra"], MAX_ADVANCED_LENGTH) : "",
+  };
+  return Object.values(advanced).some(Boolean) ? advanced : undefined;
+}
+
+function resolveModel(engine: EngineId | undefined): string {
+  const defaultModel = engineModel(engine);
+  const suffix = engine?.toUpperCase().replace(/-/g, "_") ?? "V7_PRO";
+  return process.env[`FAL_MODEL_${suffix}`]?.trim() || defaultModel;
+}
 
 export type ActionResult =
   { ok: true; songId: string } | { ok: false; status: number; message: string };
@@ -71,26 +107,39 @@ export const generateSong = createServerFn({ method: "POST" })
       throw new Error("Describe tu canción o escribe una letra.");
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error("La descripción es demasiado larga.");
     if (lyrics.length > MAX_LYRICS_LENGTH) throw new Error("La letra es demasiado larga.");
-    const blocked = findBlockedArtist(`${prompt}\n${lyrics}`);
+    const advanced = sanitizeAdvanced(input.advanced);
+    const genre =
+      typeof input.genre === "string" ? sanitizePrompt(input.genre, MAX_GENRE_LENGTH) : "";
+    const blocked = findBlockedArtist(
+      `${prompt}\n${lyrics}\n${genre}\n${advanced ? Object.values(advanced).join("\n") : ""}`,
+    );
     if (blocked)
       throw new Error(
         `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
       );
-    if (!isGenre(input.genre)) throw new Error("Género no válido.");
+    if (!isGenre(genre)) throw new Error("Género no válido.");
     if (!isVoiceType(input.voice)) throw new Error("Tipo de voz no válido.");
     if (!isBpm(input.bpm)) throw new Error("BPM no válido.");
     if (!isDuration(input.duration)) throw new Error("Duración no válida.");
     if (input.mode !== undefined && !isStudioMode(input.mode))
       throw new Error("Modo de estudio no válido.");
+    if (input.engine !== undefined && !isEngineId(input.engine))
+      throw new Error("Motor de generación no válido.");
+    if (input.creationMode !== undefined && !isCreationMode(input.creationMode))
+      throw new Error("Modo de creación no válido.");
+    if (input.creationMode === "custom" && !advanced)
+      throw new Error("Añade al menos un ajuste avanzado en modo Personalizado.");
     return {
       prompt,
       lyrics,
-      genre: input.genre,
+      genre,
       voice: input.voice,
       bpm: input.bpm,
       duration: input.duration,
       mode: input.mode,
-      advanced: input.advanced,
+      engine: input.engine ?? "v7-pro",
+      creationMode: input.creationMode ?? "simple",
+      advanced,
     };
   })
   .handler(async ({ data, context }): Promise<ActionResult> => {
@@ -121,11 +170,20 @@ export const generateSong = createServerFn({ method: "POST" })
         };
     }
 
-    if (!falKey() && !hfToken())
+    const hfAvailable = hfTokens().length > 0;
+    if (!falKey() && !hfAvailable)
       return {
         ok: false,
         status: 500,
-        message: "El administrador debe configurar Fal.ai o la token gratuita de Hugging Face.",
+        message:
+          "El administrador debe configurar Fal.ai, HF_TOKENS o la token gratuita de Hugging Face.",
+      };
+    const hfEngine = isHfEngine(data.engine);
+    if (hfEngine && !hfAvailable)
+      return {
+        ok: false,
+        status: 500,
+        message: "Este motor usa Hugging Face. El administrador debe configurar HF_TOKENS.",
       };
 
     const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
@@ -135,6 +193,9 @@ export const generateSong = createServerFn({ method: "POST" })
     if (creditError) return { ok: false, status: 402, message: creditErrorMessage(creditError) };
     const spent = balance === -1 ? 0 : CREDIT_COSTS.song;
 
+    const falModel = resolveModel(data.engine);
+    const hfModel = process.env["HF_MUSIC_MODEL"]?.trim() || engineModel(data.engine);
+    const selectedModel = hfEngine ? hfModel : falModel;
     const admin = await getAdminClient();
     const { data: song, error: insertError } = await admin
       .from("songs")
@@ -151,6 +212,7 @@ export const generateSong = createServerFn({ method: "POST" })
         status: "generating",
         media_type: "audio/mpeg",
         credits_spent: spent,
+        external_model: selectedModel,
       })
       .select("id")
       .single();
@@ -178,15 +240,26 @@ export const generateSong = createServerFn({ method: "POST" })
       bpm: data.bpm,
       seconds: data.duration,
       ...(data.mode ? { mode: data.mode } : {}),
+      engine: data.engine,
+      creationMode: data.creationMode,
       ...(data.advanced ? { advanced: data.advanced } : {}),
     });
 
     let generated: GeneratedAudio;
-    if (falKey()) {
+    if (hfEngine) {
       try {
-        const submitted = await falSubmit("fal-ai/lyria-2", {
+        generated = await huggingFaceAudio(musicPrompt, { model: hfModel });
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "HF_UNKNOWN";
+        console.error("hugging face request failed", err);
+        return fail(500, hfErrorMessage(code));
+      }
+    } else if (falKey()) {
+      try {
+        const submitted = await falSubmit(falModel, {
           prompt: musicPrompt,
           duration: data.duration,
+          engine: data.engine,
         });
         const output = await falWait(submitted.response_url);
         const audioUrl = falAudioUrl(output);
@@ -200,9 +273,9 @@ export const generateSong = createServerFn({ method: "POST" })
       } catch (err) {
         const code = err instanceof Error ? err.message : "FAL_UNKNOWN";
         console.error("music request failed", err);
-        if (!hfToken() || !isFalBalanceError(err)) return fail(500, falErrorMessage(code));
+        if (!hfAvailable || !isFalBalanceError(err)) return fail(500, falErrorMessage(code));
         try {
-          generated = await huggingFaceAudio(musicPrompt);
+          generated = await huggingFaceAudio(musicPrompt, { model: "facebook/musicgen-small" });
         } catch (fallbackError) {
           const fallbackCode =
             fallbackError instanceof Error ? fallbackError.message : "HF_UNKNOWN";
@@ -212,7 +285,7 @@ export const generateSong = createServerFn({ method: "POST" })
       }
     } else {
       try {
-        generated = await huggingFaceAudio(musicPrompt);
+        generated = await huggingFaceAudio(musicPrompt, { model: "facebook/musicgen-small" });
       } catch (err) {
         const code = err instanceof Error ? err.message : "HF_UNKNOWN";
         console.error("hugging face request failed", err);
@@ -251,14 +324,26 @@ export const writeLyrics = createServerFn({ method: "POST" })
     const idea =
       typeof input?.idea === "string" ? input.idea.trim().slice(0, MAX_PROMPT_LENGTH) : "";
     if (idea.length < 3) throw new Error("Escribe primero una idea para la canción.");
-    const blocked = findBlockedArtist(idea);
+    const genre =
+      typeof input.genre === "string" ? sanitizePrompt(input.genre, MAX_GENRE_LENGTH) : "";
+    const blocked = findBlockedArtist(`${idea}\n${genre}`);
     if (blocked) throw new Error(`No podemos imitar ni nombrar a artistas reales como ${blocked}.`);
-    if (!isGenre(input.genre)) throw new Error("Género no válido.");
+    if (!isGenre(genre)) throw new Error("Género no válido.");
     if (!isVoiceType(input.voice)) throw new Error("Tipo de voz no válido.");
-    return { idea, genre: input.genre, voice: input.voice };
+    return { idea, genre, voice: input.voice };
   })
   .handler(
     async ({ data }): Promise<{ ok: true; lyrics: string } | { ok: false; message: string }> => {
+      const system =
+        "Eres un compositor profesional de música latina. Escribes letras originales en español, con rima y métrica cantables. Devuelve SOLO la letra, con secciones marcadas exactamente como [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro] según convenga. Sin comentarios ni títulos.";
+      const user = `Género: ${data.genre}. Voz: ${data.voice}. Idea: ${data.idea}. Escribe una letra de unos 2-3 minutos con un coro pegajoso que se repita.`;
+      try {
+        const lyrics = await geminiText(system, user);
+        return { ok: true, lyrics: lyrics.slice(0, MAX_LYRICS_LENGTH) };
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "GEMINI_UNKNOWN";
+        if (code !== "GEMINI_NOT_CONFIGURED") console.error("gemini lyrics failed", err);
+      }
       const apiKey = process.env["OPENAI_API_KEY"];
       if (!apiKey) return { ok: false, message: "La IA de letras no está configurada." };
       const res = await fetch("https://api.openai.com/v1/responses", {
@@ -303,5 +388,42 @@ export const writeLyrics = createServerFn({ method: "POST" })
       if (!text?.trim())
         return { ok: false, message: "La IA no devolvió una letra. Prueba con otra idea." };
       return { ok: true, lyrics: text.trim().slice(0, MAX_LYRICS_LENGTH) };
+    },
+  );
+
+type ImprovePromptInput = { prompt: string; genre?: Genre; voice?: VoiceType };
+
+export const improvePrompt = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: ImprovePromptInput) => {
+    const prompt = typeof input?.prompt === "string" ? sanitizePrompt(input.prompt) : "";
+    if (prompt.length < 3) throw new Error("Escribe primero una idea para mejorar.");
+    const genre =
+      typeof input.genre === "string" ? sanitizePrompt(input.genre, MAX_GENRE_LENGTH) : "";
+    const voice = typeof input.voice === "string" ? sanitizePrompt(input.voice, 60) : "";
+    const blocked = findBlockedArtist(`${prompt}\n${genre}`);
+    if (blocked) throw new Error(`No podemos imitar ni nombrar a artistas reales como ${blocked}.`);
+    return { prompt, genre, voice };
+  })
+  .handler(
+    async ({ data }): Promise<{ ok: true; prompt: string } | { ok: false; message: string }> => {
+      const system =
+        "Eres un productor musical y copywriter experto. Devuelve SOLO un prompt mejorado en español, de 2 a 4 frases, concreto y cantable. No expliques nada, no uses comillas y nunca nombres artistas reales.";
+      const context = [data.genre && `Género: ${data.genre}`, data.voice && `Voz: ${data.voice}`]
+        .filter(Boolean)
+        .join(". ");
+      try {
+        const improved = await geminiText(
+          system,
+          `${context ? `${context}.\n` : ""}Idea original: ${data.prompt}`,
+        );
+        const clean = sanitizePrompt(improved);
+        if (!clean) return { ok: false, message: "La IA no devolvió una mejora." };
+        return { ok: true, prompt: clean };
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "GEMINI_UNKNOWN";
+        console.error("gemini prompt improvement failed", err);
+        return { ok: false, message: geminiErrorMessage(code) };
+      }
     },
   );

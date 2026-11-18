@@ -54,6 +54,8 @@ export function MediaPlayer({
   const [certBusy, setCertBusy] = useState(false);
   const [distributeOpen, setDistributeOpen] = useState(false);
   const isVideo = song?.kind === "video";
+  const isImage = song?.kind === "image";
+  const isAudio = !isVideo && !isImage;
 
   const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
   useEffect(() => {
@@ -80,6 +82,18 @@ export function MediaPlayer({
 
   const ready = Boolean(song && url);
   const total = duration || song?.duration_seconds || 0;
+  const fileExtension = () => {
+    const type = blob?.type.toLowerCase() ?? "";
+    if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
+    if (type.includes("webp")) return "webp";
+    if (type.includes("png")) return "png";
+    if (type.includes("quicktime")) return "mov";
+    if (type.includes("webm")) return "webm";
+    if (type.includes("mp4")) return "mp4";
+    if (type.includes("wav")) return "wav";
+    if (type.includes("mpeg")) return "mp3";
+    return isImage ? "png" : isVideo ? "mp4" : "mp3";
+  };
   const mediaEvents = {
     onPlay: () => setPlaying(true),
     onPause: () => setPlaying(false),
@@ -126,6 +140,12 @@ export function MediaPlayer({
             className="absolute inset-0 h-full w-full bg-background object-contain"
             {...mediaEvents}
           />
+        ) : isImage && url && !composing ? (
+          <img
+            src={url}
+            alt={song?.title ?? "Imagen generada"}
+            className="absolute inset-0 h-full w-full bg-background object-contain"
+          />
         ) : (
           <>
             <div className="absolute inset-0 bg-gradient-primary opacity-20 blur-2xl" />
@@ -164,14 +184,22 @@ export function MediaPlayer({
         </div>
         {song && (
           <span className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
-            {song.kind === "cover" ? "Cover IA" : song.kind === "video" ? "Videoclip" : song.genre}
+            {song.kind === "cover"
+              ? "Cover IA"
+              : song.kind === "video"
+                ? "Videoclip"
+                : song.kind === "image"
+                  ? "Imagen IA"
+                  : song.kind === "voice"
+                    ? "Voz IA"
+                    : song.genre}
           </span>
         )}
       </div>
 
-      {!isVideo && url && <audio ref={mediaRef} src={url} preload="metadata" {...mediaEvents} />}
+      {isAudio && url && <audio ref={mediaRef} src={url} preload="metadata" {...mediaEvents} />}
 
-      {!isVideo && (
+      {isAudio && (
         <div>
           <Waveform
             blob={composing ? null : blob}
@@ -189,7 +217,7 @@ export function MediaPlayer({
       )}
 
       <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-6">
-        {!isVideo ? (
+        {isAudio ? (
           <div className="flex items-center gap-2">
             <Button
               variant="glass"
@@ -221,18 +249,20 @@ export function MediaPlayer({
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">
-            {loadingMedia ? "Cargando video…" : ""}
+            {loadingMedia ? (isImage ? "Cargando imagen…" : "Cargando video…") : ""}
           </span>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          {isVideo ? (
+          {isVideo || isImage ? (
             <Button
               variant="glass"
               size="pill"
               disabled={!ready}
-              onClick={() => song && blob && deliverFile(blob, safeFilename(song.title, "mp4"))}
+              onClick={() =>
+                song && blob && deliverFile(blob, safeFilename(song.title, fileExtension()))
+              }
             >
-              <Download /> MP4
+              <Download /> {isVideo ? "MP4" : fileExtension().toUpperCase()}
             </Button>
           ) : (
             <>

@@ -71,6 +71,8 @@ function AdminDashboard() {
   const [paypalSecret, setPaypalSecret] = useState("");
   const [falKey, setFalKey] = useState("");
   const [huggingFaceToken, setHuggingFaceToken] = useState("");
+  const [huggingFaceTokens, setHuggingFaceTokens] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
@@ -511,12 +513,32 @@ function AdminDashboard() {
                   onChange={(e) => setFalKey(e.target.value)}
                 />
               </Field>
-              <Field label="Hugging Face Token (fallback gratuito)">
+              <Field label="Hugging Face Token (token individual)">
                 <Input
                   type="password"
                   value={huggingFaceToken}
                   placeholder={snapshot.data.secrets.huggingFace ? "Configurada" : "Pendiente"}
                   onChange={(e) => setHuggingFaceToken(e.target.value)}
+                />
+              </Field>
+              <Field label="HF_TOKENS (varias tokens, separadas por coma o salto de línea)">
+                <Textarea
+                  value={huggingFaceTokens}
+                  placeholder={
+                    snapshot.data.secrets.huggingFaceCount
+                      ? `Configuradas: ${snapshot.data.secrets.huggingFaceCount}`
+                      : "hf_primera, hf_segunda, hf_tercera"
+                  }
+                  className="min-h-20 resize-y"
+                  onChange={(e) => setHuggingFaceTokens(e.target.value)}
+                />
+              </Field>
+              <Field label="Gemini API Key (asistente y mejoras IA)">
+                <Input
+                  type="password"
+                  value={geminiApiKey}
+                  placeholder={snapshot.data.secrets.gemini ? "Configurada" : "Pendiente"}
+                  onChange={(e) => setGeminiApiKey(e.target.value)}
                 />
               </Field>
               <Field label="OpenAI API Key">
@@ -551,6 +573,8 @@ function AdminDashboard() {
                         paypalSecret,
                         falKey,
                         huggingFaceToken,
+                        huggingFaceTokens,
+                        geminiApiKey,
                         openaiKey,
                       },
                     }),

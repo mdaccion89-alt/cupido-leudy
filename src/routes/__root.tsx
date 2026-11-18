@@ -11,6 +11,7 @@ import {
 import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { ThankYouChatWidget } from "@/components/studio/thank-you-chat-widget";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-context";
 
@@ -80,10 +81,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Leudy IA Adobe — Música con inteligencia artificial" },
-      { name: "description", content: "Genera canciones originales con IA a partir de una descripción." },
+      {
+        name: "description",
+        content: "Genera canciones originales con IA a partir de una descripción.",
+      },
       { name: "author", content: "Leudy IA Adobe" },
       { property: "og:title", content: "Leudy IA Adobe" },
-      { property: "og:description", content: "Genera canciones originales con IA a partir de una descripción." },
+      {
+        property: "og:description",
+        content: "Genera canciones originales con IA a partir de una descripción.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -129,6 +136,7 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
         <Outlet />
+        <ThankYouChatWidget />
         <Toaster theme="dark" position="top-center" />
       </AuthProvider>
     </QueryClientProvider>

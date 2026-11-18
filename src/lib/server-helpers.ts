@@ -1,6 +1,7 @@
 // Helpers used only inside server function handlers. Secrets are read per call, never at module scope.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
+import { parseTokenList } from "./music";
 
 export type Db = SupabaseClient<Database>;
 
@@ -79,8 +80,37 @@ async function decodeAudioResponse(response: Response): Promise<GeneratedAudio> 
   throw new Error("HF_NO_AUDIO");
 }
 
+export function hfTokens(): string[] {
+  return parseTokenList([process.env["HF_TOKENS"], process.env["HF_TOKEN"]].join("\n"));
+}
+
 export function hfToken(): string | undefined {
-  return process.env["HF_TOKEN"];
+  return hfTokens()[0];
+}
+
+function hfEndpoint(model: string): string {
+  const custom = process.env["HF_ENDPOINT"]?.trim();
+  if (!custom) return `https://router.huggingface.co/hf-inference/models/${model}`;
+  return custom.replace("{model}", model);
+}
+
+function hfDetail(status: number, raw: string): string {
+  let message = raw.trim();
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    const nested =
+      record["error"] && typeof record["error"] === "object"
+        ? (record["error"] as Record<string, unknown>)
+        : {};
+    const candidate =
+      nested["message"] ?? nested["error"] ?? record["message"] ?? record["details"];
+    if (typeof candidate === "string" && candidate.trim()) message = candidate.trim();
+    else if (candidate && typeof candidate === "object") message = JSON.stringify(candidate);
+  } catch {
+    if (raw.trim().startsWith("<")) message = "El proveedor devolvió una página HTML inesperada.";
+  }
+  return `HTTP ${status}: ${message.replace(/\s+/g, " ").slice(0, 500) || "sin motivo"}`;
 }
 
 export function isFalBalanceError(error: unknown): boolean {
@@ -88,32 +118,61 @@ export function isFalBalanceError(error: unknown): boolean {
   return message === "FAL_402" || /insufficient|balance|saldo|cr[eé]dito/i.test(message);
 }
 
-export async function huggingFaceAudio(prompt: string): Promise<GeneratedAudio> {
-  const token = hfToken();
-  if (!token) throw new Error("HF_NOT_CONFIGURED");
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/facebook/musicgen-small",
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ inputs: prompt }),
-      },
-    );
-    if (response.ok) return decodeAudioResponse(response);
-    const status = response.status;
-    if (status === 503 && attempt === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 15_000));
-      continue;
+export async function huggingFaceAudio(
+  prompt: string,
+  options: { model?: string } = {},
+): Promise<GeneratedAudio> {
+  const tokens = hfTokens();
+  if (!tokens.length) throw new Error("HF_NOT_CONFIGURED");
+  const model =
+    options.model?.trim() || process.env["HF_MUSIC_MODEL"]?.trim() || "facebook/musicgen-small";
+  const endpoint = hfEndpoint(model);
+  let lastDetail = "sin motivo";
+  for (const token of tokens) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: prompt, parameters: { wait_for_model: true } }),
+        });
+      } catch (error) {
+        lastDetail = `red: ${error instanceof Error ? error.message : String(error)}`;
+        break;
+      }
+      if (response.ok) return decodeAudioResponse(response);
+      const detail = hfDetail(response.status, await response.text());
+      lastDetail = detail;
+      const lower = detail.toLowerCase();
+      const loading = response.status === 503 || /loading|warm.?up|starting/.test(lower);
+      const tokenLimit =
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 429 ||
+        /rate limit|quota|limit|exceeded|billing|payment|gated|unauthorized|invalid token/i.test(
+          lower,
+        );
+      if (loading && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000 * (attempt + 1)));
+        continue;
+      }
+      if (tokenLimit || loading || response.status >= 500) break;
+      throw new Error(`HF_DETAIL:${detail}`);
     }
-    throw new Error(`HF_${status}`);
   }
-  throw new Error("HF_UNAVAILABLE");
+  throw new Error(`HF_EXHAUSTED:${lastDetail}`);
 }
 
 export function hfErrorMessage(code: string): string {
+  if (code.startsWith("HF_DETAIL:"))
+    return `Hugging Face respondió: ${code.slice("HF_DETAIL:".length)}`;
+  if (code.startsWith("HF_EXHAUSTED:"))
+    return `Todas las tokens de Hugging Face llegaron a su límite. Último motivo: ${code.slice("HF_EXHAUSTED:".length)}`;
   if (code === "HF_NOT_CONFIGURED")
-    return "El proveedor gratuito no está configurado. El administrador debe añadir la token de Hugging Face.";
+    return "El proveedor gratuito no está configurado. El administrador debe añadir una token de Hugging Face.";
+  if (code === "HF_NO_AUDIO" || code === "HF_DOWNLOAD_FAILED")
+    return "Hugging Face no devolvió audio descargable. Revisa el modelo configurado.";
   if (code === "HF_401" || code === "HF_403")
     return "La token de Hugging Face no es válida o no tiene permisos.";
   if (code === "HF_429") return "Hugging Face está ocupado. Inténtalo en unos minutos.";
@@ -179,6 +238,52 @@ export function falErrorMessage(code: string): string {
   if (code === "FAL_422") return "Los archivos enviados no son válidos para este modelo.";
   if (code === "FAL_429") return "Fal.ai está ocupado. Inténtalo en unos minutos.";
   return "No se pudo iniciar la generación. Inténtalo de nuevo.";
+}
+
+export function geminiErrorMessage(code: string): string {
+  if (code === "GEMINI_NOT_CONFIGURED")
+    return "La IA no está configurada. El administrador debe añadir la Gemini API Key.";
+  if (code.startsWith("GEMINI_DETAIL:"))
+    return `Gemini respondió: ${code.slice("GEMINI_DETAIL:".length)}`;
+  if (code === "GEMINI_NO_TEXT") return "La IA no devolvió texto. Inténtalo de nuevo.";
+  return "No se pudo completar la solicitud con Gemini.";
+}
+
+export async function geminiText(system: string, prompt: string): Promise<string> {
+  const apiKey = process.env["GEMINI_API_KEY"]?.trim();
+  if (!apiKey) throw new Error("GEMINI_NOT_CONFIGURED");
+  const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.0-flash";
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      }),
+    },
+  );
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const parsed = (await response.json()) as { error?: { message?: string } };
+      if (parsed?.error?.message?.trim()) detail += `: ${parsed.error.message.trim()}`;
+    } catch {
+      const raw = await response.text().catch(() => "");
+      if (raw.trim()) detail += `: ${raw.trim().slice(0, 300)}`;
+    }
+    throw new Error(`GEMINI_DETAIL:${detail}`);
+  }
+  const json = (await response.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  };
+  const text = (json.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+  if (!text) throw new Error("GEMINI_NO_TEXT");
+  return text;
 }
 
 /** Signed URL for a file the caller owns in a private bucket. */
