@@ -74,6 +74,16 @@ function AdminDashboard() {
   const [huggingFaceTokens, setHuggingFaceTokens] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [geminiModel, setGeminiModel] = useState("");
+  const [hfEndpoint, setHfEndpoint] = useState("");
+  const [hfMusicModel, setHfMusicModel] = useState("");
+  const [falImageModel, setFalImageModel] = useState("");
+  const [falVideoModel, setFalVideoModel] = useState("");
+  const [falVoiceModel, setFalVoiceModel] = useState("");
+  const [falInstrumentalModel, setFalInstrumentalModel] = useState("");
+  const [falVocalModel, setFalVocalModel] = useState("");
+  const [falDubbingModel, setFalDubbingModel] = useState("");
+  const [falDemucsModel, setFalDemucsModel] = useState("");
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
   const bannerInput = useRef<HTMLInputElement>(null);
@@ -98,6 +108,19 @@ function AdminDashboard() {
       });
     }
     setPaypalEmail(snapshot.data?.paypalEmail ?? "");
+    const models = (snapshot.data as { models?: Record<string, string> })?.models;
+    if (models) {
+      setGeminiModel(models["GEMINI_MODEL"] ?? "");
+      setHfEndpoint(models["HF_ENDPOINT"] ?? "");
+      setHfMusicModel(models["HF_MUSIC_MODEL"] ?? "");
+      setFalImageModel(models["FAL_IMAGE_MODEL"] ?? "");
+      setFalVideoModel(models["FAL_VIDEO_MODEL"] ?? "");
+      setFalVoiceModel(models["FAL_VOICE_MODEL"] ?? "");
+      setFalInstrumentalModel(models["FAL_INSTRUMENTAL_MODEL"] ?? "");
+      setFalVocalModel(models["FAL_VOCAL_MODEL"] ?? "");
+      setFalDubbingModel(models["FAL_DUBBING_MODEL"] ?? "");
+      setFalDemucsModel(models["FAL_DEMUCS_MODEL"] ?? "");
+    }
   }, [snapshot.data]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
@@ -550,9 +573,48 @@ function AdminDashboard() {
                 />
               </Field>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="GEMINI_MODEL">
+                <Input value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)} />
+              </Field>
+              <Field label="HF_ENDPOINT">
+                <Input value={hfEndpoint} onChange={(e) => setHfEndpoint(e.target.value)} />
+              </Field>
+              <Field label="HF_MUSIC_MODEL">
+                <Input value={hfMusicModel} onChange={(e) => setHfMusicModel(e.target.value)} />
+              </Field>
+              <Field label="FAL_IMAGE_MODEL">
+                <Input value={falImageModel} onChange={(e) => setFalImageModel(e.target.value)} />
+              </Field>
+              <Field label="FAL_VIDEO_MODEL">
+                <Input value={falVideoModel} onChange={(e) => setFalVideoModel(e.target.value)} />
+              </Field>
+              <Field label="FAL_VOICE_MODEL">
+                <Input value={falVoiceModel} onChange={(e) => setFalVoiceModel(e.target.value)} />
+              </Field>
+              <Field label="FAL_INSTRUMENTAL_MODEL">
+                <Input
+                  value={falInstrumentalModel}
+                  onChange={(e) => setFalInstrumentalModel(e.target.value)}
+                />
+              </Field>
+              <Field label="FAL_VOCAL_MODEL">
+                <Input value={falVocalModel} onChange={(e) => setFalVocalModel(e.target.value)} />
+              </Field>
+              <Field label="FAL_DUBBING_MODEL">
+                <Input
+                  value={falDubbingModel}
+                  onChange={(e) => setFalDubbingModel(e.target.value)}
+                />
+              </Field>
+              <Field label="FAL_DEMUCS_MODEL">
+                <Input value={falDemucsModel} onChange={(e) => setFalDemucsModel(e.target.value)} />
+              </Field>
+            </div>
             <p className="text-xs text-muted-foreground">
-              Las claves se guardan en `.env.local` del servidor, nunca en la base de datos ni en el
-              navegador.
+              Las claves y modelos se guardan en `.env.local` del servidor, nunca en la base de
+              datos ni en el navegador. Deja un campo vacío para no cambiarlo; usa Limpiar modelos
+              para borrar valores explícitamente.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -576,13 +638,60 @@ function AdminDashboard() {
                         huggingFaceTokens,
                         geminiApiKey,
                         openaiKey,
+                        GEMINI_MODEL: geminiModel,
+                        HF_ENDPOINT: hfEndpoint,
+                        HF_MUSIC_MODEL: hfMusicModel,
+                        FAL_IMAGE_MODEL: falImageModel,
+                        FAL_VIDEO_MODEL: falVideoModel,
+                        FAL_VOICE_MODEL: falVoiceModel,
+                        FAL_INSTRUMENTAL_MODEL: falInstrumentalModel,
+                        FAL_VOCAL_MODEL: falVocalModel,
+                        FAL_DUBBING_MODEL: falDubbingModel,
+                        FAL_DEMUCS_MODEL: falDemucsModel,
                       },
                     }),
-                    "Claves guardadas en el servidor.",
+                    "Claves y modelos guardados en el servidor.",
                   )
                 }
               >
-                <Save /> Guardar claves
+                <Save /> Guardar claves y modelos
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  mutate(
+                    saveSecretsFn({
+                      data: {
+                        clear: [
+                          "GEMINI_MODEL",
+                          "HF_ENDPOINT",
+                          "HF_MUSIC_MODEL",
+                          "FAL_IMAGE_MODEL",
+                          "FAL_VIDEO_MODEL",
+                          "FAL_VOICE_MODEL",
+                          "FAL_INSTRUMENTAL_MODEL",
+                          "FAL_VOCAL_MODEL",
+                          "FAL_DUBBING_MODEL",
+                          "FAL_DEMUCS_MODEL",
+                        ],
+                      },
+                    }).then(() => {
+                      setGeminiModel("");
+                      setHfEndpoint("");
+                      setHfMusicModel("");
+                      setFalImageModel("");
+                      setFalVideoModel("");
+                      setFalVoiceModel("");
+                      setFalInstrumentalModel("");
+                      setFalVocalModel("");
+                      setFalDubbingModel("");
+                      setFalDemucsModel("");
+                    }),
+                    "Modelos limpiados en el servidor.",
+                  )
+                }
+              >
+                <X /> Limpiar modelos
               </Button>
             </div>
           </section>

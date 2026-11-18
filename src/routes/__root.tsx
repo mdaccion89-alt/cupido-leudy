@@ -11,6 +11,7 @@ import {
 import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { SiteHeader } from "@/components/studio/site-header";
 import { ThankYouChatWidget } from "@/components/studio/thank-you-chat-widget";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-context";
@@ -135,6 +136,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
+        <SiteHeader />
         <Outlet />
         <ThankYouChatWidget />
         <Toaster theme="dark" position="top-center" />

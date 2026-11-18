@@ -29,6 +29,7 @@ import {
   MAX_GENRE_LENGTH,
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
+  MAX_TITLE_LENGTH,
   VOICE_TYPES,
   bpmForGenre,
   findBlockedArtist,
@@ -87,6 +88,7 @@ export function SongTab({
   const generate = useServerFn(generateSong);
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
+  const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [styles, setStyles] = useState<string[]>(["Reguetón"]);
@@ -142,7 +144,7 @@ export function SongTab({
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const blocked = findBlockedArtist(`${prompt}\n${lyrics}`);
+      const blocked = findBlockedArtist(`${title}\n${prompt}\n${lyrics}`);
       if (blocked)
         throw new Error(
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
@@ -152,6 +154,7 @@ export function SongTab({
         data: {
           prompt,
           lyrics,
+          title,
           genre,
           voice: effectiveVoice,
           bpm,
@@ -180,6 +183,18 @@ export function SongTab({
 
   return (
     <div className="space-y-7">
+      <div className="space-y-1">
+        <Label htmlFor="song-title">Título de la canción</Label>
+        <Input
+          id="song-title"
+          value={title}
+          maxLength={MAX_TITLE_LENGTH}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Dale un nombre a tu creación (opcional)"
+          className="rounded-xl border-border bg-surface/80"
+        />
+      </div>
+
       <div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <label htmlFor="song-prompt" className="font-display text-sm">

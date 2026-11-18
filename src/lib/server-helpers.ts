@@ -249,21 +249,53 @@ export function geminiErrorMessage(code: string): string {
   return "No se pudo completar la solicitud con Gemini.";
 }
 
-export async function geminiText(system: string, prompt: string): Promise<string> {
+export type GeminiHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type GeminiGenerateResult =
+  { ok: true; text: string } | { ok: false; code: string; detail?: string };
+
+export async function geminiGenerate(
+  system: string,
+  user: string,
+  history: GeminiHistoryMessage[] = [],
+): Promise<GeminiGenerateResult> {
   const apiKey = process.env["GEMINI_API_KEY"]?.trim();
-  if (!apiKey) throw new Error("GEMINI_NOT_CONFIGURED");
+  if (!apiKey) return { ok: false, code: "GEMINI_NOT_CONFIGURED" };
   const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.0-flash";
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      }),
-    },
+  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history.map(
+    (item) => ({
+      role: item.role === "assistant" ? "model" : "user",
+      parts: [{ text: item.content }],
+    }),
   );
+  contents.push({ role: "user", parts: [{ text: user }] });
+  const timeoutSignal =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(30_000)
+      : null;
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents,
+        }),
+        signal: timeoutSignal,
+      },
+    );
+  } catch {
+    return { ok: false, code: "GEMINI_NETWORK" };
+  }
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try {
@@ -273,17 +305,32 @@ export async function geminiText(system: string, prompt: string): Promise<string
       const raw = await response.text().catch(() => "");
       if (raw.trim()) detail += `: ${raw.trim().slice(0, 300)}`;
     }
-    throw new Error(`GEMINI_DETAIL:${detail}`);
+    return { ok: false, code: "GEMINI_DETAIL", detail };
   }
-  const json = (await response.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  let json: {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
+  try {
+    json = (await response.json()) as typeof json;
+  } catch {
+    return { ok: false, code: "GEMINI_PARSE" };
+  }
   const text = (json.candidates?.[0]?.content?.parts ?? [])
     .map((part) => part.text ?? "")
     .join("")
     .trim();
-  if (!text) throw new Error("GEMINI_NO_TEXT");
-  return text;
+  if (!text) return { ok: false, code: "GEMINI_NO_TEXT" };
+  return { ok: true, text };
+}
+
+export async function geminiText(system: string, prompt: string): Promise<string> {
+  const result = await geminiGenerate(system, prompt);
+  if (result.ok) return result.text;
+  if (result.code === "GEMINI_NOT_CONFIGURED") throw new Error("GEMINI_NOT_CONFIGURED");
+  if (result.code === "GEMINI_DETAIL")
+    throw new Error(`GEMINI_DETAIL:${result.detail ?? "sin motivo"}`);
+  if (result.code === "GEMINI_NO_TEXT") throw new Error("GEMINI_NO_TEXT");
+  throw new Error(`GEMINI_DETAIL:${result.code}`);
 }
 
 /** Signed URL for a file the caller owns in a private bucket. */

@@ -12,8 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as ComunidadRouteImport } from './routes/comunidad'
 import { Route as PerfilRouteImport } from './routes/perfil'
 import { Route as VerifyRouteImport } from './routes/verify'
+import { Route as VideoStudioRouteImport } from './routes/video-studio'
+import { Route as ArtistaIdRouteImport } from './routes/artista/$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -30,6 +33,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ComunidadRoute = ComunidadRouteImport.update({
+  id: '/comunidad',
+  path: '/comunidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PerfilRoute = PerfilRouteImport.update({
   id: '/perfil',
   path: '/perfil',
@@ -40,43 +48,90 @@ const VerifyRoute = VerifyRouteImport.update({
   path: '/verify',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VideoStudioRoute = VideoStudioRouteImport.update({
+  id: '/video-studio',
+  path: '/video-studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArtistaIdRoute = ArtistaIdRouteImport.update({
+  id: '/artista/$id',
+  path: '/artista/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/comunidad': typeof ComunidadRoute
   '/perfil': typeof PerfilRoute
   '/verify': typeof VerifyRoute
+  '/video-studio': typeof VideoStudioRoute
+  '/artista/$id': typeof ArtistaIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/comunidad': typeof ComunidadRoute
   '/perfil': typeof PerfilRoute
   '/verify': typeof VerifyRoute
+  '/video-studio': typeof VideoStudioRoute
+  '/artista/$id': typeof ArtistaIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/comunidad': typeof ComunidadRoute
   '/perfil': typeof PerfilRoute
   '/verify': typeof VerifyRoute
+  '/video-studio': typeof VideoStudioRoute
+  '/artista/$id': typeof ArtistaIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/auth' | '/perfil' | '/verify'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/auth'
+    | '/comunidad'
+    | '/perfil'
+    | '/verify'
+    | '/video-studio'
+    | '/artista/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/auth' | '/perfil' | '/verify'
-  id: '__root__' | '/' | '/admin' | '/auth' | '/perfil' | '/verify'
+  to:
+    | '/'
+    | '/admin'
+    | '/auth'
+    | '/comunidad'
+    | '/perfil'
+    | '/verify'
+    | '/video-studio'
+    | '/artista/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/auth'
+    | '/comunidad'
+    | '/perfil'
+    | '/verify'
+    | '/video-studio'
+    | '/artista/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
+  ComunidadRoute: typeof ComunidadRoute
   PerfilRoute: typeof PerfilRoute
   VerifyRoute: typeof VerifyRoute
+  VideoStudioRoute: typeof VideoStudioRoute
+  ArtistaIdRoute: typeof ArtistaIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -102,6 +157,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/comunidad': {
+      id: '/comunidad'
+      path: '/comunidad'
+      fullPath: '/comunidad'
+      preLoaderRoute: typeof ComunidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/perfil': {
       id: '/perfil'
       path: '/perfil'
@@ -116,6 +178,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/video-studio': {
+      id: '/video-studio'
+      path: '/video-studio'
+      fullPath: '/video-studio'
+      preLoaderRoute: typeof VideoStudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/artista/$id': {
+      id: '/artista/$id'
+      path: '/artista/$id'
+      fullPath: '/artista/$id'
+      preLoaderRoute: typeof ArtistaIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -123,8 +199,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
+  ComunidadRoute: ComunidadRoute,
   PerfilRoute: PerfilRoute,
   VerifyRoute: VerifyRoute,
+  VideoStudioRoute: VideoStudioRoute,
+  ArtistaIdRoute: ArtistaIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,20 +1,24 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
+import { CoverTab } from "@/components/studio/cover-tab";
 import { CreationsList } from "@/components/studio/creations-list";
-import { FireflyTab } from "@/components/studio/firefly-tab";
+import { InstrumentalTab } from "@/components/studio/instrumental-tab";
 import { MediaPlayer } from "@/components/studio/media-player";
-import { SiteHeader } from "@/components/studio/site-header";
 import { SongTab } from "@/components/studio/song-tab";
+import { StemsTab } from "@/components/studio/stems-tab";
+import { VocalTab } from "@/components/studio/vocal-tab";
 import { isWorking, type Song } from "@/components/studio/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import type { ActionResult } from "@/lib/music.functions";
+import { deleteSong } from "@/lib/studio.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -45,6 +49,7 @@ function Studio() {
   const queryClient = useQueryClient();
   const settings = useSiteSettings();
   const { isAdmin } = useAccount();
+  const deleteSongFn = useServerFn(deleteSong);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoPlayKey, setAutoPlayKey] = useState<string | null>(null);
@@ -104,16 +109,15 @@ function Studio() {
   };
 
   const onDelete = async (song: Song) => {
-    if (!confirm(`¿Eliminar "${song.title}"?`)) return undefined;
-    if (song.storage_path) await supabase.storage.from("songs").remove([song.storage_path]);
-    const { error } = await supabase.from("songs").delete().eq("id", song.id);
-    if (error) {
-      toast.error("No se pudo eliminar.");
-      return undefined;
+    if (!confirm(`¿Eliminar "${song.title}"?`)) return;
+    const result = await deleteSongFn({ data: { songId: song.id } });
+    if (!result.ok) {
+      toast.error(result.message);
+      return;
     }
     if (selectedId === song.id) setSelectedId(null);
+    toast.success("Creación eliminada.");
     refresh();
-    return undefined;
   };
 
   const onTogglePublic = async (song: Song) => {
@@ -132,6 +136,9 @@ function Studio() {
   };
 
   const composing = pending.on || Boolean(selected && isWorking(selected));
+  const musicDisabledReason = settings.songs_enabled
+    ? undefined
+    : "La creación de canciones está desactivada por ahora.";
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -145,7 +152,6 @@ function Studio() {
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/60 to-background" />
       </div>
-      <SiteHeader />
       <main className="relative z-10 mx-auto w-full max-w-6xl px-5 pb-24 sm:px-8">
         <section className="animate-float-in pb-10 pt-8 sm:pt-14">
           <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface/60 px-4 py-1.5 text-xs uppercase tracking-[0.2em] text-muted-foreground backdrop-blur">
@@ -161,16 +167,25 @@ function Studio() {
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] [&>*]:min-w-0">
           <div className="panel grain p-6 sm:p-8">
-            <Tabs defaultValue="music">
-              <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-border bg-surface/80 p-1.5">
-                <TabsTrigger value="music" className="py-2 text-xs sm:text-sm">
-                  Música IA
+            <Tabs defaultValue="song">
+              <TabsList className="mb-6 grid h-auto w-full grid-cols-2 gap-1 rounded-xl border border-border bg-surface/80 p-1.5 sm:grid-cols-5">
+                <TabsTrigger value="song" className="py-2 text-xs sm:text-sm">
+                  Crear Canción
                 </TabsTrigger>
-                <TabsTrigger value="firefly" className="py-2 text-xs sm:text-sm">
-                  Video e Imagen IA
+                <TabsTrigger value="cover" className="py-2 text-xs sm:text-sm">
+                  Cover IA
+                </TabsTrigger>
+                <TabsTrigger value="instrumental" className="py-2 text-xs sm:text-sm">
+                  Instrumental a Voz
+                </TabsTrigger>
+                <TabsTrigger value="vocal" className="py-2 text-xs sm:text-sm">
+                  Voz a Instrumental
+                </TabsTrigger>
+                <TabsTrigger value="stems" className="py-2 text-xs sm:text-sm">
+                  Separador de Pistas
                 </TabsTrigger>
               </TabsList>
-              <TabsContent value="music">
+              <TabsContent value="song">
                 <SongTab
                   signedIn={Boolean(session)}
                   userId={userId}
@@ -178,22 +193,52 @@ function Studio() {
                   requireSignIn={() => navigate({ to: "/auth" })}
                   onPendingChange={(on, label) => setPending({ on, label })}
                   onResult={onResult}
-                  {...(settings.songs_enabled
-                    ? {}
-                    : { disabledReason: "La creación de canciones está desactivada por ahora." })}
+                  {...(musicDisabledReason ? { disabledReason: musicDisabledReason } : {})}
                   isAdmin={isAdmin}
                 />
               </TabsContent>
-              <TabsContent value="firefly">
-                <FireflyTab
+              <TabsContent value="cover">
+                <CoverTab
                   signedIn={Boolean(session)}
+                  userId={userId}
                   requireSignIn={() => navigate({ to: "/auth" })}
-                  {...(settings.videos_enabled
-                    ? {}
-                    : {
-                        disabledReason:
-                          "La creación de videos e imágenes está desactivada por ahora.",
-                      })}
+                  onPendingChange={(on, label) => setPending({ on, label })}
+                  onResult={onResult}
+                  refresh={refresh}
+                  {...(musicDisabledReason ? { disabledReason: musicDisabledReason } : {})}
+                />
+              </TabsContent>
+              <TabsContent value="instrumental">
+                <InstrumentalTab
+                  signedIn={Boolean(session)}
+                  userId={userId}
+                  requireSignIn={() => navigate({ to: "/auth" })}
+                  onPendingChange={(on, label) => setPending({ on, label })}
+                  onResult={onResult}
+                  refresh={refresh}
+                  {...(musicDisabledReason ? { disabledReason: musicDisabledReason } : {})}
+                />
+              </TabsContent>
+              <TabsContent value="vocal">
+                <VocalTab
+                  signedIn={Boolean(session)}
+                  userId={userId}
+                  requireSignIn={() => navigate({ to: "/auth" })}
+                  onPendingChange={(on, label) => setPending({ on, label })}
+                  onResult={onResult}
+                  refresh={refresh}
+                  {...(musicDisabledReason ? { disabledReason: musicDisabledReason } : {})}
+                />
+              </TabsContent>
+              <TabsContent value="stems">
+                <StemsTab
+                  signedIn={Boolean(session)}
+                  userId={userId}
+                  requireSignIn={() => navigate({ to: "/auth" })}
+                  onPendingChange={(on, label) => setPending({ on, label })}
+                  onResult={onResult}
+                  refresh={refresh}
+                  {...(musicDisabledReason ? { disabledReason: musicDisabledReason } : {})}
                 />
               </TabsContent>
             </Tabs>

@@ -19,7 +19,10 @@ function sectionsObject(value: Json | null | undefined): Record<string, unknown>
   return value as Record<string, unknown>;
 }
 
-async function persistEnv(updates: Record<string, string>) {
+async function persistEnv(
+  updates: Record<string, string | null | undefined>,
+  options?: { clear?: string[] },
+) {
   const file = path.resolve(process.cwd(), ".env.local");
   let text = "";
   try {
@@ -27,7 +30,16 @@ async function persistEnv(updates: Record<string, string>) {
   } catch {
     text = "";
   }
-  for (const [key, value] of Object.entries(updates)) {
+  const clearSet = new Set(options?.clear ?? []);
+  for (const [key, raw] of Object.entries(updates)) {
+    const shouldClear = raw === null || clearSet.has(key);
+    const value = typeof raw === "string" ? raw : "";
+    if (shouldClear) {
+      delete process.env[key];
+      const pattern = new RegExp(`^${key}=.*(?:\r?\n)?`, "m");
+      text = text.replace(pattern, "");
+      continue;
+    }
     if (!value.trim()) continue;
     process.env[key] = value;
     const safe = value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n");
@@ -37,7 +49,8 @@ async function persistEnv(updates: Record<string, string>) {
       : `${text.trimEnd()}\n${key}=${safe}`;
   }
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${text.trim()}\n`, { encoding: "utf8", mode: 0o600 });
+  const normalized = text.replace(/\n{3,}/g, "\n\n").trim();
+  await writeFile(file, normalized ? `${normalized}\n` : "", { encoding: "utf8", mode: 0o600 });
 }
 
 export type AdminSettings = {
@@ -114,6 +127,18 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
         openai: Boolean(process.env["OPENAI_API_KEY"]),
         paypalClient: Boolean(process.env["PAYPAL_CLIENT_ID"] && process.env["PAYPAL_SECRET"]),
       },
+      models: {
+        GEMINI_MODEL: process.env["GEMINI_MODEL"] ?? "",
+        HF_ENDPOINT: process.env["HF_ENDPOINT"] ?? "",
+        HF_MUSIC_MODEL: process.env["HF_MUSIC_MODEL"] ?? "",
+        FAL_IMAGE_MODEL: process.env["FAL_IMAGE_MODEL"] ?? "",
+        FAL_VIDEO_MODEL: process.env["FAL_VIDEO_MODEL"] ?? "",
+        FAL_VOICE_MODEL: process.env["FAL_VOICE_MODEL"] ?? "",
+        FAL_INSTRUMENTAL_MODEL: process.env["FAL_INSTRUMENTAL_MODEL"] ?? "",
+        FAL_VOCAL_MODEL: process.env["FAL_VOCAL_MODEL"] ?? "",
+        FAL_DUBBING_MODEL: process.env["FAL_DUBBING_MODEL"] ?? "",
+        FAL_DEMUCS_MODEL: process.env["FAL_DEMUCS_MODEL"] ?? "",
+      },
     };
   });
 
@@ -186,26 +211,55 @@ export const saveIntegrationSecrets = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(
     (input: {
-      paypalClientId?: string;
-      paypalSecret?: string;
-      falKey?: string;
-      huggingFaceToken?: string;
-      huggingFaceTokens?: string;
-      geminiApiKey?: string;
-      openaiKey?: string;
+      paypalClientId?: string | null;
+      paypalSecret?: string | null;
+      falKey?: string | null;
+      huggingFaceToken?: string | null;
+      huggingFaceTokens?: string | null;
+      geminiApiKey?: string | null;
+      openaiKey?: string | null;
+      GEMINI_MODEL?: string | null;
+      HF_ENDPOINT?: string | null;
+      HF_MUSIC_MODEL?: string | null;
+      FAL_IMAGE_MODEL?: string | null;
+      FAL_VIDEO_MODEL?: string | null;
+      FAL_VOICE_MODEL?: string | null;
+      FAL_INSTRUMENTAL_MODEL?: string | null;
+      FAL_VOCAL_MODEL?: string | null;
+      FAL_DUBBING_MODEL?: string | null;
+      FAL_DEMUCS_MODEL?: string | null;
+      clear?: string[];
     }) => input,
   )
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    await persistEnv({
-      PAYPAL_CLIENT_ID: data.paypalClientId ?? "",
-      PAYPAL_SECRET: data.paypalSecret ?? "",
-      FAL_KEY: data.falKey ?? "",
-      HF_TOKEN: data.huggingFaceToken ?? "",
-      HF_TOKENS: data.huggingFaceTokens ?? "",
-      GEMINI_API_KEY: data.geminiApiKey ?? "",
-      OPENAI_API_KEY: data.openaiKey ?? "",
-    });
+    const normalize = (value: string | null | undefined) => {
+      if (value === null) return null;
+      if (typeof value === "string" && value.trim().length > 0) return value;
+      return undefined;
+    };
+    await persistEnv(
+      {
+        PAYPAL_CLIENT_ID: normalize(data.paypalClientId),
+        PAYPAL_SECRET: normalize(data.paypalSecret),
+        FAL_KEY: normalize(data.falKey),
+        HF_TOKEN: normalize(data.huggingFaceToken),
+        HF_TOKENS: normalize(data.huggingFaceTokens),
+        GEMINI_API_KEY: normalize(data.geminiApiKey),
+        OPENAI_API_KEY: normalize(data.openaiKey),
+        GEMINI_MODEL: normalize(data.GEMINI_MODEL),
+        HF_ENDPOINT: normalize(data.HF_ENDPOINT),
+        HF_MUSIC_MODEL: normalize(data.HF_MUSIC_MODEL),
+        FAL_IMAGE_MODEL: normalize(data.FAL_IMAGE_MODEL),
+        FAL_VIDEO_MODEL: normalize(data.FAL_VIDEO_MODEL),
+        FAL_VOICE_MODEL: normalize(data.FAL_VOICE_MODEL),
+        FAL_INSTRUMENTAL_MODEL: normalize(data.FAL_INSTRUMENTAL_MODEL),
+        FAL_VOCAL_MODEL: normalize(data.FAL_VOCAL_MODEL),
+        FAL_DUBBING_MODEL: normalize(data.FAL_DUBBING_MODEL),
+        FAL_DEMUCS_MODEL: normalize(data.FAL_DEMUCS_MODEL),
+      },
+      { clear: Array.isArray(data.clear) ? data.clear : [] },
+    );
     return { ok: true };
   });
 

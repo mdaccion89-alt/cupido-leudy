@@ -12,7 +12,7 @@ type Props = {
   loading: boolean;
   selectedId: string | null;
   onSelect: (song: Song) => void;
-  onDelete: (song: Song) => void;
+  onDelete: (song: Song) => void | Promise<void>;
 };
 
 export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }: Props) {
@@ -28,7 +28,9 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
       <div className="panel flex flex-col items-center gap-3 p-10 text-center">
         <Music2 className="size-8 text-primary" />
         <p className="font-display">Aún no tienes canciones</p>
-        <p className="text-sm text-muted-foreground">Describe una idea arriba y genera tu primera canción.</p>
+        <p className="text-sm text-muted-foreground">
+          Describe una idea arriba y genera tu primera canción.
+        </p>
       </div>
     );
   }
@@ -54,7 +56,7 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
               disabled={!ready}
               onClick={() => onSelect(song)}
             >
-              {(song.status === "generating" || song.status === "saving") ? (
+              {song.status === "generating" || song.status === "saving" ? (
                 <Loader2 className="animate-spin" />
               ) : song.status === "failed" ? (
                 <AlertCircle />
@@ -69,11 +71,16 @@ export function CreationsList({ songs, loading, selectedId, onSelect, onDelete }
                 {format(new Date(song.created_at), "d MMM, HH:mm", { locale: es })}
               </p>
               {song.status === "failed" && (
-                <p className="mt-1 truncate text-xs text-destructive" title={song.error ?? undefined}>
+                <p
+                  className="mt-1 truncate text-xs text-destructive"
+                  title={song.error ?? undefined}
+                >
                   {song.error ?? "No se pudo generar"}
                 </p>
               )}
-              {(song.status === "generating" || song.status === "saving") && <p className="mt-1 text-xs text-primary">Componiendo…</p>}
+              {(song.status === "generating" || song.status === "saving") && (
+                <p className="mt-1 text-xs text-primary">Componiendo…</p>
+              )}
             </div>
             {selected && ready && <Equalizer bars={3} className="h-4" />}
             <Button

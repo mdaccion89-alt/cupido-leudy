@@ -5,11 +5,18 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
-import { assistantChat, createSupportTicket, type AssistantChatResult } from "@/lib/chat.functions";
+import {
+  assistantChat,
+  createSupportTicket,
+  type AssistantChatResult,
+  type AssistantChatSource,
+} from "@/lib/chat.functions";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  source?: AssistantChatSource | undefined;
+  ticketId?: string | undefined;
 };
 
 const QUICK_ACTIONS = [
@@ -58,18 +65,29 @@ export function ThankYouChatWidget() {
     setMessages((prev) => [...prev, { role: "user", content }]);
   };
 
-  const appendAssistantMessage = (content: string) => {
-    setMessages((prev) => [...prev, { role: "assistant", content }]);
+  const appendAssistantMessage = (
+    content: string,
+    meta?: { source?: AssistantChatSource | undefined; ticketId?: string | undefined },
+  ) => {
+    setMessages((prev) => [...prev, { role: "assistant", content, ...meta }]);
   };
 
-  const maybeCreateTicket = async (message: string, assistantReply: string) => {
+  const maybeCreateTicket = async (
+    message: string,
+    assistantReply: string,
+    existingTicketId?: string,
+  ) => {
+    if (existingTicketId) {
+      toast.success("Ticket de soporte registrado.");
+      return;
+    }
     if (!hasSession) {
       toast.message("Inicia sesión para crear un ticket de soporte automáticamente.");
       return;
     }
     try {
       const ticket = await runCreateSupportTicket({ data: { message, assistantReply } });
-      if (ticket.ok) toast.success("Ticket de soporte creado.");
+      if (ticket.ok) toast.success("Ticket de soporte registrado.");
       else toast.error(ticket.message);
     } catch {
       toast.error("No se pudo crear el ticket de soporte.");
@@ -97,15 +115,22 @@ export function ThankYouChatWidget() {
       });
 
       if (!result.ok) {
-        toast.error(result.message);
-        if (result.needsSupportTicket) await maybeCreateTicket(text, result.message);
+        const fallback =
+          result.message || "No pude responder en este momento. Inténtalo de nuevo en un momento.";
+        appendAssistantMessage(fallback, {
+          source: result.source ?? "offline",
+          ticketId: result.ticketId,
+        });
+        if (result.needsSupportTicket) {
+          await maybeCreateTicket(text, fallback, result.ticketId);
+        }
         return;
       }
 
-      appendAssistantMessage(result.reply);
+      appendAssistantMessage(result.reply, { source: result.source, ticketId: result.ticketId });
 
       if (result.needsSupportTicket) {
-        await maybeCreateTicket(text, result.reply);
+        await maybeCreateTicket(text, result.reply, result.ticketId);
       }
     } catch {
       toast.error("No se pudo enviar el mensaje.");
@@ -200,7 +225,26 @@ export function ThankYouChatWidget() {
                     : "mr-auto max-w-[85%] rounded-2xl rounded-bl-md border border-border bg-surface-raised px-3 py-2 text-sm text-foreground"
                 }
               >
-                {m.content}
+                {m.role === "assistant" && (m.source === "offline" || m.source === "openai") && (
+                  <div className="mb-1">
+                    <span
+                      className="inline-flex rounded-md border border-border bg-background/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                      title={
+                        m.source === "offline"
+                          ? "Respuesta generada localmente"
+                          : "Respuesta usando proveedor alternativo"
+                      }
+                    >
+                      IA: {m.source === "offline" ? "offline" : "fallback"}
+                    </span>
+                  </div>
+                )}
+                <div>{m.content}</div>
+                {m.role === "assistant" && m.ticketId && (
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Ticket: {m.ticketId.slice(0, 8)}
+                  </div>
+                )}
               </div>
             ))}
             {sending && (

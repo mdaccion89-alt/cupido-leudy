@@ -7,6 +7,16 @@ import { supabase } from "@/integrations/supabase/client";
 type AuthState = { session: Session | null; loading: boolean };
 const AuthContext = createContext<AuthState>({ session: null, loading: true });
 
+function ensureMyProfile(): Promise<void> {
+  const client = supabase as unknown as {
+    rpc: (fn: string) => Promise<{ error: unknown }>;
+  };
+  return Promise.resolve()
+    .then(() => client.rpc("ensure_my_profile"))
+    .then(() => undefined)
+    .catch(() => undefined);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ session: null, loading: true });
   const router = useRouter();
@@ -18,9 +28,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
       if (event === "SIGNED_OUT") queryClient.removeQueries({ queryKey: ["songs"] });
-      else queryClient.invalidateQueries();
+      else void ensureMyProfile().then(() => queryClient.invalidateQueries());
     });
-    supabase.auth.getSession().then(({ data }) => setState({ session: data.session, loading: false }));
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setState({ session: data.session, loading: false }));
     return () => sub.subscription.unsubscribe();
   }, [router, queryClient]);
 

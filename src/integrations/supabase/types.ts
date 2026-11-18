@@ -494,6 +494,7 @@ export type Database = {
         Returns: number;
       };
       effective_plan: { Args: { _user_id: string }; Returns: string };
+      ensure_my_profile: { Args: never; Returns: undefined };
       grant_credits: {
         Args: { _amount: number; _reason: string; _user_id: string };
         Returns: number;

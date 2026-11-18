@@ -467,6 +467,42 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.ensure_my_profile()
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  uid UUID := auth.uid();
+  user_email TEXT;
+  user_name TEXT;
+  admin_email BOOLEAN;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  SELECT lower(COALESCE(u.email, '')), u.email INTO user_email, user_name FROM auth.users u WHERE u.id = uid;
+  IF user_email IS NULL THEN RAISE EXCEPTION 'USER_NOT_FOUND'; END IF;
+  admin_email := user_email = 'leudyfeliz81@gmail.com';
+
+  INSERT INTO public.profiles (id, email, display_name, full_name, credits, is_admin)
+  VALUES (uid, user_email, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), NULL, 5, admin_email)
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
+  SELECT uid, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), admin_email, admin_email
+  WHERE NOT EXISTS (SELECT 1 FROM public.creator_profiles WHERE id = uid);
+
+  INSERT INTO public.user_credits (user_id, balance, daily_reset_at)
+  VALUES (uid, CASE WHEN admin_email THEN -1 ELSE 5 END, now())
+  ON CONFLICT (user_id) DO NOTHING;
+
+  INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'user') ON CONFLICT DO NOTHING;
+  IF admin_email THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'admin') ON CONFLICT DO NOTHING;
+    INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'admin_supremo') ON CONFLICT DO NOTHING;
+    UPDATE public.user_credits SET balance = -1, updated_at = now() WHERE user_id = uid;
+    UPDATE public.profiles SET credits = -1, plan = 'premium', plan_expires_at = NULL, is_admin = true WHERE id = uid;
+    UPDATE public.creator_profiles SET is_official = true, is_premium = true WHERE id = uid;
+  END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.admin_review_cover(_song_id UUID, _approve BOOLEAN)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE s RECORD;
@@ -600,7 +636,9 @@ REVOKE EXECUTE ON FUNCTION public.apply_daily_refill(UUID) FROM PUBLIC, anon, au
 REVOKE EXECUTE ON FUNCTION public.grant_credits(UUID, INTEGER, TEXT) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.admin_review_cover(UUID, BOOLEAN) FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.admin_set_plan(UUID, TEXT, INTEGER) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.ensure_my_profile() FROM PUBLIC, anon;
 
+GRANT EXECUTE ON FUNCTION public.ensure_my_profile() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.has_role(UUID, public.app_role) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.effective_plan(UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.refresh_my_credits() TO authenticated;

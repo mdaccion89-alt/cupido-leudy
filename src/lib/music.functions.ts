@@ -1,11 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { findBlockedTerm } from "./copyright";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
 import {
   MAX_ADVANCED_LENGTH,
   MAX_GENRE_LENGTH,
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
+  MAX_TITLE_LENGTH,
   buildMusicPrompt,
   engineModel,
   findBlockedArtist,
@@ -47,6 +49,7 @@ import {
 type GenerateInput = {
   prompt: string;
   lyrics?: string;
+  title?: string;
   genre: Genre;
   voice: VoiceType;
   bpm: number;
@@ -56,6 +59,17 @@ type GenerateInput = {
   creationMode?: CreationMode;
   advanced?: AdvancedParams;
 };
+
+function blockedTermLabel(match: unknown): string {
+  const record = match as Record<string, unknown> | null;
+  const term =
+    record?.["term"] ??
+    record?.["match"] ??
+    record?.["matchedTerm"] ??
+    record?.["value"] ??
+    record?.["text"];
+  return typeof term === "string" && term.trim() ? term.trim() : "término no permitido";
+}
 
 function sanitizeAdvanced(value: unknown): AdvancedParams | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -103,6 +117,8 @@ export const generateSong = createServerFn({ method: "POST" })
   .inputValidator((input: GenerateInput) => {
     const prompt = typeof input?.prompt === "string" ? input.prompt.trim() : "";
     const lyrics = typeof input?.lyrics === "string" ? input.lyrics.trim() : "";
+    const title =
+      typeof input?.title === "string" ? sanitizePrompt(input.title, MAX_TITLE_LENGTH) : "";
     if (prompt.length < 3 && lyrics.length < 3)
       throw new Error("Describe tu canción o escribe una letra.");
     if (prompt.length > MAX_PROMPT_LENGTH) throw new Error("La descripción es demasiado larga.");
@@ -111,7 +127,7 @@ export const generateSong = createServerFn({ method: "POST" })
     const genre =
       typeof input.genre === "string" ? sanitizePrompt(input.genre, MAX_GENRE_LENGTH) : "";
     const blocked = findBlockedArtist(
-      `${prompt}\n${lyrics}\n${genre}\n${advanced ? Object.values(advanced).join("\n") : ""}`,
+      `${title}\n${prompt}\n${lyrics}\n${genre}\n${advanced ? Object.values(advanced).join("\n") : ""}`,
     );
     if (blocked)
       throw new Error(
@@ -132,6 +148,7 @@ export const generateSong = createServerFn({ method: "POST" })
     return {
       prompt,
       lyrics,
+      title,
       genre,
       voice: input.voice,
       bpm: input.bpm,
@@ -144,6 +161,17 @@ export const generateSong = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }): Promise<ActionResult> => {
     const { supabase, userId } = context;
+
+    const advancedText = data.advanced
+      ? Object.values(data.advanced).filter(Boolean).join("\n")
+      : "";
+    const blocked = findBlockedTerm(
+      [data.title, data.prompt, data.lyrics, data.genre, advancedText].filter(Boolean).join("\n"),
+    );
+    if (blocked)
+      throw new Error(
+        `El texto contiene el término no permitido «${blockedTermLabel(blocked)}». No se han cobrado créditos.`,
+      );
 
     const { data: settings } = await supabase
       .from("site_settings")
@@ -202,7 +230,7 @@ export const generateSong = createServerFn({ method: "POST" })
       .insert({
         user_id: userId,
         kind: "song",
-        title: titleFromPrompt(data.prompt || data.lyrics),
+        title: data.title || titleFromPrompt(data.prompt || data.lyrics),
         prompt: data.prompt,
         lyrics: data.lyrics || null,
         genre: data.genre,

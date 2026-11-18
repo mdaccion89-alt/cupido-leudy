@@ -36,6 +36,7 @@ export const ENGINES = [
   { id: "v5-fast", label: "V5 Rápido", provider: "fal" },
   { id: "minimax-3", label: "MiniMax 3.0", provider: "fal" },
   { id: "elevenlabs-v2", label: "ElevenLabs V2", provider: "fal" },
+  { id: "ace-step", label: "ACE-Step", provider: "fal" },
   { id: "musicgen-free", label: "MusicGen Free", provider: "hf" },
   { id: "yue-vocal", label: "YuE Vocal", provider: "hf" },
 ] as const;
@@ -73,6 +74,7 @@ export type DurationSeconds = (typeof DURATIONS)[number]["seconds"];
 export const BPM_MIN = 60;
 export const BPM_MAX = 180;
 export const MAX_PROMPT_LENGTH = 600;
+export const MAX_TITLE_LENGTH = 80;
 export const MAX_GENRE_LENGTH = 600;
 export const MAX_LYRICS_LENGTH = 3000;
 export const MAX_ADVANCED_LENGTH = 400;
@@ -293,6 +295,8 @@ export function engineModel(id: EngineId | undefined): string {
       return "fal-ai/minimax/music-03";
     case "elevenlabs-v2":
       return "fal-ai/elevenlabs/music-v2";
+    case "ace-step":
+      return "fal-ai/ace-step";
     case "yue-vocal":
       return "m-a-p/YuE-s1-7B-anneal-en-cot";
     case "musicgen-free":
@@ -314,6 +318,14 @@ export function parseTokenList(value: string | undefined): string[] {
         .filter(Boolean),
     ),
   ];
+}
+
+export function rotateTokens(tokens: string[], salt: string): string[] {
+  if (tokens.length <= 1) return [...tokens];
+  let hash = 0;
+  for (let i = 0; i < salt.length; i += 1) hash = (hash * 31 + salt.charCodeAt(i)) >>> 0;
+  const start = hash % tokens.length;
+  return [...tokens.slice(start), ...tokens.slice(0, start)];
 }
 export function isVoiceType(value: unknown): value is VoiceType {
   return typeof value === "string" && (VOICE_TYPES as readonly string[]).includes(value);

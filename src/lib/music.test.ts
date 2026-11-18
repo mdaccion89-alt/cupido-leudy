@@ -67,13 +67,14 @@ describe("music rules", () => {
     expect(bpmForGenre("Ópera")).toBe(110);
   });
 
-  it("offers all seven music engines and both creation modes", () => {
+  it("offers all music engines and both creation modes", () => {
     expect(ENGINES.map((e) => e.id)).toEqual([
       "v7-pro",
       "v6-studio",
       "v5-fast",
       "minimax-3",
       "elevenlabs-v2",
+      "ace-step",
       "musicgen-free",
       "yue-vocal",
     ]);
