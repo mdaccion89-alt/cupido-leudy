@@ -10,7 +10,7 @@ import { SiteHeader } from "@/components/studio/site-header";
 import { SongTab } from "@/components/studio/song-tab";
 import { isWorking, type Song } from "@/components/studio/types";
 import { supabase } from "@/integrations/supabase/client";
-import { useSiteSettings } from "@/lib/account";
+import { useAccount, useSiteSettings } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import type { ActionResult } from "@/lib/music.functions";
 
@@ -18,9 +18,17 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Leudy IA Adobe — Crea música con inteligencia artificial" },
-      { name: "description", content: "Describe tu canción, elige género, voz y BPM, y Leudy IA Adobe la compone por ti." },
+      {
+        name: "description",
+        content:
+          "Describe tu canción, elige género, voz y BPM, y Leudy IA Adobe la compone por ti.",
+      },
       { property: "og:title", content: "Leudy IA Adobe — Crea música con IA" },
-      { property: "og:description", content: "Genera canciones de dembow, reguetón, bachata, salsa, trap y más a partir de una idea." },
+      {
+        property: "og:description",
+        content:
+          "Genera canciones de dembow, reguetón, bachata, salsa, trap y más a partir de una idea.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -34,6 +42,7 @@ function Studio() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const settings = useSiteSettings();
+  const { isAdmin } = useAccount();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoPlayKey, setAutoPlayKey] = useState<string | null>(null);
@@ -45,7 +54,10 @@ function Studio() {
     enabled: Boolean(userId),
     refetchInterval: (query) => (query.state.data?.some(isWorking) || pending.on ? 5000 : false),
     queryFn: async () => {
-      const { data, error } = await supabase.from("songs").select("*").order("created_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("songs")
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data as Song[];
     },
@@ -59,7 +71,9 @@ function Studio() {
     staleTime: Infinity,
     gcTime: 10 * 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase.storage.from("songs").download(selected!.storage_path!);
+      const { data, error } = await supabase.storage
+        .from("songs")
+        .download(selected!.storage_path!);
       if (error) throw error;
       return data.type ? data : new Blob([data], { type: selected!.media_type });
     },
@@ -120,7 +134,13 @@ function Studio() {
   return (
     <div className="relative min-h-screen overflow-x-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px]">
-        <img src={settings.banner_image || heroWaves} alt="" width={1920} height={1088} className="h-full w-full object-cover opacity-70" />
+        <img
+          src={settings.banner_image || heroWaves}
+          alt=""
+          width={1920}
+          height={1088}
+          className="h-full w-full object-cover opacity-70"
+        />
         <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/60 to-background" />
       </div>
       <SiteHeader />
@@ -129,8 +149,12 @@ function Studio() {
           <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface/60 px-4 py-1.5 text-xs uppercase tracking-[0.2em] text-muted-foreground backdrop-blur">
             <Sparkles className="size-3.5 text-primary" /> {settings.site_title}
           </p>
-          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] sm:text-6xl">{settings.site_tagline}</h1>
-          {settings.banner_text && <p className="mt-5 max-w-xl text-lg text-muted-foreground">{settings.banner_text}</p>}
+          <h1 className="max-w-3xl text-4xl font-semibold leading-[1.05] sm:text-6xl">
+            {settings.site_tagline}
+          </h1>
+          {settings.banner_text && (
+            <p className="mt-5 max-w-xl text-lg text-muted-foreground">{settings.banner_text}</p>
+          )}
         </section>
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1.15fr_1fr] [&>*]:min-w-0">
@@ -142,7 +166,12 @@ function Studio() {
               requireSignIn={() => navigate({ to: "/auth" })}
               onPendingChange={(on, label) => setPending({ on, label })}
               onResult={onResult}
-              disabledReason={settings.songs_enabled ? undefined : "La creación de canciones está desactivada por ahora."}
+              disabledReason={
+                settings.songs_enabled
+                  ? undefined
+                  : "La creación de canciones está desactivada por ahora."
+              }
+              isAdmin={isAdmin}
             />
           </div>
           <MediaPlayer
@@ -155,6 +184,7 @@ function Studio() {
             autoPlayKey={autoPlayKey}
             onTogglePublic={onTogglePublic}
             galleryEnabled={settings.gallery_enabled}
+            userId={userId}
           />
         </section>
 
@@ -172,7 +202,9 @@ function Studio() {
               onDelete={onDelete}
             />
           ) : (
-            <p className="text-muted-foreground">Inicia sesión para guardar y escuchar tus canciones.</p>
+            <p className="text-muted-foreground">
+              Inicia sesión para guardar y escuchar tus canciones.
+            </p>
           )}
         </section>
       </main>

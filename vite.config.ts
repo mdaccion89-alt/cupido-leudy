@@ -1,18 +1,92 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// Never set ssr.external or resolve.external: the Worker has no runtime module resolution, so
-// the build fails. Never add compression (compressPublicAssets, vite-plugin-compression):
-// hosting already compresses at the edge.
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { nitro } from "nitro/vite";
+import { defineConfig, loadEnv, type RunnableDevEnvironment } from "vite";
+import viteReact from "@vitejs/plugin-react";
+import tsConfigPaths from "vite-tsconfig-paths";
+import { NodeRequest, sendNodeResponse } from "srvx/node";
 
-export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-  },
+export default defineConfig((env) => {
+  const loadedEnv = loadEnv(env.mode, process.cwd(), ["VITE_", "NEXT_PUBLIC_"]);
+  const define = Object.fromEntries(
+    Object.entries(loadedEnv).map(([key, value]) => [
+      `import.meta.env.${key}`,
+      JSON.stringify(value),
+    ]),
+  );
+
+  return {
+    define,
+    css: { transformer: "lightningcss" },
+    resolve: {
+      alias: { "@": path.resolve(process.cwd(), "src") },
+      dedupe: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+        "@tanstack/react-query",
+        "@tanstack/query-core",
+      ],
+    },
+    optimizeDeps: {
+      include: [
+        "react",
+        "react-dom",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "react/jsx-dev-runtime",
+      ],
+      ignoreOutdatedRequests: true,
+    },
+    server: { host: "::", port: 8080 },
+    plugins: [
+      tailwindcss(),
+      tsConfigPaths({ projects: ["./tsconfig.json"] }),
+      tanstackStart({
+        importProtection: {
+          behavior: "error",
+          client: {
+            files: ["**/server/**"],
+            specifiers: ["server-only"],
+          },
+        },
+        server: { entry: "server" },
+      }),
+      ...(env.command === "build"
+        ? [nitro({ defaultPreset: "cloudflare-module", preset: "cloudflare-module" })]
+        : []),
+      viteReact(),
+      {
+        name: "tanstack-start-dev-ssr-fallback",
+        configureServer(viteDevServer) {
+          return () => {
+            const serverEnv = viteDevServer.environments.ssr as RunnableDevEnvironment;
+            viteDevServer.middlewares.use(async (req, res) => {
+              const originalUrl = (req as { originalUrl?: string }).originalUrl;
+              if (originalUrl) req.url = originalUrl;
+              const webReq = new NodeRequest({ req, res });
+              try {
+                const entry = await serverEnv.runner.import("virtual:tanstack-start-server-entry");
+                const serverEntry = entry.default as {
+                  fetch: (request: Request) => Promise<Response> | Response;
+                };
+                return sendNodeResponse(res, await serverEntry.fetch(webReq));
+              } catch (error) {
+                console.error(error);
+                return sendNodeResponse(
+                  res,
+                  new Response("<!doctype html><title>Error</title><pre>SSR error</pre>", {
+                    status: 500,
+                    headers: { "content-type": "text/html; charset=utf-8" },
+                  }),
+                );
+              }
+            });
+          };
+        },
+      },
+    ],
+  };
 });

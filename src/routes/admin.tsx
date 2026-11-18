@@ -1,0 +1,561 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { Check, Loader2, Save, ShieldCheck, X } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAccount } from "@/lib/account";
+import {
+  adminAdjustCredits,
+  adminSetPlan,
+  getAdminSnapshot,
+  reviewDistribution,
+  reviewSong,
+  saveAdminSettings,
+  saveIntegrationSecrets,
+  savePaypalEmail,
+  type AdminSettings,
+} from "@/lib/admin.functions";
+
+export const Route = createFileRoute("/admin")({
+  head: () => ({ meta: [{ title: "Panel Admin Supremo — Leudy IA Adobe" }] }),
+  component: AdminPage,
+});
+
+function AdminPage() {
+  const { isAdmin, loading } = useAccount();
+  if (loading)
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        Cargando panel…
+      </div>
+    );
+  if (!isAdmin) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-5">
+        <div className="panel grain max-w-md p-8 text-center">
+          <ShieldCheck className="mx-auto size-10 text-primary" />
+          <h1 className="mt-4 text-xl font-semibold">Acceso restringido</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Solo el Admin Supremo puede entrar aquí.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return <AdminDashboard />;
+}
+
+function AdminDashboard() {
+  const queryClient = useQueryClient();
+  const getSnapshot = useServerFn(getAdminSnapshot);
+  const saveSettingsFn = useServerFn(saveAdminSettings);
+  const savePaypalFn = useServerFn(savePaypalEmail);
+  const saveSecretsFn = useServerFn(saveIntegrationSecrets);
+  const adjustCreditsFn = useServerFn(adminAdjustCredits);
+  const setPlanFn = useServerFn(adminSetPlan);
+  const reviewSongFn = useServerFn(reviewSong);
+  const reviewDistributionFn = useServerFn(reviewDistribution);
+  const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: () => getSnapshot() });
+  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [paypalEmail, setPaypalEmail] = useState("");
+  const [paypalClientId, setPaypalClientId] = useState("");
+  const [paypalSecret, setPaypalSecret] = useState("");
+  const [falKey, setFalKey] = useState("");
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [creditDrafts, setCreditDrafts] = useState<Record<string, number>>({});
+  const [planDrafts, setPlanDrafts] = useState<Record<string, "free" | "pro" | "premium">>({});
+
+  useEffect(() => {
+    if (snapshot.data?.settings?.site_title) {
+      setSettings({
+        site_title: snapshot.data.settings.site_title ?? "",
+        site_tagline: snapshot.data.settings.site_tagline ?? "",
+        banner_text: snapshot.data.settings.banner_text ?? "",
+        banner_image_url: snapshot.data.settings.banner_image_url ?? "",
+        logo_url: snapshot.data.settings.logo_url ?? "",
+        primary_color: snapshot.data.settings.primary_color ?? "",
+        accent_color: snapshot.data.settings.accent_color ?? "",
+        songs_enabled: snapshot.data.settings.songs_enabled ?? true,
+        covers_enabled: snapshot.data.settings.covers_enabled ?? true,
+        videos_enabled: snapshot.data.settings.videos_enabled ?? true,
+        purchases_enabled: snapshot.data.settings.purchases_enabled ?? true,
+        gallery_enabled: snapshot.data.settings.gallery_enabled ?? true,
+      });
+    }
+    setPaypalEmail(snapshot.data?.paypalEmail ?? "");
+  }, [snapshot.data]);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+
+  const mutate = (fn: Promise<unknown>, message: string) =>
+    toast.promise(fn.then(invalidate), {
+      loading: "Guardando…",
+      success: message,
+      error: "No se pudo guardar.",
+    });
+
+  const saveSettings = useMutation({
+    mutationFn: (value: AdminSettings) => saveSettingsFn({ data: { settings: value } }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Identidad actualizada.");
+    },
+    onError: () => toast.error("No se pudo guardar la identidad."),
+  });
+
+  if (snapshot.isLoading)
+    return (
+      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        Cargando datos…
+      </div>
+    );
+  if (snapshot.error || !snapshot.data || !settings) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-5 text-destructive">
+        No se pudo cargar el panel.
+      </div>
+    );
+  }
+
+  const users = snapshot.data.users;
+  const pending = snapshot.data.pending;
+  const distributions = snapshot.data.distributions as {
+    id?: unknown;
+    title?: unknown;
+    status?: unknown;
+    createdAt?: unknown;
+    voiceUrl?: unknown;
+  }[];
+
+  return (
+    <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8">
+      <div className="mb-8 flex items-center gap-3">
+        <span className="flex size-11 items-center justify-center rounded-xl bg-gradient-primary shadow-glow">
+          <ShieldCheck className="size-5" />
+        </span>
+        <div>
+          <h1 className="font-display text-2xl font-semibold">Panel Admin Supremo</h1>
+          <p className="text-sm text-muted-foreground">
+            Configuración, usuarios, revisiones e integraciones en Supabase real.
+          </p>
+        </div>
+      </div>
+
+      <Tabs defaultValue="identidad">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-5">
+          <TabsTrigger value="identidad">Identidad</TabsTrigger>
+          <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+          <TabsTrigger value="revisiones">Revisiones</TabsTrigger>
+          <TabsTrigger value="integraciones">Integraciones</TabsTrigger>
+          <TabsTrigger value="distribuciones">Distribuciones</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="identidad" className="mt-6">
+          <section className="panel grain space-y-5 p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Título del sitio">
+                <Input
+                  value={settings.site_title}
+                  onChange={(e) => setSettings({ ...settings, site_title: e.target.value })}
+                />
+              </Field>
+              <Field label="Eslogan">
+                <Input
+                  value={settings.site_tagline}
+                  onChange={(e) => setSettings({ ...settings, site_tagline: e.target.value })}
+                />
+              </Field>
+              <Field label="Logo (URL o ruta en bucket site)">
+                <Input
+                  value={settings.logo_url}
+                  onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
+                />
+              </Field>
+              <Field label="Banner (URL o ruta en bucket site)">
+                <Input
+                  value={settings.banner_image_url}
+                  onChange={(e) => setSettings({ ...settings, banner_image_url: e.target.value })}
+                />
+              </Field>
+              <Field label="Color primario (#RRGGBB)">
+                <Input
+                  value={settings.primary_color}
+                  placeholder="#7c3aed"
+                  onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
+                />
+              </Field>
+              <Field label="Color de acento (#RRGGBB)">
+                <Input
+                  value={settings.accent_color}
+                  placeholder="#22d3ee"
+                  onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="Texto del banner">
+              <Textarea
+                value={settings.banner_text}
+                onChange={(e) => setSettings({ ...settings, banner_text: e.target.value })}
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <Toggle
+                label="Canciones"
+                checked={settings.songs_enabled}
+                onChange={(v) => setSettings({ ...settings, songs_enabled: v })}
+              />
+              <Toggle
+                label="Covers"
+                checked={settings.covers_enabled}
+                onChange={(v) => setSettings({ ...settings, covers_enabled: v })}
+              />
+              <Toggle
+                label="Videos"
+                checked={settings.videos_enabled}
+                onChange={(v) => setSettings({ ...settings, videos_enabled: v })}
+              />
+              <Toggle
+                label="Compras"
+                checked={settings.purchases_enabled}
+                onChange={(v) => setSettings({ ...settings, purchases_enabled: v })}
+              />
+              <Toggle
+                label="Galería"
+                checked={settings.gallery_enabled}
+                onChange={(v) => setSettings({ ...settings, gallery_enabled: v })}
+              />
+            </div>
+            <Button
+              variant="hero"
+              disabled={saveSettings.isPending}
+              onClick={() => saveSettings.mutate(settings)}
+            >
+              {saveSettings.isPending ? <Loader2 className="animate-spin" /> : <Save />} Guardar
+              identidad
+            </Button>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="usuarios" className="mt-6">
+          <section className="panel grain overflow-x-auto p-6">
+            <h2 className="mb-4 font-semibold">Usuarios ({users.length})</h2>
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="py-2">Usuario</th>
+                  <th>Créditos</th>
+                  <th>Plan</th>
+                  <th>Roles</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user.id} className="border-t border-border/60">
+                    <td className="py-3">
+                      <div className="font-medium">
+                        {user.display_name || user.email || "Artista"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{user.email}</div>
+                      {user.isOfficial && <Badge className="mt-1">Oficial</Badge>}
+                    </td>
+                    <td>{user.balance}</td>
+                    <td>{user.plan}</td>
+                    <td className="flex flex-wrap gap-1 pt-3">
+                      {user.roles.map((role) => (
+                        <Badge key={role} variant="secondary">
+                          {role}
+                        </Badge>
+                      ))}
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          type="number"
+                          className="h-9 w-20"
+                          value={creditDrafts[user.id] ?? 1}
+                          onChange={(e) =>
+                            setCreditDrafts({ ...creditDrafts, [user.id]: Number(e.target.value) })
+                          }
+                        />
+                        <Button
+                          size="sm"
+                          variant="glass"
+                          onClick={() =>
+                            mutate(
+                              adjustCreditsFn({
+                                data: { userId: user.id, delta: creditDrafts[user.id] ?? 1 },
+                              }),
+                              "Créditos ajustados.",
+                            )
+                          }
+                        >
+                          +/−
+                        </Button>
+                        <select
+                          className="h-9 rounded-md border border-input bg-surface px-2 text-sm"
+                          value={planDrafts[user.id] ?? user.plan}
+                          onChange={(e) =>
+                            setPlanDrafts({
+                              ...planDrafts,
+                              [user.id]: e.target.value as "free" | "pro" | "premium",
+                            })
+                          }
+                        >
+                          <option value="free">free</option>
+                          <option value="pro">pro</option>
+                          <option value="premium">premium</option>
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="glass"
+                          onClick={() =>
+                            mutate(
+                              setPlanFn({
+                                data: {
+                                  userId: user.id,
+                                  plan:
+                                    planDrafts[user.id] ??
+                                    (user.plan as "free" | "pro" | "premium"),
+                                  days: 30,
+                                },
+                              }),
+                              "Plan actualizado.",
+                            )
+                          }
+                        >
+                          Plan
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-4 text-xs text-muted-foreground">
+              El rol de Admin Supremo y la insignia oficial se sincronizan desde Supabase para
+              leudyfeliz81@gmail.com.
+            </p>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="revisiones" className="mt-6">
+          <section className="panel grain p-6">
+            <h2 className="mb-4 font-semibold">Covers y distribuciones pendientes</h2>
+            <div className="space-y-3">
+              {pending.length === 0 && (
+                <p className="text-sm text-muted-foreground">No hay revisiones pendientes.</p>
+              )}
+              {pending.map((song) => (
+                <div
+                  key={song.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 p-4"
+                >
+                  <div>
+                    <p className="font-medium">{song.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {song.kind} · {song.user_id.slice(0, 8)}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="hero"
+                      onClick={() =>
+                        mutate(
+                          reviewSongFn({ data: { songId: song.id, approve: true } }),
+                          "Aprobado.",
+                        )
+                      }
+                    >
+                      <Check /> Aprobar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() =>
+                        mutate(
+                          reviewSongFn({ data: { songId: song.id, approve: false } }),
+                          "Rechazado.",
+                        )
+                      }
+                    >
+                      <X /> Rechazar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="integraciones" className="mt-6">
+          <section className="panel grain space-y-5 p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Correo PayPal del negocio">
+                <Input value={paypalEmail} onChange={(e) => setPaypalEmail(e.target.value)} />
+              </Field>
+              <Field label="PayPal Client ID">
+                <Input
+                  type="password"
+                  value={paypalClientId}
+                  placeholder={snapshot.data.secrets.paypalClient ? "Configurado" : "Pendiente"}
+                  onChange={(e) => setPaypalClientId(e.target.value)}
+                />
+              </Field>
+              <Field label="PayPal Secret">
+                <Input
+                  type="password"
+                  value={paypalSecret}
+                  placeholder="Pendiente"
+                  onChange={(e) => setPaypalSecret(e.target.value)}
+                />
+              </Field>
+              <Field label="Fal.ai API Key">
+                <Input
+                  type="password"
+                  value={falKey}
+                  placeholder={snapshot.data.secrets.fal ? "Configurada" : "Pendiente"}
+                  onChange={(e) => setFalKey(e.target.value)}
+                />
+              </Field>
+              <Field label="OpenAI API Key">
+                <Input
+                  type="password"
+                  value={openaiKey}
+                  placeholder={snapshot.data.secrets.openai ? "Configurada" : "Pendiente"}
+                  onChange={(e) => setOpenaiKey(e.target.value)}
+                />
+              </Field>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Las claves se guardan en `.env.local` del servidor, nunca en la base de datos ni en el
+              navegador.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="hero"
+                onClick={() =>
+                  mutate(savePaypalFn({ data: { email: paypalEmail } }), "Correo PayPal guardado.")
+                }
+              >
+                <Save /> Guardar correo
+              </Button>
+              <Button
+                variant="glass"
+                onClick={() =>
+                  mutate(
+                    saveSecretsFn({ data: { paypalClientId, paypalSecret, falKey, openaiKey } }),
+                    "Claves guardadas en el servidor.",
+                  )
+                }
+              >
+                <Save /> Guardar claves
+              </Button>
+            </div>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="distribuciones" className="mt-6">
+          <section className="panel grain p-6">
+            <h2 className="mb-4 font-semibold">Solicitudes de distribución ($2)</h2>
+            <div className="space-y-3">
+              {distributions.length === 0 && (
+                <p className="text-sm text-muted-foreground">Aún no hay solicitudes.</p>
+              )}
+              {distributions.map((item) => (
+                <div
+                  key={String(item.id)}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 p-4"
+                >
+                  <div>
+                    <p className="font-medium">{String(item.title ?? "Canción")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {String(item.status ?? "pending")} · {String(item.createdAt ?? "")}
+                    </p>
+                    {item.voiceUrl ? (
+                      <a
+                        className="text-xs text-primary hover:underline"
+                        href={String(item.voiceUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Escuchar voz grabada
+                      </a>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="hero"
+                      disabled={item.status === "approved"}
+                      onClick={() =>
+                        mutate(
+                          reviewDistributionFn({ data: { id: String(item.id), approve: true } }),
+                          "Distribución aprobada.",
+                        )
+                      }
+                    >
+                      <Check /> Aprobar
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={item.status === "rejected"}
+                      onClick={() =>
+                        mutate(
+                          reviewDistributionFn({ data: { id: String(item.id), approve: false } }),
+                          "Distribución rechazada.",
+                        )
+                      }
+                    >
+                      <X /> Rechazar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </TabsContent>
+      </Tabs>
+    </main>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 rounded-xl border border-border/60 p-3 text-sm">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="size-4 accent-primary"
+      />
+      {label}
+    </label>
+  );
+}

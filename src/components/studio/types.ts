@@ -10,6 +10,7 @@ export type StudioTabProps = {
   onPendingChange: (pending: boolean, label: string) => void;
   onResult: (result: ActionResult, successMessage: string) => void;
   disabledReason?: string | undefined;
+  isAdmin?: boolean;
 };
 
 export function isWorking(song: Pick<Song, "status">) {
