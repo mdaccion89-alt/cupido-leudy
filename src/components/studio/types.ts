@@ -9,7 +9,7 @@ export type StudioTabProps = {
   requireSignIn: () => void;
   onPendingChange: (pending: boolean, label: string) => void;
   onResult: (result: ActionResult, successMessage: string) => void;
-  disabledReason?: string;
+  disabledReason?: string | undefined;
 };
 
 export function isWorking(song: Pick<Song, "status">) {

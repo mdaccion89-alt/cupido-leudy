@@ -88,12 +88,16 @@ function Studio() {
   };
 
   const onDelete = async (song: Song) => {
-    if (!confirm(`¿Eliminar "${song.title}"?`)) return;
+    if (!confirm(`¿Eliminar "${song.title}"?`)) return undefined;
     if (song.storage_path) await supabase.storage.from("songs").remove([song.storage_path]);
     const { error } = await supabase.from("songs").delete().eq("id", song.id);
-    if (error) return toast.error("No se pudo eliminar.");
+    if (error) {
+      toast.error("No se pudo eliminar.");
+      return undefined;
+    }
     if (selectedId === song.id) setSelectedId(null);
     refresh();
+    return undefined;
   };
 
   const onTogglePublic = async (song: Song) => {
@@ -102,9 +106,13 @@ function Studio() {
       .from("songs")
       .update({ is_public: next, published_at: next ? new Date().toISOString() : null })
       .eq("id", song.id);
-    if (error) return toast.error("No se pudo actualizar.");
+    if (error) {
+      toast.error("No se pudo actualizar.");
+      return undefined;
+    }
     toast.success(next ? "Publicada en la galería" : "Retirada de la galería");
     refresh();
+    return undefined;
   };
 
   const composing = pending.on || Boolean(selected && isWorking(selected));

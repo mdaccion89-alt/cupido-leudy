@@ -13,6 +13,7 @@ import {
   DURATIONS,
   GENRES,
   GENRE_DEFAULT_BPM,
+  INSTRUMENTAL,
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
   VOICE_TYPES,
@@ -30,7 +31,7 @@ export function SongTab({ signedIn, requireSignIn, onPendingChange, onResult, di
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [genre, setGenre] = useState<Genre>("Reguetón");
-  const [voice, setVoice] = useState<VoiceType>("Voz Masculina Realista");
+  const [voice, setVoice] = useState<VoiceType>("Masculina");
   const [bpm, setBpm] = useState(GENRE_DEFAULT_BPM["Reguetón"]);
   const [duration, setDuration] = useState<DurationSeconds>(60);
 
@@ -82,7 +83,7 @@ export function SongTab({ signedIn, requireSignIn, onPendingChange, onResult, di
             type="button"
             variant="glass"
             size="sm"
-            disabled={lyricsMutation.isPending || prompt.trim().length < 3 || voice === "Instrumental"}
+            disabled={lyricsMutation.isPending || prompt.trim().length < 3 || voice === INSTRUMENTAL}
             onClick={() => (signedIn ? lyricsMutation.mutate() : requireSignIn())}
           >
             {lyricsMutation.isPending ? <Loader2 className="animate-spin" /> : <PenLine />}
@@ -94,7 +95,7 @@ export function SongTab({ signedIn, requireSignIn, onPendingChange, onResult, di
           value={lyrics}
           maxLength={MAX_LYRICS_LENGTH}
           onChange={(e) => setLyrics(e.target.value)}
-          disabled={voice === "Instrumental"}
+          disabled={voice === INSTRUMENTAL}
           placeholder={"[Verso 1]\nEscribe aquí tu letra…\n\n[Coro]\n…"}
           className="min-h-36 resize-y rounded-xl border-border bg-surface/80 p-4 font-mono text-sm placeholder:text-muted-foreground/60"
         />
