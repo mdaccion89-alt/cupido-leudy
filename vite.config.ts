@@ -8,9 +8,22 @@ import tsConfigPaths from "vite-tsconfig-paths";
 import { NodeRequest, sendNodeResponse } from "srvx/node";
 
 export default defineConfig((env) => {
-  const loadedEnv = loadEnv(env.mode, process.cwd(), ["VITE_", "NEXT_PUBLIC_"]);
+  const isCapacitorBuild = process.env["CAPACITOR_BUILD"] === "1";
+  const publicEnv = loadEnv(env.mode, process.cwd(), ["VITE_", "NEXT_PUBLIC_"]);
+  const serverEnv = loadEnv(env.mode, process.cwd(), [
+    "VITE_",
+    "NEXT_PUBLIC_",
+    "SUPABASE_",
+    "HF_",
+    "FAL_",
+    "OPENAI_",
+    "PAYPAL_",
+  ]);
+  for (const [key, value] of Object.entries(serverEnv)) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
   const define = Object.fromEntries(
-    Object.entries(loadedEnv).map(([key, value]) => [
+    Object.entries(publicEnv).map(([key, value]) => [
       `import.meta.env.${key}`,
       JSON.stringify(value),
     ]),
@@ -18,6 +31,7 @@ export default defineConfig((env) => {
 
   return {
     define,
+    ...(isCapacitorBuild ? { build: { outDir: "dist" } } : {}),
     css: { transformer: "lightningcss" },
     resolve: {
       alias: { "@": path.resolve(process.cwd(), "src") },
@@ -45,6 +59,18 @@ export default defineConfig((env) => {
       tailwindcss(),
       tsConfigPaths({ projects: ["./tsconfig.json"] }),
       tanstackStart({
+        ...(isCapacitorBuild
+          ? {
+              spa: {
+                enabled: true,
+                prerender: {
+                  outputPath: "index.html",
+                  crawlLinks: false,
+                  retryCount: 0,
+                },
+              },
+            }
+          : {}),
         importProtection: {
           behavior: "error",
           client: {
@@ -54,7 +80,7 @@ export default defineConfig((env) => {
         },
         server: { entry: "server" },
       }),
-      ...(env.command === "build"
+      ...(env.command === "build" && !isCapacitorBuild
         ? [nitro({ defaultPreset: "cloudflare-module", preset: "cloudflare-module" })]
         : []),
       viteReact(),

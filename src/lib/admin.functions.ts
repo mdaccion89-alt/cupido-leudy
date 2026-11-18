@@ -1,9 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
+import { Buffer } from "node:buffer";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
+import { getAdminClient } from "./server-helpers";
 
 type AdminContext = { supabase: SupabaseClient<Database>; userId: string };
 
@@ -106,6 +108,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       distributions: distributionsWithVoice,
       secrets: {
         fal: Boolean(process.env["FAL_KEY"]),
+        huggingFace: Boolean(process.env["HF_TOKEN"]),
         openai: Boolean(process.env["OPENAI_API_KEY"]),
         paypalClient: Boolean(process.env["PAYPAL_CLIENT_ID"] && process.env["PAYPAL_SECRET"]),
       },
@@ -138,6 +141,32 @@ export const saveAdminSettings = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const uploadSiteAsset = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { path: string; contentType: string; base64: string }) => {
+    if (!input?.path.startsWith("identity/") || input.path.includes(".."))
+      throw new Error("Ruta de imagen no válida.");
+    if (!input.contentType.startsWith("image/")) throw new Error("Solo se permiten imágenes.");
+    if (!input.base64 || input.base64.length > 32_000_000)
+      throw new Error("La imagen es demasiado grande.");
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const admin = await getAdminClient();
+    const { error: bucketError } = await admin.storage.createBucket("site", { public: true });
+    if (bucketError && !/already exists|ya existe/i.test(bucketError.message)) throw bucketError;
+    const base64 = data.base64.includes(",") ? (data.base64.split(",").pop() ?? "") : data.base64;
+    const bytes = Buffer.from(base64, "base64");
+    const { error } = await admin.storage.from("site").upload(data.path, bytes, {
+      contentType: data.contentType,
+      upsert: true,
+    });
+    if (error) throw error;
+    const { data: publicData } = admin.storage.from("site").getPublicUrl(data.path);
+    return { ok: true, url: publicData.publicUrl };
+  });
+
 export const savePaypalEmail = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { email: string }) => input)
@@ -158,6 +187,7 @@ export const saveIntegrationSecrets = createServerFn({ method: "POST" })
       paypalClientId?: string;
       paypalSecret?: string;
       falKey?: string;
+      huggingFaceToken?: string;
       openaiKey?: string;
     }) => input,
   )
@@ -167,6 +197,7 @@ export const saveIntegrationSecrets = createServerFn({ method: "POST" })
       PAYPAL_CLIENT_ID: data.paypalClientId ?? "",
       PAYPAL_SECRET: data.paypalSecret ?? "",
       FAL_KEY: data.falKey ?? "",
+      HF_TOKEN: data.huggingFaceToken ?? "",
       OPENAI_API_KEY: data.openaiKey ?? "",
     });
     return { ok: true };

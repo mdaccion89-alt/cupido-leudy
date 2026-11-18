@@ -19,12 +19,18 @@ import {
   type VoiceType,
 } from "./music";
 import {
+  audioFromBytes,
   falErrorMessage,
   falKey,
   falSubmit,
   falWait,
   failCreation,
   getAdminClient,
+  hfErrorMessage,
+  hfToken,
+  huggingFaceAudio,
+  isFalBalanceError,
+  type GeneratedAudio,
 } from "./server-helpers";
 
 type GenerateInput = {
@@ -115,11 +121,11 @@ export const generateSong = createServerFn({ method: "POST" })
         };
     }
 
-    if (!falKey())
+    if (!falKey() && !hfToken())
       return {
         ok: false,
         status: 500,
-        message: falErrorMessage("FAL_NOT_CONFIGURED"),
+        message: "El administrador debe configurar Fal.ai o la token gratuita de Hugging Face.",
       };
 
     const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
@@ -164,40 +170,62 @@ export const generateSong = createServerFn({ method: "POST" })
       return { ok: false, status, message };
     };
 
-    let audioBytes: Uint8Array;
-    try {
-      const submitted = await falSubmit("fal-ai/lyria-2", {
-        prompt: buildMusicPrompt({
-          description: data.prompt,
-          lyrics: data.lyrics,
-          genre: data.genre,
-          voice: data.voice,
-          bpm: data.bpm,
-          seconds: data.duration,
-          ...(data.mode ? { mode: data.mode } : {}),
-          ...(data.advanced ? { advanced: data.advanced } : {}),
-        }),
-        duration: data.duration,
-      });
-      const output = await falWait(submitted.response_url);
-      const audioUrl = falAudioUrl(output);
-      if (!audioUrl) return fail(502, "El generador no devolvió audio. Inténtalo de nuevo.");
-      const audioResponse = await fetch(audioUrl);
-      if (!audioResponse.ok)
-        return fail(502, "El audio generado no se pudo descargar. Inténtalo de nuevo.");
-      audioBytes = new Uint8Array(await audioResponse.arrayBuffer());
-    } catch (err) {
-      const code = err instanceof Error ? err.message : "FAL_UNKNOWN";
-      console.error("music request failed", err);
-      return fail(500, falErrorMessage(code));
+    const musicPrompt = buildMusicPrompt({
+      description: data.prompt,
+      lyrics: data.lyrics,
+      genre: data.genre,
+      voice: data.voice,
+      bpm: data.bpm,
+      seconds: data.duration,
+      ...(data.mode ? { mode: data.mode } : {}),
+      ...(data.advanced ? { advanced: data.advanced } : {}),
+    });
+
+    let generated: GeneratedAudio;
+    if (falKey()) {
+      try {
+        const submitted = await falSubmit("fal-ai/lyria-2", {
+          prompt: musicPrompt,
+          duration: data.duration,
+        });
+        const output = await falWait(submitted.response_url);
+        const audioUrl = falAudioUrl(output);
+        if (!audioUrl) throw new Error("FAL_NO_AUDIO");
+        const audioResponse = await fetch(audioUrl);
+        if (!audioResponse.ok) throw new Error("FAL_DOWNLOAD_FAILED");
+        generated = audioFromBytes(
+          new Uint8Array(await audioResponse.arrayBuffer()),
+          audioResponse.headers.get("content-type") ?? "",
+        );
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "FAL_UNKNOWN";
+        console.error("music request failed", err);
+        if (!hfToken() || !isFalBalanceError(err)) return fail(500, falErrorMessage(code));
+        try {
+          generated = await huggingFaceAudio(musicPrompt);
+        } catch (fallbackError) {
+          const fallbackCode =
+            fallbackError instanceof Error ? fallbackError.message : "HF_UNKNOWN";
+          console.error("hugging face fallback failed", fallbackError);
+          return fail(500, hfErrorMessage(fallbackCode));
+        }
+      }
+    } else {
+      try {
+        generated = await huggingFaceAudio(musicPrompt);
+      } catch (err) {
+        const code = err instanceof Error ? err.message : "HF_UNKNOWN";
+        console.error("hugging face request failed", err);
+        return fail(500, hfErrorMessage(code));
+      }
     }
-    if (audioBytes.byteLength === 0)
+    if (generated.bytes.byteLength === 0)
       return fail(502, "El generador no devolvió audio. Inténtalo de nuevo.");
 
-    const path = `${userId}/${song.id}.mp3`;
+    const path = `${userId}/${song.id}.${generated.extension}`;
     const { error: uploadError } = await admin.storage
       .from("songs")
-      .upload(path, audioBytes, { contentType: "audio/mpeg", upsert: true });
+      .upload(path, generated.bytes, { contentType: generated.contentType, upsert: true });
     if (uploadError) {
       console.error("upload failed", uploadError);
       return fail(500, "La canción se generó pero no se pudo guardar.");
@@ -205,7 +233,12 @@ export const generateSong = createServerFn({ method: "POST" })
 
     await admin
       .from("songs")
-      .update({ status: "ready", storage_path: path, error: null })
+      .update({
+        status: "ready",
+        storage_path: path,
+        media_type: generated.contentType,
+        error: null,
+      })
       .eq("id", song.id);
     return { ok: true, songId: song.id };
   });

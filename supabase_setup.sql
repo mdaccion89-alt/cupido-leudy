@@ -573,7 +573,7 @@ GRANT ALL ON public.songs TO service_role;
 GRANT SELECT ON public.distributions TO authenticated;
 GRANT ALL ON public.distributions TO service_role;
 GRANT SELECT ON public.creator_profiles TO anon, authenticated;
-GRANT UPDATE (display_name, bio) ON public.creator_profiles TO authenticated;
+GRANT UPDATE (display_name, bio, avatar_url) ON public.creator_profiles TO authenticated;
 GRANT ALL ON public.creator_profiles TO service_role;
 GRANT SELECT, INSERT, DELETE ON public.follows TO authenticated;
 GRANT ALL ON public.follows TO service_role;

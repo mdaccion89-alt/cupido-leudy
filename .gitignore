@@ -15,6 +15,9 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+.env
+.env.*
+!.env.example
 
 # Wrangler / Cloudflare
 .wrangler/
@@ -33,3 +36,8 @@ dist-ssr
 tempo/.tempo/
 tempo/node_modules/
 tempo/dist/
+
+android/.gradle/
+android/app/build/
+android/local.properties
+*.apk

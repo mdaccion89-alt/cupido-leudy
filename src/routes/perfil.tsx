@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Loader2, Save, UserPlus, UserRoundMinus } from "lucide-react";
+import { BadgeCheck, Loader2, Save, Upload, UserPlus, UserRoundMinus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,12 +13,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { isVerifiedCreator } from "@/lib/credits";
 import { captureDistributionOrder } from "@/lib/distribution.functions";
+import { uploadAvatar } from "@/lib/profile.functions";
 
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string; distribution?: string; token?: string }) => search,
   head: () => ({ meta: [{ title: "Perfil — Leudy IA Adobe" }] }),
   component: ProfilePage,
 });
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("READ_FAILED"));
+    reader.readAsDataURL(file);
+  });
+}
 
 function ProfilePage() {
   const { session, loading: authLoading } = useAuth();
@@ -30,7 +40,11 @@ function ProfilePage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [fullName, setFullName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInput = useRef<HTMLInputElement>(null);
   const captureOrder = useServerFn(captureDistributionOrder);
+  const uploadAvatarFn = useServerFn(uploadAvatar);
   const capturedRef = useRef(false);
 
   useEffect(() => {
@@ -80,6 +94,7 @@ function ProfilePage() {
     );
     setBio(profile.data?.creator?.bio ?? "");
     setFullName(profile.data?.privateProfile?.full_name ?? "");
+    setAvatarUrl(profile.data?.creator?.avatar_url ?? "");
   }, [profile.data]);
 
   const save = useMutation({
@@ -104,6 +119,31 @@ function ProfilePage() {
       toast.success("Perfil actualizado.");
     },
     onError: () => toast.error("No se pudo actualizar el perfil."),
+  });
+
+  const avatarUpload = useMutation({
+    mutationFn: async (file: File) => {
+      if (!file.type.startsWith("image/")) throw new Error("INVALID_IMAGE");
+      const base64 = await readFileAsBase64(file);
+      const extension =
+        file.name
+          .split(".")
+          .pop()
+          ?.toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "png";
+      const result = await uploadAvatarFn({
+        data: { base64, contentType: file.type, extension },
+      });
+      return result.url;
+    },
+    onMutate: () => setUploadingAvatar(true),
+    onSuccess: (url) => {
+      setAvatarUrl(url);
+      queryClient.invalidateQueries({ queryKey: ["creator-profile"] });
+      toast.success("Avatar actualizado.");
+    },
+    onError: () => toast.error("No se pudo subir el avatar."),
+    onSettled: () => setUploadingAvatar(false),
   });
 
   const toggleFollow = useMutation({
@@ -161,13 +201,22 @@ function ProfilePage() {
       <section className="panel grain overflow-hidden">
         <div className="h-28 bg-gradient-primary/20" />
         <div className="relative px-6 pb-8">
-          <div className="-mt-10 flex size-20 items-center justify-center rounded-2xl border-4 border-background bg-gradient-primary text-2xl font-bold shadow-glow">
-            {(displayName || "A").slice(0, 1).toUpperCase()}
+          <div className="-mt-10 flex size-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-background bg-gradient-primary text-2xl font-bold shadow-glow">
+            {avatarUrl ? (
+              <img src={avatarUrl} alt="Avatar del perfil" className="size-full object-cover" />
+            ) : (
+              (displayName || "A").slice(0, 1).toUpperCase()
+            )}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <h1 className="font-display text-2xl font-semibold">{displayName || "Artista"}</h1>
             {verified && (
-              <BadgeCheck className="size-6 text-primary" aria-label="Perfil oficial verificado" />
+              <BadgeCheck
+                className="size-6"
+                style={{ color: "#1D9BF0", filter: "drop-shadow(0 0 6px rgba(29,155,240,0.65))" }}
+                strokeWidth={2.5}
+                aria-label="Perfil oficial verificado"
+              />
             )}
             {isOfficial && <Badge>Oficial</Badge>}
             {creator?.is_premium && <Badge variant="secondary">Premium</Badge>}
@@ -218,6 +267,31 @@ function ProfilePage() {
               <div className="space-y-2 sm:col-span-2">
                 <Label>Biografía</Label>
                 <Textarea value={bio} maxLength={300} onChange={(e) => setBio(e.target.value)} />
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Avatar</Label>
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="glass"
+                    disabled={uploadingAvatar}
+                    onClick={() => avatarInput.current?.click()}
+                  >
+                    {uploadingAvatar ? <Loader2 className="animate-spin" /> : <Upload />} Cambiar
+                    avatar
+                  </Button>
+                  <input
+                    ref={avatarInput}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) avatarUpload.mutate(file);
+                    }}
+                  />
+                </div>
               </div>
               <div className="sm:col-span-2">
                 <Button variant="hero" disabled={save.isPending} onClick={() => save.mutate()}>

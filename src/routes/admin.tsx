@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, Loader2, Save, ShieldCheck, X } from "lucide-react";
+import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import {
   saveAdminSettings,
   saveIntegrationSecrets,
   savePaypalEmail,
+  uploadSiteAsset,
   type AdminSettings,
 } from "@/lib/admin.functions";
 
@@ -58,6 +59,7 @@ function AdminDashboard() {
   const saveSettingsFn = useServerFn(saveAdminSettings);
   const savePaypalFn = useServerFn(savePaypalEmail);
   const saveSecretsFn = useServerFn(saveIntegrationSecrets);
+  const uploadAssetFn = useServerFn(uploadSiteAsset);
   const adjustCreditsFn = useServerFn(adminAdjustCredits);
   const setPlanFn = useServerFn(adminSetPlan);
   const reviewSongFn = useServerFn(reviewSong);
@@ -68,7 +70,11 @@ function AdminDashboard() {
   const [paypalClientId, setPaypalClientId] = useState("");
   const [paypalSecret, setPaypalSecret] = useState("");
   const [falKey, setFalKey] = useState("");
+  const [huggingFaceToken, setHuggingFaceToken] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const logoInput = useRef<HTMLInputElement>(null);
+  const bannerInput = useRef<HTMLInputElement>(null);
   const [creditDrafts, setCreditDrafts] = useState<Record<string, number>>({});
   const [planDrafts, setPlanDrafts] = useState<Record<string, "free" | "pro" | "premium">>({});
 
@@ -100,6 +106,41 @@ function AdminDashboard() {
       success: message,
       error: "No se pudo guardar.",
     });
+
+  const uploadSiteImage = async (
+    field: "logo_url" | "banner_image_url",
+    file: File | undefined,
+  ) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Selecciona un archivo de imagen.");
+      return;
+    }
+    setUploadingAsset(true);
+    try {
+      const base64 = await readFileAsBase64(file);
+      const extension =
+        file.name
+          .split(".")
+          .pop()
+          ?.toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "png";
+      const kind = field === "logo_url" ? "logo" : "banner";
+      const result = await uploadAssetFn({
+        data: {
+          path: `identity/${kind}-${Date.now()}.${extension}`,
+          contentType: file.type,
+          base64,
+        },
+      });
+      setSettings((current) => (current ? { ...current, [field]: result.url } : current));
+      toast.success("Imagen subida al bucket site.");
+    } catch {
+      toast.error("No se pudo subir la imagen.");
+    } finally {
+      setUploadingAsset(false);
+    }
+  };
 
   const saveSettings = useMutation({
     mutationFn: (value: AdminSettings) => saveSettingsFn({ data: { settings: value } }),
@@ -172,30 +213,74 @@ function AdminDashboard() {
                   onChange={(e) => setSettings({ ...settings, site_tagline: e.target.value })}
                 />
               </Field>
-              <Field label="Logo (URL o ruta en bucket site)">
-                <Input
-                  value={settings.logo_url}
-                  onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
-                />
+              <Field label="Logo">
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="glass"
+                    disabled={uploadingAsset}
+                    onClick={() => logoInput.current?.click()}
+                  >
+                    <Upload /> Subir logo
+                  </Button>
+                  <input
+                    ref={logoInput}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => uploadSiteImage("logo_url", e.target.files?.[0])}
+                  />
+                </div>
+                {settings.logo_url && (
+                  <img
+                    src={settings.logo_url}
+                    alt="Logo del sitio"
+                    className="mt-2 h-12 w-auto max-w-full rounded-md object-contain"
+                  />
+                )}
               </Field>
-              <Field label="Banner (URL o ruta en bucket site)">
-                <Input
-                  value={settings.banner_image_url}
-                  onChange={(e) => setSettings({ ...settings, banner_image_url: e.target.value })}
-                />
+              <Field label="Banner">
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="glass"
+                    disabled={uploadingAsset}
+                    onClick={() => bannerInput.current?.click()}
+                  >
+                    <Upload /> Subir banner
+                  </Button>
+                  <input
+                    ref={bannerInput}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => uploadSiteImage("banner_image_url", e.target.files?.[0])}
+                  />
+                </div>
+                {settings.banner_image_url && (
+                  <img
+                    src={settings.banner_image_url}
+                    alt="Banner del sitio"
+                    className="mt-2 h-16 w-full rounded-md object-cover"
+                  />
+                )}
               </Field>
-              <Field label="Color primario (#RRGGBB)">
+              <Field label="Color primario">
                 <Input
-                  value={settings.primary_color}
-                  placeholder="#7c3aed"
+                  type="color"
+                  value={settings.primary_color || "#7c3aed"}
                   onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
+                  className="h-10 w-full cursor-pointer"
                 />
               </Field>
-              <Field label="Color de acento (#RRGGBB)">
+              <Field label="Color de acento">
                 <Input
-                  value={settings.accent_color}
-                  placeholder="#22d3ee"
+                  type="color"
+                  value={settings.accent_color || "#22d3ee"}
                   onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
+                  className="h-10 w-full cursor-pointer"
                 />
               </Field>
             </div>
@@ -426,6 +511,14 @@ function AdminDashboard() {
                   onChange={(e) => setFalKey(e.target.value)}
                 />
               </Field>
+              <Field label="Hugging Face Token (fallback gratuito)">
+                <Input
+                  type="password"
+                  value={huggingFaceToken}
+                  placeholder={snapshot.data.secrets.huggingFace ? "Configurada" : "Pendiente"}
+                  onChange={(e) => setHuggingFaceToken(e.target.value)}
+                />
+              </Field>
               <Field label="OpenAI API Key">
                 <Input
                   type="password"
@@ -452,7 +545,15 @@ function AdminDashboard() {
                 variant="glass"
                 onClick={() =>
                   mutate(
-                    saveSecretsFn({ data: { paypalClientId, paypalSecret, falKey, openaiKey } }),
+                    saveSecretsFn({
+                      data: {
+                        paypalClientId,
+                        paypalSecret,
+                        falKey,
+                        huggingFaceToken,
+                        openaiKey,
+                      },
+                    }),
                     "Claves guardadas en el servidor.",
                   )
                 }
@@ -527,6 +628,15 @@ function AdminDashboard() {
       </Tabs>
     </main>
   );
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("READ_FAILED"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
