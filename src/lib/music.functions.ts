@@ -136,8 +136,38 @@ export type GenerateSongResult =
       structure: string;
       audioBase64: string;
       mediaType: string;
+      saved: boolean;
+      warning?: string;
     }
   | { ok: false; status: number; message: string };
+
+function localWavSongResult(input: {
+  data: { genre: Genre; bpm: number; duration: DurationSeconds };
+  text: SongText;
+  title: string;
+  musicPrompt: string;
+}): Extract<GenerateSongResult, { ok: true }> {
+  const generated = synthesizeSongAudio({
+    bpm: input.data.bpm,
+    seconds: input.data.duration,
+    seedText: input.musicPrompt,
+  });
+  return {
+    ok: true,
+    songId: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: input.title,
+    genre: input.data.genre,
+    bpm: input.data.bpm,
+    duration: input.data.duration,
+    lyrics: input.text.letra,
+    chords: input.text.acordes,
+    structure: input.text.estructura,
+    audioBase64: Buffer.from(generated.bytes).toString("base64"),
+    mediaType: generated.contentType,
+    saved: false,
+    warning: "No se pudo guardar en la nube; la canción se guardó solo en este dispositivo.",
+  };
+}
 
 export const generateSong = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -268,14 +298,14 @@ export const generateSong = createServerFn({ method: "POST" })
       .select("id")
       .single();
     if (insertError || !song) {
-      console.error("songs insert failed", insertError);
+      console.error("songs insert failed, delivering local result", insertError);
       if (spent)
         await admin.rpc("grant_credits", {
           _user_id: userId,
           _amount: spent,
           _reason: "Reembolso por creación fallida",
         });
-      return { ok: false, status: 500, message: "No se pudo guardar la canción." };
+      return localWavSongResult({ data, text, title, musicPrompt });
     }
 
     let generated: GeneratedAudio;
@@ -320,10 +350,14 @@ export const generateSong = createServerFn({ method: "POST" })
       .from("songs")
       .upload(path, generated.bytes, { contentType: generated.contentType, upsert: true });
     if (uploadError) {
-      console.error("song upload failed", uploadError);
-      const message = "La canción se generó pero no se pudo guardar. Te devolvimos los créditos.";
-      await failCreation(admin, song.id, userId, message);
-      return { ok: false, status: 500, message };
+      console.error("song upload failed, delivering local result", uploadError);
+      await failCreation(
+        admin,
+        song.id,
+        userId,
+        "La canción se generó pero no se pudo guardar en la nube.",
+      );
+      return localWavSongResult({ data, text, title, musicPrompt });
     }
 
     const { error: updateError } = await admin
@@ -337,10 +371,14 @@ export const generateSong = createServerFn({ method: "POST" })
       })
       .eq("id", song.id);
     if (updateError) {
-      console.error("song update failed", updateError);
-      const message = "La canción se generó pero no se pudo publicar.";
-      await failCreation(admin, song.id, userId, message);
-      return { ok: false, status: 500, message };
+      console.error("song update failed, delivering local result", updateError);
+      await failCreation(
+        admin,
+        song.id,
+        userId,
+        "La canción se generó pero no se pudo publicar en la nube.",
+      );
+      return localWavSongResult({ data, text, title, musicPrompt });
     }
 
     return {
@@ -355,6 +393,7 @@ export const generateSong = createServerFn({ method: "POST" })
       structure: text.estructura,
       audioBase64: Buffer.from(generated.bytes).toString("base64"),
       mediaType: generated.contentType,
+      saved: true,
     };
   });
 

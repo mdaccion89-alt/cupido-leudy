@@ -77,6 +77,40 @@ function cleanStyle(value: string): string {
     .slice(0, 60);
 }
 
+const SONG_BACKUP_KEY = "leudy-ia:ultima-cancion-respaldo";
+
+type SongBackup = {
+  id: string;
+  title: string;
+  mediaType: string;
+  extension: string;
+  audioBase64: string;
+  lyrics: string;
+  chords: string;
+  structure: string;
+  saved: boolean;
+  warning: string | undefined;
+};
+
+function saveSongBackup(backup: SongBackup) {
+  try {
+    localStorage.setItem(SONG_BACKUP_KEY, JSON.stringify(backup));
+  } catch {}
+}
+
+function readSongBackup(): SongBackup | null {
+  try {
+    const raw = localStorage.getItem(SONG_BACKUP_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SongBackup;
+    return typeof parsed.audioBase64 === "string" && typeof parsed.mediaType === "string"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 type SongPreview = {
   songId: string;
   title: string;
@@ -85,6 +119,8 @@ type SongPreview = {
   lyrics: string;
   chords: string;
   structure: string;
+  saved: boolean;
+  warning: string | undefined;
 };
 
 export function SongTab({
@@ -113,7 +149,12 @@ export function SongTab({
   const [mode, setMode] = useState<StudioMode>("standard");
   const [advanced, setAdvanced] = useState({ key: "", mood: "", instruments: "", extra: "" });
   const [preview, setPreview] = useState<SongPreview | null>(null);
+  const [hasBackup, setHasBackup] = useState(false);
   const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setHasBackup(readSongBackup() !== null);
+  }, []);
 
   useEffect(
     () => () => {
@@ -121,6 +162,41 @@ export function SongTab({
     },
     [],
   );
+
+  const restoreBackup = () => {
+    const backup = readSongBackup();
+    if (!backup) {
+      setHasBackup(false);
+      return;
+    }
+    const bytes = Uint8Array.from(atob(backup.audioBase64), (char) => char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: backup.mediaType });
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    const url = URL.createObjectURL(blob);
+    previewUrlRef.current = url;
+    setPreview({
+      songId: backup.id,
+      title: backup.title,
+      url,
+      extension: backup.extension,
+      lyrics: backup.lyrics,
+      chords: backup.chords,
+      structure: backup.structure,
+      saved: backup.saved,
+      warning: backup.warning,
+    });
+    onResult(
+      {
+        ok: true,
+        songId: backup.id,
+        blob,
+        mediaType: backup.mediaType,
+        title: backup.title,
+        kind: "audio",
+      },
+      "Respaldo local recuperado.",
+    );
+  };
 
   const genre = styles.join(", ").slice(0, MAX_GENRE_LENGTH) || "Reguetón";
   const effectiveVoice: VoiceType = instrumental ? INSTRUMENTAL : voice;
@@ -198,6 +274,19 @@ export function SongTab({
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
       const songTitle = result.title || title || prompt.slice(0, 60);
+      saveSongBackup({
+        id: result.songId,
+        title: songTitle,
+        mediaType,
+        extension,
+        audioBase64: result.audioBase64,
+        lyrics: result.lyrics,
+        chords: result.chords,
+        structure: result.structure,
+        saved: result.saved,
+        warning: result.warning,
+      });
+      setHasBackup(true);
       return {
         studioResult: {
           ok: true as const,
@@ -215,13 +304,16 @@ export function SongTab({
           lyrics: result.lyrics,
           chords: result.chords,
           structure: result.structure,
+          saved: result.saved,
+          warning: result.warning,
         },
       };
     },
     onSettled: () => onPendingChange(false, ""),
     onSuccess: ({ studioResult, songPreview }) => {
       setPreview(songPreview);
-      onResult(studioResult, "¡Tu canción y su letra están listas!");
+      onResult(studioResult, songPreview.saved ? "¡Tu canción y su letra están listas!" : "");
+      if (!songPreview.saved && songPreview.warning) toast.warning(songPreview.warning);
     },
     onError: (e) =>
       onResult(
@@ -522,6 +614,12 @@ export function SongTab({
             : "Inicia sesión para generar"}
       </Button>
 
+      {!preview && hasBackup && (
+        <Button type="button" variant="glass" onClick={restoreBackup}>
+          Recuperar último respaldo local
+        </Button>
+      )}
+
       {preview && (
         <div className="space-y-4 rounded-xl border border-border bg-surface/60 p-4 backdrop-blur">
           <p className="font-display text-sm">{preview.title}</p>
@@ -534,6 +632,11 @@ export function SongTab({
               Descargar .{preview.extension.toUpperCase()}
             </a>
           </Button>
+          {!preview.saved && (
+            <p className="text-xs text-amber-500">
+              {preview.warning ?? "Copia guardada solo en este dispositivo."}
+            </p>
+          )}
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Estructura</p>
             <p className="text-sm">{preview.structure}</p>
