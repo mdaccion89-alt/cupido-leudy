@@ -630,15 +630,6 @@ function providerFailure(error: unknown): FireflyFailure {
   return { ok: false, status: 502, message: code || "No se pudo completar la generación." };
 }
 
-async function videosEnabled(supabase: Db): Promise<boolean> {
-  const { data } = await supabase
-    .from("site_settings")
-    .select("videos_enabled")
-    .eq("id", 1)
-    .maybeSingle();
-  return data ? Boolean(data.videos_enabled) : true;
-}
-
 async function expiresAtFor(supabase: Db, userId: string, claims: unknown): Promise<string | null> {
   const { data: hasAdminRole } = await supabase.rpc("has_role", {
     _user_id: userId,
@@ -690,13 +681,6 @@ type RunConfig = {
 };
 
 async function runFirefly(supabase: Db, userId: string, config: RunConfig): Promise<FireflyResult> {
-  if (!(await videosEnabled(supabase)))
-    return {
-      ok: false,
-      status: 403,
-      message: "La creación de videos e imágenes está desactivada por ahora.",
-    };
-
   const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
     _amount: config.cost,
     _reason: config.reason,
@@ -900,12 +884,6 @@ export const beginFireflyVideo = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data, context }): Promise<FireflyVideoStartResult> => {
-    if (!(await videosEnabled(context.supabase)))
-      return {
-        ok: false,
-        status: 403,
-        message: "La creación de videos está desactivada por ahora.",
-      };
     if (!falKey())
       return {
         ok: false,

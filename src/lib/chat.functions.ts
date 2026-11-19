@@ -141,10 +141,6 @@ async function generateWithOpenAI(
 ): Promise<string | null> {
   const apiKey = process.env["OPENAI_API_KEY"]?.trim();
   if (!apiKey) return null;
-  const timeoutSignal =
-    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(30_000)
-      : null;
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -161,7 +157,6 @@ async function generateWithOpenAI(
           { role: "user", content: message },
         ],
       }),
-      signal: timeoutSignal,
     });
     if (!response.ok) return null;
     const json = (await response.json()) as {

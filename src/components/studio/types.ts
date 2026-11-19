@@ -1,6 +1,16 @@
 import type { Tables } from "@/integrations/supabase/types";
-import type { ActionResult } from "@/lib/music.functions";
 export type Song = Tables<"songs">;
+
+export type StudioResult =
+  | {
+      ok: true;
+      songId: string;
+      blob?: Blob;
+      mediaType?: string;
+      title?: string;
+      kind?: "audio" | "video";
+    }
+  | { ok: false; status: number; message: string };
 
 export type StudioTabProps = {
   signedIn: boolean;
@@ -8,7 +18,7 @@ export type StudioTabProps = {
   songs: Song[];
   requireSignIn: () => void;
   onPendingChange: (pending: boolean, label: string) => void;
-  onResult: (result: ActionResult, successMessage: string) => void;
+  onResult: (result: StudioResult, successMessage: string) => void;
   disabledReason?: string | undefined;
   isAdmin?: boolean;
 };

@@ -1,15 +1,11 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { nitro } from "nitro/vite";
-import { defineConfig, loadEnv, type RunnableDevEnvironment } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import viteReact from "@vitejs/plugin-react";
 import tsConfigPaths from "vite-tsconfig-paths";
-import { NodeRequest, sendNodeResponse } from "srvx/node";
 
 export default defineConfig((env) => {
-  const isCapacitorBuild = process.env["CAPACITOR_BUILD"] === "1";
-  const nitroPreset = "cloudflare-module";
   const publicEnv = loadEnv(env.mode, process.cwd(), ["VITE_", "NEXT_PUBLIC_"]);
   const serverEnv = loadEnv(env.mode, process.cwd(), [
     "VITE_",
@@ -33,7 +29,11 @@ export default defineConfig((env) => {
 
   return {
     define,
-    ...(isCapacitorBuild ? { build: { outDir: "dist" } } : {}),
+    build: { outDir: "dist", emptyOutDir: true },
+    environments: {
+      client: { build: { outDir: "dist" } },
+      ssr: { build: { outDir: ".tanstack/server" } },
+    },
     css: { transformer: "lightningcss" },
     resolve: {
       alias: { "@": path.resolve(process.cwd(), "src") },
@@ -61,18 +61,14 @@ export default defineConfig((env) => {
       tailwindcss(),
       tsConfigPaths({ projects: ["./tsconfig.json"] }),
       tanstackStart({
-        ...(isCapacitorBuild
-          ? {
-              spa: {
-                enabled: true,
-                prerender: {
-                  outputPath: "index.html",
-                  crawlLinks: false,
-                  retryCount: 0,
-                },
-              },
-            }
-          : {}),
+        spa: {
+          enabled: true,
+          prerender: {
+            outputPath: "index.html",
+            crawlLinks: false,
+            retryCount: 0,
+          },
+        },
         importProtection: {
           behavior: "error",
           client: {
@@ -82,39 +78,7 @@ export default defineConfig((env) => {
         },
         server: { entry: "server" },
       }),
-      ...(env.command === "build" && !isCapacitorBuild
-        ? [nitro({ defaultPreset: nitroPreset, preset: nitroPreset })]
-        : []),
       viteReact(),
-      {
-        name: "tanstack-start-dev-ssr-fallback",
-        configureServer(viteDevServer) {
-          return () => {
-            const serverEnv = viteDevServer.environments.ssr as RunnableDevEnvironment;
-            viteDevServer.middlewares.use(async (req, res) => {
-              const originalUrl = (req as { originalUrl?: string }).originalUrl;
-              if (originalUrl) req.url = originalUrl;
-              const webReq = new NodeRequest({ req, res });
-              try {
-                const entry = await serverEnv.runner.import("virtual:tanstack-start-server-entry");
-                const serverEntry = entry.default as {
-                  fetch: (request: Request) => Promise<Response> | Response;
-                };
-                return sendNodeResponse(res, await serverEntry.fetch(webReq));
-              } catch (error) {
-                console.error(error);
-                return sendNodeResponse(
-                  res,
-                  new Response("<!doctype html><title>Error</title><pre>SSR error</pre>", {
-                    status: 500,
-                    headers: { "content-type": "text/html; charset=utf-8" },
-                  }),
-                );
-              }
-            });
-          };
-        },
-      },
     ],
   };
 });

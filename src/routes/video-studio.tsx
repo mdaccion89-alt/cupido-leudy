@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef } from "react";
 import { VideoStudio } from "@/components/studio/video-studio";
-import { useAccount, useSiteSettings } from "@/lib/account";
+import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { cleanupExpiredMedia } from "@/lib/firefly.functions";
 
@@ -31,7 +31,6 @@ function VideoStudioRoute() {
   const { session } = useAuth();
   const { isAdmin } = useAccount();
   const navigate = useNavigate();
-  const settings = useSiteSettings();
   const cleanupFn = useServerFn(cleanupExpiredMedia);
   const cleanedFor = useRef<string | null>(null);
 
@@ -63,9 +62,6 @@ function VideoStudioRoute() {
           userId={session?.user.id ?? null}
           isAdmin={isAdmin}
           requireSignIn={() => navigate({ to: "/auth" })}
-          {...(settings.videos_enabled
-            ? {}
-            : { disabledReason: "La creación de videos e imágenes está desactivada por ahora." })}
         />
       </section>
     </main>

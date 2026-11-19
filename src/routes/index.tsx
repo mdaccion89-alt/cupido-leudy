@@ -12,12 +12,11 @@ import { MediaPlayer } from "@/components/studio/media-player";
 import { SongTab } from "@/components/studio/song-tab";
 import { StemsTab } from "@/components/studio/stems-tab";
 import { VocalTab } from "@/components/studio/vocal-tab";
-import { isWorking, type Song } from "@/components/studio/types";
+import { isWorking, type Song, type StudioResult } from "@/components/studio/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import type { ActionResult } from "@/lib/music.functions";
 import { deleteSong } from "@/lib/studio.functions";
 
 export const Route = createFileRoute("/")({
@@ -53,6 +52,7 @@ function Studio() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoPlayKey, setAutoPlayKey] = useState<string | null>(null);
+  const [directResult, setDirectResult] = useState<{ song: Song; blob: Blob } | null>(null);
   const [pending, setPending] = useState<{ on: boolean; label: string }>({ on: false, label: "" });
   const [elapsed, setElapsed] = useState(0);
 
@@ -99,9 +99,29 @@ function Studio() {
     queryClient.invalidateQueries({ queryKey: ["account", userId] });
   };
 
-  const onResult = (r: ActionResult, msg: string) => {
+  const onResult = (r: StudioResult, msg: string) => {
     refresh();
+    if (r.ok && r.blob) {
+      const song = {
+        id: r.songId,
+        user_id: userId ?? "",
+        title: r.title ?? "Creación IA",
+        kind: r.kind ?? "audio",
+        media_type: r.mediaType ?? "audio/mpeg",
+        storage_path: "",
+        status: "ready",
+        duration_seconds: 0,
+        is_public: false,
+        created_at: new Date().toISOString(),
+      } as unknown as Song;
+      setSelectedId(null);
+      setDirectResult({ song, blob: r.blob });
+      setAutoPlayKey(r.songId);
+      if (msg) toast.success(msg);
+      return;
+    }
     if (r.ok) {
+      setDirectResult(null);
       setSelectedId(r.songId);
       setAutoPlayKey(r.songId);
       if (msg) toast.success(msg);
@@ -116,6 +136,7 @@ function Studio() {
       return;
     }
     if (selectedId === song.id) setSelectedId(null);
+    setDirectResult(null);
     toast.success("Creación eliminada.");
     refresh();
   };
@@ -136,9 +157,7 @@ function Studio() {
   };
 
   const composing = pending.on || Boolean(selected && isWorking(selected));
-  const musicDisabledReason = settings.songs_enabled
-    ? undefined
-    : "La creación de canciones está desactivada por ahora.";
+  const musicDisabledReason = undefined;
 
   return (
     <div className="relative min-h-screen overflow-x-hidden">
@@ -243,9 +262,9 @@ function Studio() {
               </TabsContent>
             </Tabs>
           </div>
-          <MediaPlayer
-            song={pending.on ? null : selected}
-            blob={pending.on ? null : (mediaQuery.data ?? null)}
+            <MediaPlayer
+              song={pending.on ? null : (directResult?.song ?? selected)}
+              blob={pending.on ? null : (directResult?.blob ?? (mediaQuery.data ?? null))}
             loadingMedia={mediaQuery.isFetching}
             composing={composing}
             composingLabel={pending.label || "Creando…"}

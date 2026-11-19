@@ -17,10 +17,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_COSTS } from "@/lib/credits";
 import {
-  beginFireflyVideo,
   countActiveElements,
   FIREFLY_ACCENTS,
   FIREFLY_CAMERA_MOVEMENTS,
@@ -30,10 +30,7 @@ import {
   FIREFLY_LANGUAGES,
   FIREFLY_VIDEO_MODELS,
   FIREFLY_VOICE_STYLES,
-  finishFireflyVideo,
   generateFireflyImage,
-  generateFireflyVideo,
-  generateFireflyVideoScene,
   generateFireflyVoice,
   type FireflyAsset,
   type FireflyImageProvider,
@@ -100,10 +97,6 @@ export function VideoStudio({
   const { session } = useAuth();
   const uid = userId ?? session?.user.id ?? null;
   const imageFn = useServerFn(generateFireflyImage);
-  const beginFn = useServerFn(beginFireflyVideo);
-  const sceneFn = useServerFn(generateFireflyVideoScene);
-  const finishFn = useServerFn(finishFireflyVideo);
-  const fallbackFn = useServerFn(generateFireflyVideo);
   const voiceFn = useServerFn(generateFireflyVoice);
 
   const [tab, setTab] = useState("image");
@@ -197,89 +190,42 @@ export function VideoStudio({
       if (totalSeconds <= 0 || totalSeconds > 60)
         throw new Error("El total de las escenas debe estar entre 1 y 60 segundos.");
       if (!uid) throw new Error("Inicia sesión para generar videos.");
-      startProgress("Preparando escenas…", Math.max(90, totalSeconds * 6));
-      let chainStarted = false;
-      try {
-        const started = await beginFn({
-          data: {
-            prompt: videoPrompt,
-            scenes,
-            cameraMovement,
-            seed: parseSeed(videoSeed),
-            assets,
-            model: videoModel,
-            referencePath,
-          },
-        });
-        if (!started.ok) throw new Error(started.message);
-        chainStarted = true;
-        const clips: FireflySceneClip[] = [];
-        let sceneReference: string | null = referencePath;
-        for (const [index, scene] of scenes.entries()) {
-          advanceProgress(`Escena ${index + 1} de ${scenes.length}…`, index / scenes.length);
-          const sceneResult = await sceneFn({
-            data: {
-              generationId: started.generationId,
-              sceneIndex: index,
-              scene,
-              cameraMovement,
-              seed: parseSeed(videoSeed),
-              referencePath: sceneReference,
-            },
-          });
-          if (!sceneResult.ok) throw new Error(sceneResult.message);
-          clips.push(sceneResult.clip);
-          setVideoResult({
-            label: "Secuencia de escenas (sin unir)",
-            generationId: started.generationId,
-            clips: [...clips],
-            stitched: false,
-          });
-          if (index < scenes.length - 1) {
-            const captured = await captureFrameFromVideoUrl(
-              sceneResult.clip.url,
-              Math.max(0, sceneResult.clip.seconds - 0.15),
-            );
-            sceneReference = await uploadCapturedFrame(uid, captured.blob, captured.seconds);
-          }
-          advanceProgress(
-            `Escena ${index + 1} de ${scenes.length} lista`,
-            (index + 1) / scenes.length,
-          );
-        }
-        const finished = await finishFn({ data: { generationId: started.generationId } });
-        if (!finished.ok) throw new Error(finished.message);
-        return {
-          label: finished.label,
-          generationId: finished.generationId,
-          clips: finished.clips,
-          stitched: finished.stitched,
-        };
-      } catch (error) {
-        if (!chainStarted) throw error;
-        toast.message("Encadenamiento no disponible. Probando Cinemático Multi-Escena…");
-        startProgress("Renderizando Cinemático Multi-Escena…", Math.max(120, totalSeconds * 8));
-        const fallback = await fallbackFn({
-          data: { prompt: videoPrompt, scenes, cameraMovement, seed: parseSeed(videoSeed), assets },
-        });
-        if (!fallback.ok) throw new Error(fallback.message);
-        return {
-          label: fallback.label ?? "Cinemático Multi-Escena (un solo render)",
-          generationId: fallback.songId,
-          clips: [
-            {
-              songId: fallback.songId,
-              url: fallback.url,
-              storagePath: "",
-              sceneNumber: 1,
-              seconds: totalSeconds,
-              mediaType: fallback.mediaType,
-              model: "fallback",
-            },
-          ],
-          stitched: true,
-        };
+      startProgress("Generando video con Hugging Face…", Math.max(120, totalSeconds * 8));
+      const response = await apiFetch("/api/generate-video", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: videoPrompt,
+          scenes,
+          cameraMovement,
+          seed: parseSeed(videoSeed),
+          model: videoModel,
+          duration: totalSeconds,
+        }),
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? `HTTP ${response.status}`);
       }
+      const blob = await response.blob();
+      const mediaType = response.headers.get("x-media-type") ?? blob.type ?? "video/mp4";
+      const generationId = `hf-${Date.now()}`;
+      return {
+        label: "Video generado con Hugging Face",
+        generationId,
+        clips: [
+          {
+            songId: generationId,
+            url: URL.createObjectURL(blob),
+            storagePath: "",
+            sceneNumber: 1,
+            seconds: totalSeconds,
+            mediaType,
+            model: videoModel,
+          },
+        ],
+        stitched: true,
+      };
     },
     onSuccess: (result) => {
       setVideoResult(result);

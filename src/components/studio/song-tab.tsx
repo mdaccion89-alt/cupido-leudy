@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch } from "@/lib/api-client";
 import { CREDIT_COSTS } from "@/lib/credits";
 import {
   BPM_MAX,
@@ -39,7 +40,7 @@ import {
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { generateSong, improvePrompt, writeLyrics, type ActionResult } from "@/lib/music.functions";
+import { improvePrompt, writeLyrics } from "@/lib/music.functions";
 import { OptionGroup } from "./option-group";
 import type { StudioTabProps } from "./types";
 
@@ -85,7 +86,6 @@ export function SongTab({
   disabledReason,
   isAdmin,
 }: StudioTabProps) {
-  const generate = useServerFn(generateSong);
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
   const [title, setTitle] = useState("");
@@ -150,8 +150,10 @@ export function SongTab({
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
       onPendingChange(true, "Componiendo tu canción…");
-      return generate({
-        data: {
+      const response = await apiFetch("/api/generate-music", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           prompt,
           lyrics,
           title,
@@ -161,13 +163,26 @@ export function SongTab({
           duration,
           engine,
           creationMode,
-          ...(isAdmin ? { mode } : {}),
-          ...(creationMode === "custom" ? { advanced } : {}),
-        },
+          mode: isAdmin ? mode : undefined,
+          advanced: creationMode === "custom" ? advanced : undefined,
+        }),
       });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? `HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      return {
+        ok: true as const,
+        songId: `hf-${Date.now()}`,
+        blob,
+        mediaType: response.headers.get("x-media-type") ?? blob.type ?? "audio/mpeg",
+        title: title || prompt.slice(0, 60),
+        kind: "audio" as const,
+      };
     },
     onSettled: () => onPendingChange(false, ""),
-    onSuccess: (r: ActionResult) => onResult(r, "¡Tu canción está lista!"),
+    onSuccess: (r) => onResult(r, "¡Tu canción está lista!"),
     onError: (e) =>
       onResult(
         { ok: false, status: 400, message: e instanceof Error ? e.message : "No se pudo generar." },

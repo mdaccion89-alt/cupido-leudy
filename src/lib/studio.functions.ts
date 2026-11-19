@@ -25,17 +25,6 @@ export const COVER_MODEL = "fal-ai/chatterbox/speech-to-speech";
 export const VIDEO_MODEL = "fal-ai/bytedance/omnihuman/v1.5";
 const JOB_TIMEOUT_MS = 40 * 60_000;
 
-type FeatureFlag = "covers_enabled" | "videos_enabled";
-
-async function featureEnabled(supabase: Db, flag: FeatureFlag) {
-  const { data } = await supabase
-    .from("site_settings")
-    .select("covers_enabled, videos_enabled")
-    .eq("id", 1)
-    .maybeSingle();
-  return data ? Boolean(data[flag]) : true;
-}
-
 async function spend(
   supabase: Db,
   amount: number,
@@ -79,8 +68,6 @@ export const startCover = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }): Promise<ActionResult> => {
     const { supabase, userId } = context;
-    if (!(await featureEnabled(supabase, "covers_enabled")))
-      return { ok: false, status: 403, message: "Los covers están desactivados por ahora." };
     if (!falKey())
       return { ok: false, status: 503, message: falErrorMessage("FAL_NOT_CONFIGURED") };
 
@@ -190,8 +177,6 @@ export const startVideo = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }): Promise<ActionResult> => {
     const { supabase, userId } = context;
-    if (!(await featureEnabled(supabase, "videos_enabled")))
-      return { ok: false, status: 403, message: "Los videoclips están desactivados por ahora." };
     if (!falKey())
       return { ok: false, status: 503, message: falErrorMessage("FAL_NOT_CONFIGURED") };
 

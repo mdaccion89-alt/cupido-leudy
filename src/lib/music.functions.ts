@@ -95,7 +95,8 @@ function resolveModel(engine: EngineId | undefined): string {
 }
 
 export type ActionResult =
-  { ok: true; songId: string } | { ok: false; status: number; message: string };
+  | { ok: true; songId: string }
+  | { ok: false; status: number; message: string };
 
 function falAudioUrl(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
@@ -172,18 +173,6 @@ export const generateSong = createServerFn({ method: "POST" })
       throw new Error(
         `El texto contiene el término no permitido «${blockedTermLabel(blocked)}». No se han cobrado créditos.`,
       );
-
-    const { data: settings } = await supabase
-      .from("site_settings")
-      .select("songs_enabled")
-      .eq("id", 1)
-      .maybeSingle();
-    if (settings && !settings.songs_enabled)
-      return {
-        ok: false,
-        status: 403,
-        message: "La creación de canciones está desactivada por ahora.",
-      };
 
     if (data.mode === "admin_pro") {
       const { data: isAdmin } = await supabase.rpc("has_role", {

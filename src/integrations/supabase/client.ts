@@ -29,6 +29,64 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+type PendingHashSession = {
+  accessToken: string;
+  refreshToken: string;
+  cleanUrl: string;
+};
+
+function readHashSession(): PendingHashSession | null {
+  if (typeof window === "undefined") return null;
+  const hash = window.location.hash.replace(/^#/, "");
+  if (!hash.includes("access_token=")) return null;
+  const params = new URLSearchParams(hash);
+  const accessToken = params.get("access_token");
+  if (!accessToken) return null;
+  const refreshToken = params.get("refresh_token") ?? "";
+  for (const key of ["access_token", "refresh_token", "expires_in", "token_type", "type"]) {
+    params.delete(key);
+  }
+  const remaining = params.toString();
+  const cleanUrl = `${window.location.pathname}${window.location.search}${
+    remaining ? `#${remaining}` : ""
+  }`;
+  return { accessToken, refreshToken, cleanUrl };
+}
+
+const pendingHashSession = readHashSession();
+let hashSessionPromise: Promise<void> | null = null;
+
+function applyPendingHashSession() {
+  if (!pendingHashSession || !_supabase || hashSessionPromise) return;
+  hashSessionPromise = _supabase.auth
+    .setSession({
+      access_token: pendingHashSession.accessToken,
+      refresh_token: pendingHashSession.refreshToken,
+    })
+    .then(() => {
+      if (typeof window !== "undefined") {
+        window.history.replaceState(window.history.state, "", pendingHashSession.cleanUrl);
+      }
+    })
+    .catch(() => undefined);
+}
+
+function ensureSupabaseClient() {
+  if (!_supabase) {
+    _supabase = createSupabaseClient();
+    applyPendingHashSession();
+  }
+  return _supabase;
+}
+
+export async function getSupabaseAuthHeaders(): Promise<Record<string, string>> {
+  const client = ensureSupabaseClient();
+  if (hashSessionPromise) await hashSessionPromise;
+  const { data } = await client.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function createSupabaseClient() {
   const SUPABASE_URL = "https://grlypsxivgxrvahnjoay.supabase.co";
   const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_bUgEqmb5EU-m2AScbPTczg_0mSbxA17";
@@ -50,7 +108,10 @@ let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
 // import { supabase } from "@/integrations/supabase/client";
 export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
   get(_, prop, receiver) {
-    if (!_supabase) _supabase = createSupabaseClient();
+    if (!_supabase) {
+      _supabase = createSupabaseClient();
+      applyPendingHashSession();
+    }
     return Reflect.get(_supabase, prop, receiver);
   },
 });

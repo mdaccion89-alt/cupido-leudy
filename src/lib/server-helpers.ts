@@ -217,7 +217,7 @@ export async function falGet(url: string): Promise<{ status: number; body: unkno
   return { status: res.status, body };
 }
 
-export async function falWait(responseUrl: string, timeoutMs = 180_000): Promise<unknown> {
+export async function falWait(responseUrl: string, timeoutMs = 30 * 60_000): Promise<unknown> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const { status, body } = await falGet(responseUrl);
@@ -272,10 +272,6 @@ export async function geminiGenerate(
     }),
   );
   contents.push({ role: "user", parts: [{ text: user }] });
-  const timeoutSignal =
-    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(30_000)
-      : null;
   let response: Response;
   try {
     response = await fetch(
@@ -290,7 +286,6 @@ export async function geminiGenerate(
           systemInstruction: { parts: [{ text: system }] },
           contents,
         }),
-        signal: timeoutSignal,
       },
     );
   } catch {
