@@ -112,8 +112,8 @@ const apiAliases = {
   chat: apiFunctions["assistant-chat"],
 };
 
-const hfAudioProviderId =
-  process.env.HF_AUDIO_PROVIDER_ID ?? "fal-ai/stable-audio-3/medium/text-to-audio";
+const hfAudioModel =
+  process.env.HF_AUDIO_MODEL ?? process.env.HF_MUSIC_MODEL ?? "facebook/musicgen-small";
 const hfVideoProviderId =
   process.env.HF_VIDEO_PROVIDER_ID ?? "fal-ai/wan/v2.2-5b/text-to-video";
 const hfMaxWaitMs = 60 * 60_000;
@@ -481,6 +481,64 @@ function mediaExtension(contentType) {
   return "bin";
 }
 
+async function huggingFaceFreeAudio(prompt) {
+  const result = await httpsCall(
+    `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(hfAudioModel)}`,
+    {
+      method: "POST",
+      body: { inputs: prompt, parameters: { wait_for_model: true } },
+      headers: hfHeaders(),
+      timeout: 5 * 60_000,
+    },
+  );
+  if (!result.status.toString().startsWith("2")) {
+    throw new HfError(`Hugging Face respondió: ${hfMessage(result)}`, result.status);
+  }
+  const json = parseJson(result.buffer);
+  if (typeof json?.audio === "string") {
+    const base64 = json.audio.includes(",") ? json.audio.split(",").pop() : json.audio;
+    return { buffer: Buffer.from(base64, "base64"), contentType: "audio/mpeg" };
+  }
+  if (typeof json?.audio?.url === "string") return downloadHfMedia(json.audio.url);
+  if (typeof json?.audio_url === "string") return downloadHfMedia(json.audio_url);
+  if (result.buffer.length < 128) throw new HfError("Hugging Face no devolvió audio.");
+  return {
+    buffer: result.buffer,
+    contentType: result.headers["content-type"] ?? "audio/mpeg",
+  };
+}
+
+function synthesizeAudio(prompt) {
+  const sampleRate = 22050;
+  const samples = sampleRate * 12;
+  const pcm = Buffer.alloc(44 + samples * 2);
+  pcm.write("RIFF", 0);
+  pcm.writeUInt32LE(36 + samples * 2, 4);
+  pcm.write("WAVEfmt ", 8);
+  pcm.writeUInt32LE(16, 16);
+  pcm.writeUInt16LE(1, 20);
+  pcm.writeUInt16LE(1, 22);
+  pcm.writeUInt32LE(sampleRate, 24);
+  pcm.writeUInt32LE(sampleRate * 2, 28);
+  pcm.writeUInt16LE(2, 32);
+  pcm.writeUInt16LE(16, 34);
+  pcm.write("data", 36);
+  pcm.writeUInt32LE(samples * 2, 40);
+  let seed = 2166136261;
+  for (const char of prompt) seed = Math.imul(seed ^ char.codePointAt(0), 16777619) >>> 0;
+  const notes = [0, 3, 5, 7, 10, 12, 15, 17];
+  for (let i = 0; i < samples; i += 1) {
+    const t = i / sampleRate;
+    const note = notes[(seed + Math.floor(t * 3)) % notes.length];
+    const freq = 196 * 2 ** (note / 12);
+    const envelope = 0.3 * (1 - ((t * 3) % 1));
+    const wave = Math.sin(2 * Math.PI * freq * t) + 0.35 * Math.sin(4 * Math.PI * freq * t);
+    const value = Math.max(-1, Math.min(1, (envelope * wave) / 1.35));
+    pcm.writeInt16LE(Math.round(value * 32767), 44 + i * 2);
+  }
+  return { buffer: pcm, contentType: "audio/wav" };
+}
+
 function requestInput(req) {
   if (!Buffer.isBuffer(req.body) || !req.body.length) return {};
   try {
@@ -513,31 +571,43 @@ function handleHfGeneration(kind) {
     try {
       const input = requestInput(req);
       const prompt = kind === "audio" ? musicPrompt(input) : videoPrompt(input);
-      const providerId = kind === "audio" ? hfAudioProviderId : hfVideoProviderId;
-      const payload =
-        kind === "audio"
-          ? { prompt, duration: Number(input.duration) || 10 }
+      let media;
+      let source = "huggingface";
+      if (kind === "audio") {
+        try {
+          media = await huggingFaceFreeAudio(prompt);
+        } catch (error) {
+          console.error(
+            "proveedor de audio gratuito falló, usando sintetizador local",
+            error instanceof Error ? error.message : error,
+          );
+          media = synthesizeAudio(prompt);
+          source = "synthesizer";
+        }
+      } else {
+        const payload = {
+          prompt,
+          duration: Number(input.duration) || 5,
+          ...(Number.isFinite(Number(input.seed)) ? { seed: Number(input.seed) } : {}),
+        };
+        const started = await startHfQueue(hfVideoProviderId, payload);
+        const finalResult = (await pollHfQueue(started.json)) ?? started.result;
+        const finalJson = parseJson(finalResult.buffer);
+        const url = mediaUrl(finalJson, "video");
+        media = url
+          ? await downloadHfMedia(url)
           : {
-              prompt,
-              duration: Number(input.duration) || 5,
-              ...(Number.isFinite(Number(input.seed)) ? { seed: Number(input.seed) } : {}),
+              buffer: finalResult.buffer,
+              contentType: finalResult.headers["content-type"] ?? "application/octet-stream",
             };
-      const started = await startHfQueue(providerId, payload);
-      const finalResult = (await pollHfQueue(started.json)) ?? started.result;
-      const finalJson = parseJson(finalResult.buffer);
-      const url = mediaUrl(finalJson, kind);
-      const media = url
-        ? await downloadHfMedia(url)
-        : {
-            buffer: finalResult.buffer,
-            contentType: finalResult.headers["content-type"] ?? "application/octet-stream",
-          };
+      }
       const extension = mediaExtension(media.contentType);
       res.status(200).set({
         "Content-Type": media.contentType,
         "Content-Disposition": `inline; filename="leudy-${kind}-${Date.now()}.${extension}"`,
         "Cache-Control": "no-store",
         "X-Media-Type": media.contentType,
+        ...(kind === "audio" ? { "X-Audio-Source": source } : {}),
       });
       return res.send(media.buffer);
     } catch (error) {

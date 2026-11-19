@@ -94,7 +94,7 @@ export function SongTab({
   const [styles, setStyles] = useState<string[]>(["Reguetón"]);
   const [styleSearch, setStyleSearch] = useState("");
   const [stylesOpen, setStylesOpen] = useState(false);
-  const [engine, setEngine] = useState<EngineId>("v7-pro");
+  const [engine, setEngine] = useState<EngineId>("musicgen-free");
   const [creationMode, setCreationMode] = useState<CreationMode>("simple");
   const [voice, setVoice] = useState<VoiceType>("Masculina");
   const [instrumental, setInstrumental] = useState(false);

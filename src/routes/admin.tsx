@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { AiEnginesManager } from "@/components/admin/ai-engines-manager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -215,11 +216,12 @@ function AdminDashboard() {
       </div>
 
       <Tabs defaultValue="identidad">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
           <TabsTrigger value="identidad">Identidad</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
           <TabsTrigger value="revisiones">Revisiones</TabsTrigger>
           <TabsTrigger value="integraciones">Integraciones</TabsTrigger>
+          <TabsTrigger value="motores">Motores IA</TabsTrigger>
           <TabsTrigger value="distribuciones">Distribuciones</TabsTrigger>
         </TabsList>
 
@@ -695,6 +697,10 @@ function AdminDashboard() {
               </Button>
             </div>
           </section>
+        </TabsContent>
+
+        <TabsContent value="motores" className="mt-6">
+          <AiEnginesManager />
         </TabsContent>
 
         <TabsContent value="distribuciones" className="mt-6">

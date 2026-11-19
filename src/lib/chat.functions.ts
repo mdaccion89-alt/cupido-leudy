@@ -2,6 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { generateWithGateway } from "@/lib/ai-engine.functions";
 import { geminiGenerate } from "@/lib/server-helpers";
 
 type ChatHistoryMessage = {
@@ -14,7 +15,7 @@ type AssistantChatInput = {
   history?: ChatHistoryMessage[];
 };
 
-export type AssistantChatSource = "gemini" | "openai" | "offline";
+export type AssistantChatSource = "ai-engine" | "gemini" | "openai" | "offline";
 
 export type AssistantChatResult =
   | {
@@ -39,7 +40,7 @@ const MAX_TICKET_BODY_LENGTH = 2000;
 const TICKET_RATE_LIMIT = 5;
 const TICKET_RATE_WINDOW_MS = 60 * 60 * 1000;
 const ASSISTANT_SYSTEM =
-  'Tu identidad es exactamente "Thank You For Everything". Eres un asistente de IA cálido y profesional. Responde siempre en el MISMO idioma en que el usuario te escribe. Tienes experiencia global en música, marketing, inteligencia artificial, guiones, letras, prompts y soporte técnico. Puedes escribir letras, mejorar prompts y diagnosticar errores. No menciones secretos ni claves. No inventes APIs.';
+  'Tu identidad es "Asistente de Estudio" de Thank You For Everything. Eres un asistente de IA cálido y profesional. Responde siempre en el MISMO idioma en que el usuario te escribe. Tienes experiencia global en música, marketing, inteligencia artificial, guiones, letras, prompts y soporte técnico. Puedes escribir letras, mejorar prompts y diagnosticar errores. No menciones secretos ni claves. No inventes APIs.';
 
 const SUPPORT_TICKET_REGEX =
   /\berror\b|\bfallo\b|\bno funciona\b|\bbug\b|\bexception\b|\bfailed\b|\bproblema\b|\bsoporte\b|\bticket\b|error 403|error 404|error 500|error 429|\b403\b|\b404\b|\b500\b|\b429\b/i;
@@ -205,7 +206,11 @@ async function logSupportTicket(
   return (inserted.data as { id: string } | null)?.id;
 }
 
-async function runAssistantReply(message: string, history: ChatHistoryMessage[]) {
+async function runAssistantReply(
+  supabase: SupabaseClient<Database>,
+  message: string,
+  history: ChatHistoryMessage[],
+) {
   const wantsSupport = SUPPORT_TICKET_REGEX.test(message);
   const gemini = await geminiGenerate(ASSISTANT_SYSTEM, message, history);
   if (gemini.ok) {
@@ -214,6 +219,21 @@ async function runAssistantReply(message: string, history: ChatHistoryMessage[])
       source: "gemini" as const,
       reply,
       needsSupportTicket: wantsSupport || SUPPORT_TICKET_REGEX.test(reply),
+    };
+  }
+  const gateway = await generateWithGateway(supabase, {
+    functionKey: "text",
+    prompt: message,
+    messages: [
+      { role: "system", content: ASSISTANT_SYSTEM },
+      ...history.map((item) => ({ role: item.role, content: item.content })),
+    ],
+  });
+  if (gateway && "text" in gateway && gateway.text) {
+    return {
+      source: "ai-engine" as const,
+      reply: gateway.text,
+      needsSupportTicket: wantsSupport || SUPPORT_TICKET_REGEX.test(gateway.text),
     };
   }
   const openai = await generateWithOpenAI(message, history);
@@ -245,7 +265,11 @@ export const assistantChat = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data, context }): Promise<AssistantChatResult> => {
-    const generated = await runAssistantReply(data.message, data.history);
+    const generated = await runAssistantReply(
+      context.supabase as SupabaseClient<Database>,
+      data.message,
+      data.history,
+    );
     let ticketId: string | undefined;
     if (generated.needsSupportTicket) {
       ticketId = await logSupportTicket(

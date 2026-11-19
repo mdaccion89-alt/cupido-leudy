@@ -8,6 +8,133 @@ export type Database = {
   };
   public: {
     Tables: {
+      ai_engine_logs: {
+        Row: {
+          created_at: string;
+          error: string | null;
+          function_key: string;
+          id: string;
+          latency_ms: number | null;
+          model: string;
+          provider_key: string;
+          status: string;
+          user_id: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          error?: string | null;
+          function_key: string;
+          id?: string;
+          latency_ms?: number | null;
+          model: string;
+          provider_key: string;
+          status: string;
+          user_id?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          error?: string | null;
+          function_key?: string;
+          id?: string;
+          latency_ms?: number | null;
+          model?: string;
+          provider_key?: string;
+          status?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
+      ai_engine_routes: {
+        Row: {
+          created_at: string;
+          enabled: boolean;
+          function_key: string;
+          model: string;
+          priority: number;
+          provider_key: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          enabled?: boolean;
+          function_key: string;
+          model: string;
+          priority: number;
+          provider_key: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          enabled?: boolean;
+          function_key?: string;
+          model?: string;
+          priority?: number;
+          provider_key?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_engine_routes_provider_key_fkey";
+            columns: ["provider_key"];
+            isOneToOne: false;
+            referencedRelation: "ai_engine_settings";
+            referencedColumns: ["provider_key"];
+          },
+        ];
+      };
+      ai_engine_settings: {
+        Row: {
+          created_at: string;
+          enabled: boolean;
+          last_checked_at: string | null;
+          last_latency_ms: number | null;
+          model: string;
+          paid_authorized_at: string | null;
+          paid_authorized_by: string | null;
+          provider_key: string;
+          quota_snapshot: Json;
+          status: string;
+          status_detail: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          enabled?: boolean;
+          last_checked_at?: string | null;
+          last_latency_ms?: number | null;
+          model: string;
+          paid_authorized_at?: string | null;
+          paid_authorized_by?: string | null;
+          provider_key: string;
+          quota_snapshot?: Json;
+          status?: string;
+          status_detail?: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          enabled?: boolean;
+          last_checked_at?: string | null;
+          last_latency_ms?: number | null;
+          model?: string;
+          paid_authorized_at?: string | null;
+          paid_authorized_by?: string | null;
+          provider_key?: string;
+          quota_snapshot?: Json;
+          status?: string;
+          status_detail?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_engine_settings_paid_authorized_by_fkey";
+            columns: ["paid_authorized_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       creator_profiles: {
         Row: {
           avatar_url: string;

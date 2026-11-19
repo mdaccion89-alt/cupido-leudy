@@ -264,7 +264,7 @@ export async function geminiGenerate(
 ): Promise<GeminiGenerateResult> {
   const apiKey = process.env["GEMINI_API_KEY"]?.trim();
   if (!apiKey) return { ok: false, code: "GEMINI_NOT_CONFIGURED" };
-  const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.0-flash";
+  const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.5-flash";
   const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = history.map(
     (item) => ({
       role: item.role === "assistant" ? "model" : "user",

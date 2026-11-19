@@ -1,0 +1,14 @@
+{
+  "paths": {
+    "canvases": "./designs"
+  },
+  "scripts": {
+    "install": "cd .. && bun install && cd tempo && bun install",
+    "start": "npm run dev"
+  },
+  "apps": [
+    {
+      "start": "npm run dev -- --host 0.0.0.0"
+    }
+  ]
+}

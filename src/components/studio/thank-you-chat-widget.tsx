@@ -192,7 +192,7 @@ export function ThankYouChatWidget() {
                 />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Asistente IA 24/7 · cualquier idioma
+                Asistente de Estudio · Gemini · cualquier idioma
               </p>
             </div>
             <Button
@@ -212,8 +212,8 @@ export function ThankYouChatWidget() {
           >
             {messages.length === 0 && (
               <div className="rounded-lg border border-border bg-surface-raised/60 p-3 text-sm text-muted-foreground">
-                Hola, soy Thank You For Everything. Puedo ayudarte con música, marketing, IA,
-                guiones, letras, prompts y soporte técnico.
+                Hola, soy el Asistente de Estudio de Thank You For Everything. Puedo ayudarte con
+                música, marketing, IA, guiones, letras, prompts y soporte técnico.
               </div>
             )}
             {messages.map((m, idx) => (
@@ -225,20 +225,35 @@ export function ThankYouChatWidget() {
                     : "mr-auto max-w-[85%] rounded-2xl rounded-bl-md border border-border bg-surface-raised px-3 py-2 text-sm text-foreground"
                 }
               >
-                {m.role === "assistant" && (m.source === "offline" || m.source === "openai") && (
-                  <div className="mb-1">
-                    <span
-                      className="inline-flex rounded-md border border-border bg-background/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                      title={
-                        m.source === "offline"
-                          ? "Respuesta generada localmente"
-                          : "Respuesta usando proveedor alternativo"
-                      }
-                    >
-                      IA: {m.source === "offline" ? "offline" : "fallback"}
-                    </span>
-                  </div>
-                )}
+                {m.role === "assistant" &&
+                  (m.source === "offline" ||
+                    m.source === "openai" ||
+                    m.source === "gemini" ||
+                    m.source === "ai-engine") && (
+                    <div className="mb-1">
+                      <span
+                        className="inline-flex rounded-md border border-border bg-background/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                        title={
+                          m.source === "offline"
+                            ? "Respuesta generada localmente"
+                            : m.source === "gemini"
+                              ? "Respuesta usando Gemini con GEMINI_API_KEY"
+                              : m.source === "ai-engine"
+                                ? "Respuesta usando motores IA configurados"
+                                : "Respuesta usando proveedor alternativo"
+                        }
+                      >
+                        IA:{" "}
+                        {m.source === "offline"
+                          ? "offline"
+                          : m.source === "gemini"
+                            ? "gemini"
+                            : m.source === "ai-engine"
+                              ? "motores"
+                              : "fallback"}
+                      </span>
+                    </div>
+                  )}
                 <div>{m.content}</div>
                 {m.role === "assistant" && m.ticketId && (
                   <div className="mt-1 text-[11px] text-muted-foreground">

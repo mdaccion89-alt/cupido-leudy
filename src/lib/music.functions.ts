@@ -155,7 +155,7 @@ export const generateSong = createServerFn({ method: "POST" })
       bpm: input.bpm,
       duration: input.duration,
       mode: input.mode,
-      engine: input.engine ?? "v7-pro",
+      engine: input.engine ?? "musicgen-free",
       creationMode: input.creationMode ?? "simple",
       advanced,
     };

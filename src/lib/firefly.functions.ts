@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { Buffer } from "node:buffer";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { generateWithGateway } from "@/lib/ai-engine.functions";
 import { ADMIN_EMAIL, CREDIT_COSTS, creditErrorMessage, isPaidPlan } from "@/lib/credits";
 import { sanitizePrompt, titleFromPrompt } from "@/lib/music";
 import {
@@ -27,6 +28,7 @@ export const FIREFLY_IMAGE_PIXELS = {
 
 export const FIREFLY_IMAGE_PROVIDERS = [
   { value: "pollinations", label: "Pollinations (gratis)" },
+  { value: "engines", label: "Motores IA (gratis)" },
   { value: "huggingface", label: "Hugging Face FLUX" },
   { value: "fal", label: "Fal FLUX" },
 ] as const;
@@ -627,6 +629,8 @@ function providerFailure(error: unknown): FireflyFailure {
       status: code === "POLLINATIONS_429" ? 429 : 502,
       message: `Pollinations no pudo generar la imagen (${code.slice(13)}).`,
     };
+  if (code.startsWith("MOTOR_IA:"))
+    return { ok: false, status: 502, message: code.slice(9) };
   return { ok: false, status: 502, message: code || "No se pudo completar la generación." };
 }
 
@@ -823,23 +827,46 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
       };
     }
     const expiresAt = await expiresAtFor(context.supabase, context.userId, claimsFrom(context));
+    let engineModel = "ai-gateway";
     const model =
-      data.provider === "fal"
-        ? process.env["FAL_IMAGE_MODEL"]?.trim() || "fal-ai/flux/dev"
-        : data.provider === "huggingface"
-          ? process.env["HF_IMAGE_MODEL"]?.trim() || "black-forest-labs/FLUX.1-schnell"
-          : "pollinations/image";
+      data.provider === "engines"
+        ? engineModel
+        : data.provider === "fal"
+          ? process.env["FAL_IMAGE_MODEL"]?.trim() || "fal-ai/flux/dev"
+          : data.provider === "huggingface"
+            ? process.env["HF_IMAGE_MODEL"]?.trim() || "black-forest-labs/FLUX.1-schnell"
+            : "pollinations/image";
+    const gatewayImage = async (): Promise<DownloadedMedia> => {
+      const { width, height } = FIREFLY_IMAGE_PIXELS[data.imageSize];
+      const result = await generateWithGateway(context.supabase, {
+        functionKey: "image",
+        prompt: resolved,
+        width,
+        height,
+        seed: data.seed,
+      });
+      if (!result || !("imageBase64" in result) || !result.imageBase64) {
+        throw new Error("MOTOR_IA: No hay motores IA activos y probados para generar imágenes.");
+      }
+      engineModel = `${result.providerKey}:${result.model}`;
+      return {
+        bytes: new Uint8Array(Buffer.from(result.imageBase64, "base64")),
+        contentType: result.mimeType || "image/png",
+      };
+    };
     const produce =
-      data.provider === "fal"
-        ? await falMedia(model, {
-            prompt: resolved,
-            image_size: data.imageSize,
-            ...(data.seed !== undefined ? { seed: data.seed } : {}),
-          })
-        : data.provider === "huggingface"
-          ? async () => huggingFaceImage(resolved, data.imageSize, data.seed)
-          : async () => pollinationsImage(resolved, data.imageSize, data.seed);
-    return runFirefly(context.supabase, context.userId, {
+      data.provider === "engines"
+        ? gatewayImage
+        : data.provider === "fal"
+          ? await falMedia(model, {
+              prompt: resolved,
+              image_size: data.imageSize,
+              ...(data.seed !== undefined ? { seed: data.seed } : {}),
+            })
+          : data.provider === "huggingface"
+            ? async () => huggingFaceImage(resolved, data.imageSize, data.seed)
+            : async () => pollinationsImage(resolved, data.imageSize, data.seed);
+    const result = await runFirefly(context.supabase, context.userId, {
       kind: "image",
       model,
       cost: CREDIT_COSTS.song,
@@ -851,6 +878,10 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
       expiresAt,
       produce,
     });
+    if (result.ok && engineModel !== "ai-gateway") {
+      await admin.from("songs").update({ external_model: engineModel }).eq("id", result.songId);
+    }
+    return result;
   });
 
 export const beginFireflyVideo = createServerFn({ method: "POST" })
