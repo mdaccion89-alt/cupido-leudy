@@ -479,80 +479,52 @@ function mediaExtension(contentType) {
   return "bin";
 }
 
-const gradioMusicSpaces = ["facebook/MusicGen", "haoheliu/audioldm2"];
-
-function gradioFileUrl(value) {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    for (const key of ["url", "path", "name"]) {
-      if (typeof value[key] === "string" && value[key]) return value[key];
-    }
-  }
-  return undefined;
-}
-
-function gradioArgs(parameters, prompt) {
-  if (!Array.isArray(parameters) || !parameters.length) return [prompt];
-  return parameters.map((parameter) => {
-    const name = String(parameter?.parameter_name ?? "").toLowerCase();
-    if (/prompt|text|description|caption|input/.test(name)) return prompt;
-    if (/duration|length|seconds/.test(name)) return 10;
-    if (/seed/.test(name)) return 0;
-    return parameter?.parameter_has_default ? parameter.parameter_default : null;
-  });
-}
-
-async function runGradioMusic(space, prompt) {
-  const { Client } = await import("@gradio/client");
-  const app = await Client.connect(space);
-  let endpoint = "/predict";
-  let args = [prompt];
-  try {
-    const api = await app.view_api();
-    const endpoints = api?.named_endpoints ?? {};
-    const names = Object.keys(endpoints);
-    if (names.length) {
-      endpoint = names.includes("/predict") ? "/predict" : names[0];
-      args = gradioArgs(endpoints[endpoint]?.parameters, prompt);
-    }
-  } catch (error) {
-    console.error(
-      `No se pudo leer la API de ${space}`,
-      error instanceof Error ? error.message : error,
-    );
-  }
-  const result = await app.predict(endpoint, args);
-  for (const item of Array.isArray(result?.data) ? result.data : []) {
-    const url = gradioFileUrl(item);
-    if (!url) continue;
-    const absolute = /^https?:\/\//.test(url)
-      ? url
-      : `https://${space.replace("/", "-").toLowerCase()}.hf.space${url.startsWith("/") ? "" : "/"}${url}`;
-    const response = await fetch(absolute);
-    if (!response.ok) continue;
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (!buffer.length) continue;
-    return {
-      buffer,
-      contentType: response.headers.get("content-type") ?? "audio/wav",
-    };
-  }
-  throw new HfError(`${space} no devolvió audio.`);
-}
+const MUSICGEN_SPACE = "https://patgpt4-musicgen.hf.space";
 
 async function gradioMusic(prompt) {
-  let lastError;
-  for (const space of gradioMusicSpaces) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  try {
+    const sessionHash = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    const response = await fetch(`${MUSICGEN_SPACE}/run/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fn_index: 1,
+        data: ["small", prompt.slice(0, 512), null, 10, 250, 0, 1, 3],
+        event_data: null,
+        session_hash: sessionHash,
+      }),
+      signal: controller.signal,
+    });
+    const raw = await response.text();
+    if (!response.ok) throw new HfError(`El Space de MusicGen respondió ${response.status}.`);
+    let result;
     try {
-      return await runGradioMusic(space, prompt);
-    } catch (error) {
-      lastError = error;
-      console.error(`Gradio ${space} falló`, error instanceof Error ? error.message : error);
+      result = JSON.parse(raw);
+    } catch {
+      throw new HfError("El Space de MusicGen devolvió una respuesta inválida.");
     }
+    const first = Array.isArray(result?.data?.[0]) ? result.data[0][0] : result?.data?.[0];
+    const name =
+      first && typeof first === "object" && typeof first.name === "string"
+        ? first.name
+        : typeof first === "string"
+          ? first
+          : "";
+    if (!name.startsWith("/tmp/gradio/") || !name.endsWith(".mp4"))
+      throw new HfError("El Space de MusicGen no devolvió audio.");
+
+    const fileResponse = await fetch(`${MUSICGEN_SPACE}/file=${name}`, {
+      signal: controller.signal,
+    });
+    if (!fileResponse.ok) throw new HfError("No se pudo descargar el audio generado.");
+    const buffer = Buffer.from(await fileResponse.arrayBuffer());
+    if (!buffer.length) throw new HfError("El Space de MusicGen devolvió un archivo vacío.");
+    return { buffer, contentType: "video/mp4" };
+  } finally {
+    clearTimeout(timeout);
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new HfError("Los motores gratuitos de música no respondieron.");
 }
 
 function requestInput(req) {

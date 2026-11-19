@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { findBlockedTerm } from "./copyright";
@@ -27,7 +28,14 @@ import {
   type StudioMode,
   type VoiceType,
 } from "./music";
-import { geminiErrorMessage, geminiText, getAdminClient } from "./server-helpers";
+import {
+  failCreation,
+  generateMusicgenAudio,
+  geminiErrorMessage,
+  geminiText,
+  getAdminClient,
+  type GeneratedAudio,
+} from "./server-helpers";
 
 type GenerateInput = {
   prompt: string;
@@ -120,6 +128,8 @@ export type GenerateSongResult =
       lyrics: string;
       chords: string;
       structure: string;
+      audioBase64: string;
+      mediaType: string;
     }
   | { ok: false; status: number; message: string };
 
@@ -243,10 +253,10 @@ export const generateSong = createServerFn({ method: "POST" })
         voice_type: data.voice,
         bpm: data.bpm,
         duration_seconds: data.duration,
-        status: "ready",
-        media_type: "audio/wav",
+        status: "generating",
+        media_type: "video/mp4",
         credits_spent: spent,
-        external_model: "gemini-2.5-flash",
+        external_model: "MusicGen Free (patgpt4)",
       })
       .select("id")
       .single();
@@ -261,6 +271,49 @@ export const generateSong = createServerFn({ method: "POST" })
       return { ok: false, status: 500, message: "No se pudo guardar la canción." };
     }
 
+    let generated: GeneratedAudio;
+    try {
+      generated = await generateMusicgenAudio(musicPrompt);
+    } catch (error) {
+      console.error("musicgen free failed", error);
+      const message =
+        "El motor gratuito de MusicGen no respondió. Te devolvimos los créditos; inténtalo de nuevo.";
+      await failCreation(admin, song.id, userId, message);
+      return { ok: false, status: 502, message };
+    }
+    if (!generated.bytes.length) {
+      const message = "El motor gratuito de MusicGen no devolvió audio.";
+      await failCreation(admin, song.id, userId, message);
+      return { ok: false, status: 502, message };
+    }
+
+    const path = `${userId}/${song.id}.${generated.extension}`;
+    const { error: uploadError } = await admin.storage
+      .from("songs")
+      .upload(path, generated.bytes, { contentType: generated.contentType, upsert: true });
+    if (uploadError) {
+      console.error("song upload failed", uploadError);
+      const message = "La canción se generó pero no se pudo guardar. Te devolvimos los créditos.";
+      await failCreation(admin, song.id, userId, message);
+      return { ok: false, status: 500, message };
+    }
+
+    const { error: updateError } = await admin
+      .from("songs")
+      .update({
+        status: "ready",
+        storage_path: path,
+        media_type: generated.contentType,
+        error: null,
+      })
+      .eq("id", song.id);
+    if (updateError) {
+      console.error("song update failed", updateError);
+      const message = "La canción se generó pero no se pudo publicar.";
+      await failCreation(admin, song.id, userId, message);
+      return { ok: false, status: 500, message };
+    }
+
     return {
       ok: true,
       songId: song.id,
@@ -271,6 +324,8 @@ export const generateSong = createServerFn({ method: "POST" })
       lyrics: text.letra,
       chords: text.acordes,
       structure: text.estructura,
+      audioBase64: Buffer.from(generated.bytes).toString("base64"),
+      mediaType: generated.contentType,
     };
   });
 

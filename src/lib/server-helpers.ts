@@ -36,7 +36,7 @@ export async function failCreation(admin: Db, songId: string, userId: string, me
 export type GeneratedAudio = {
   bytes: Uint8Array;
   contentType: string;
-  extension: "mp3" | "wav";
+  extension: "mp3" | "wav" | "mp4";
 };
 
 export function audioFromBytes(bytes: Uint8Array, contentType: string): GeneratedAudio {
@@ -47,6 +47,49 @@ export function audioFromBytes(bytes: Uint8Array, contentType: string): Generate
     contentType: isWav ? "audio/wav" : isMp3 ? "audio/mpeg" : contentType || "audio/mpeg",
     extension: isWav ? "wav" : "mp3",
   };
+}
+
+const MUSICGEN_SPACE = "https://patgpt4-musicgen.hf.space";
+
+export async function generateMusicgenAudio(prompt: string): Promise<GeneratedAudio> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  try {
+    const sessionHash = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    const response = await fetch(`${MUSICGEN_SPACE}/run/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fn_index: 1,
+        data: ["small", prompt.slice(0, 512), null, 10, 250, 0, 1, 3],
+        event_data: null,
+        session_hash: sessionHash,
+      }),
+      signal: controller.signal,
+    });
+    const raw = await response.text();
+    if (!response.ok) throw new Error(`SPACE_${response.status}: ${raw.slice(0, 160)}`);
+    const result = JSON.parse(raw) as { data?: unknown[] };
+    const first = Array.isArray(result.data?.[0]) ? result.data[0][0] : result.data?.[0];
+    const name =
+      first && typeof first === "object" && "name" in first
+        ? String((first as { name?: unknown }).name ?? "")
+        : typeof first === "string"
+          ? first
+          : "";
+    if (!name.startsWith("/tmp/gradio/") || !name.endsWith(".mp4"))
+      throw new Error("SPACE_NO_AUDIO");
+
+    const fileResponse = await fetch(`${MUSICGEN_SPACE}/file=${name}`, {
+      signal: controller.signal,
+    });
+    if (!fileResponse.ok) throw new Error(`DOWNLOAD_${fileResponse.status}`);
+    const bytes = new Uint8Array(await fileResponse.arrayBuffer());
+    if (!bytes.length) throw new Error("EMPTY_AUDIO");
+    return { bytes, contentType: "video/mp4", extension: "mp4" };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function hfTokens(): string[] {

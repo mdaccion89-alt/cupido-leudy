@@ -77,126 +77,6 @@ function cleanStyle(value: string): string {
     .slice(0, 60);
 }
 
-function hashText(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash);
-}
-
-function profileFor(genre: string): {
-  scale: number[];
-  wave: OscillatorType;
-  bass: OscillatorType;
-  kick: boolean;
-} {
-  const value = genre.toLowerCase();
-  if (/reguet|dembow|trap|hip hop|drill|r&b/.test(value))
-    return { scale: [0, 3, 5, 7, 10], wave: "square", bass: "sine", kick: true };
-  if (/bachata|balada|pop|rock|corrido|gospel/.test(value))
-    return { scale: [0, 2, 4, 5, 7, 9, 11], wave: "triangle", bass: "triangle", kick: true };
-  if (/salsa|merengue|afrobeat|dance|house/.test(value))
-    return { scale: [0, 2, 4, 5, 7, 9, 11], wave: "sawtooth", bass: "triangle", kick: true };
-  if (/jazz|lo-fi|lofi/.test(value))
-    return { scale: [0, 2, 3, 5, 7, 9, 10], wave: "sine", bass: "sine", kick: false };
-  return { scale: [0, 3, 5, 7, 10], wave: "sawtooth", bass: "triangle", kick: true };
-}
-
-function writeAscii(view: DataView, offset: number, value: string): void {
-  for (let index = 0; index < value.length; index += 1)
-    view.setUint8(offset + index, value.charCodeAt(index));
-}
-
-function encodeWav(buffer: AudioBuffer): Blob {
-  const samples = buffer.getChannelData(0);
-  const dataSize = samples.length * 2;
-  const arrayBuffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(arrayBuffer);
-  writeAscii(view, 0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(view, 8, "WAVE");
-  writeAscii(view, 12, "fmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, buffer.sampleRate, true);
-  view.setUint32(28, buffer.sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(view, 36, "data");
-  view.setUint32(40, dataSize, true);
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
-    view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-  }
-  return new Blob([arrayBuffer], { type: "audio/wav" });
-}
-
-async function synthesizeSong(options: {
-  genre: string;
-  bpm: number;
-  duration: number;
-  seed: string;
-}): Promise<Blob> {
-  const seconds = Math.max(8, Math.min(options.duration, 60));
-  const sampleRate = 22050;
-  const context = new OfflineAudioContext(1, Math.floor(sampleRate * seconds), sampleRate);
-  const profile = profileFor(options.genre);
-  const seed = hashText(`${options.seed}|${options.genre}`);
-  const beat = 60 / Math.max(60, Math.min(200, options.bpm));
-  const step = beat / 2;
-  const root = 196 * Math.pow(2, ((seed % 3) - 1) / 12);
-  const totalSteps = Math.floor(seconds / step);
-
-  for (let index = 0; index < totalSteps; index += 1) {
-    const time = index * step;
-    const degree = profile.scale[(index * 2 + Math.floor(seed / 7)) % profile.scale.length] ?? 0;
-    const octave = index % 8 >= 6 ? 12 : 0;
-    const frequency = root * Math.pow(2, (degree + octave) / 12);
-    const note = context.createOscillator();
-    note.type = profile.wave;
-    note.frequency.setValueAtTime(frequency, time);
-    const noteGain = context.createGain();
-    noteGain.gain.setValueAtTime(0.0001, time);
-    noteGain.gain.exponentialRampToValueAtTime(0.14, time + 0.02);
-    noteGain.gain.exponentialRampToValueAtTime(0.0001, time + step * 0.85);
-    note.connect(noteGain).connect(context.destination);
-    note.start(time);
-    note.stop(Math.min(seconds, time + step));
-
-    if (index % 4 === 0) {
-      const bass = context.createOscillator();
-      bass.type = profile.bass;
-      bass.frequency.setValueAtTime(root / 2, time);
-      const bassGain = context.createGain();
-      bassGain.gain.setValueAtTime(0.0001, time);
-      bassGain.gain.exponentialRampToValueAtTime(0.26, time + 0.03);
-      bassGain.gain.exponentialRampToValueAtTime(0.0001, time + beat * 1.6);
-      bass.connect(bassGain).connect(context.destination);
-      bass.start(time);
-      bass.stop(Math.min(seconds, time + beat * 1.8));
-
-      if (profile.kick) {
-        const kick = context.createOscillator();
-        kick.type = "sine";
-        kick.frequency.setValueAtTime(130, time);
-        kick.frequency.exponentialRampToValueAtTime(45, time + 0.14);
-        const kickGain = context.createGain();
-        kickGain.gain.setValueAtTime(0.0001, time);
-        kickGain.gain.exponentialRampToValueAtTime(0.38, time + 0.01);
-        kickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.16);
-        kick.connect(kickGain).connect(context.destination);
-        kick.start(time);
-        kick.stop(Math.min(seconds, time + 0.17));
-      }
-    }
-  }
-
-  return encodeWav(await context.startRendering());
-}
-
 type SongPreview = {
   songId: string;
   title: string;
@@ -287,7 +167,7 @@ export function SongTab({
         throw new Error(
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
-      onPendingChange(true, "Componiendo tu canción…");
+      onPendingChange(true, "Componiendo tu canción con MusicGen…");
       const result = await generateFn({
         data: {
           prompt,
@@ -304,13 +184,10 @@ export function SongTab({
         },
       });
       if (!result.ok) throw new Error(result.message);
-      const mediaType = "audio/wav";
-      const blob = await synthesizeSong({
-        genre: result.genre || genre,
-        bpm: result.bpm || bpm,
-        duration: result.duration || duration,
-        seed: `${result.title}${result.songId}`,
-      });
+      if (!result.audioBase64) throw new Error("El motor de música no devolvió audio.");
+      const mediaType = result.mediaType || "video/mp4";
+      const response = await fetch(`data:${mediaType};base64,${result.audioBase64}`);
+      const blob = await response.blob();
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
@@ -645,9 +522,9 @@ export function SongTab({
           <Button asChild variant="glass" size="sm">
             <a
               href={preview.url}
-              download={`${preview.title.replace(/[\\/:*?"<>|]/g, "") || "leudy-ia"}.wav`}
+              download={`${preview.title.replace(/[\\/:*?"<>|]/g, "") || "leudy-ia"}.mp4`}
             >
-              Descargar .wav
+              Descargar .mp4
             </a>
           </Button>
           <div className="space-y-1">
