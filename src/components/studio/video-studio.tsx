@@ -25,6 +25,7 @@ import {
   FIREFLY_ACCENTS,
   FIREFLY_CAMERA_MOVEMENTS,
   FIREFLY_COUNTRIES,
+  FIREFLY_IMAGE_PIXELS,
   FIREFLY_IMAGE_PROVIDERS,
   FIREFLY_IMAGE_SIZES,
   FIREFLY_LANGUAGES,
@@ -32,6 +33,7 @@ import {
   FIREFLY_VOICE_STYLES,
   generateFireflyImage,
   generateFireflyVoice,
+  saveFireflyImageHistory,
   type FireflyAsset,
   type FireflyImageProvider,
   type FireflyImageSize,
@@ -79,6 +81,91 @@ function appendToken(current: string, name: string): string {
   return `${current}${current && !current.endsWith(" ") ? " " : ""}${token}`;
 }
 
+const DIRECT_IMAGE_TIMEOUT_MS = 15_000;
+
+function isFreeImageProvider(provider: FireflyImageProvider): boolean {
+  return provider === "pollinations" || provider === "engines";
+}
+
+function buildPollinationsUrl(options: {
+  prompt: string;
+  width: number;
+  height: number;
+  seed: number;
+  model: string | null;
+}): string {
+  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(options.prompt)}`;
+  if (!options.model) return base;
+  const query = new URLSearchParams({
+    width: String(options.width),
+    height: String(options.height),
+    seed: String(options.seed),
+    nologo: "true",
+    model: options.model,
+  });
+  return `${base}?${query.toString()}`;
+}
+
+function loadImage(url: string, crossOrigin: boolean): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    if (crossOrigin) img.crossOrigin = "anonymous";
+    const timer = setTimeout(() => {
+      img.onload = null;
+      img.onerror = null;
+      reject(new Error("timeout"));
+    }, DIRECT_IMAGE_TIMEOUT_MS);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(url);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("error"));
+    };
+    img.src = url;
+  });
+}
+
+async function preloadImage(url: string): Promise<string> {
+  try {
+    return await loadImage(url, true);
+  } catch (error) {
+    if (error instanceof Error && error.message === "timeout") throw error;
+    return loadImage(url, false);
+  }
+}
+
+async function generateDirectImage(options: {
+  prompt: string;
+  width: number;
+  height: number;
+  seed: number;
+  provider: FireflyImageProvider;
+}): Promise<string> {
+  const primary = options.provider === "engines" ? "turbo" : "flux";
+  const base = {
+    prompt: options.prompt,
+    width: options.width,
+    height: options.height,
+    seed: options.seed,
+  };
+  const urls = [
+    buildPollinationsUrl({ ...base, model: primary }),
+    buildPollinationsUrl({ ...base, model: "sdxl" }),
+    buildPollinationsUrl({ ...base, model: null }),
+  ];
+  let lastError: unknown;
+  for (const url of urls) {
+    try {
+      return await preloadImage(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Pollinations no respondió.");
+}
+
 export type VideoStudioProps = {
   signedIn: boolean;
   requireSignIn: () => void;
@@ -98,6 +185,7 @@ export function VideoStudio({
   const uid = userId ?? session?.user.id ?? null;
   const imageFn = useServerFn(generateFireflyImage);
   const voiceFn = useServerFn(generateFireflyVoice);
+  const historyFn = useServerFn(saveFireflyImageHistory);
 
   const [tab, setTab] = useState("image");
   const [imagePrompt, setImagePrompt] = useState("");
@@ -105,6 +193,7 @@ export function VideoStudio({
   const [imageProvider, setImageProvider] = useState<FireflyImageProvider>("pollinations");
   const [imageSeed, setImageSeed] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [directImages, setDirectImages] = useState<string[]>([]);
   const [videoPrompt, setVideoPrompt] = useState("");
   const [scenes, setScenes] = useState<FireflyScene[]>([{ text: "", seconds: 5 }]);
   const [cameraMovement, setCameraMovement] = useState("static");
@@ -160,8 +249,20 @@ export function VideoStudio({
     setProgress((current) => ({ ...current, active: false, progress: 1 }));
 
   const imageMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<{ url: string; direct: boolean; seed?: number }> => {
       if (imageActive > 3) throw new Error("Máximo 3 elementos activos por prompt (@nombre).");
+      if (isFreeImageProvider(imageProvider)) {
+        const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
+        const seed = parseSeed(imageSeed) ?? Math.floor(Math.random() * 999_999);
+        const url = await generateDirectImage({
+          prompt: imagePrompt,
+          width,
+          height,
+          seed,
+          provider: imageProvider,
+        });
+        return { url, direct: true, seed };
+      }
       const result = await imageFn({
         data: {
           prompt: imagePrompt,
@@ -172,11 +273,26 @@ export function VideoStudio({
         },
       });
       if (!result.ok) throw new Error(result.message);
-      return result;
+      return { url: result.url, direct: false };
     },
-    onMutate: () => startProgress("Generando imagen…", 35),
+    onMutate: () =>
+      startProgress("Generando imagen…", isFreeImageProvider(imageProvider) ? 15 : 35),
     onSuccess: (result) => {
       setImageUrl(result.url);
+      if (result.direct) {
+        setDirectImages((current) =>
+          [result.url, ...current.filter((item) => item !== result.url)].slice(0, 6),
+        );
+        void historyFn({
+          data: {
+            prompt: imagePrompt,
+            imageUrl: result.url,
+            imageSize,
+            provider: imageProvider,
+            seed: result.seed,
+          },
+        }).catch(() => undefined);
+      }
       toast.success("Imagen lista.");
     },
     onError: (error) =>
@@ -393,7 +509,9 @@ export function VideoStudio({
             {imageMutation.isPending
               ? "Generando imagen…"
               : signedIn
-                ? `Generar Imagen · ${CREDIT_COSTS.song} crédito`
+                ? isFreeImageProvider(imageProvider)
+                  ? "Generar Imagen · Gratis"
+                  : `Generar Imagen · ${CREDIT_COSTS.song} crédito`
                 : "Inicia sesión para generar"}
           </Button>
 
@@ -408,6 +526,28 @@ export function VideoStudio({
               <p className="text-xs text-muted-foreground">
                 El enlace de descarga caduca en 1 hora{isAdmin ? "" : " y el archivo en 48 horas"}.
               </p>
+            </div>
+          )}
+
+          {directImages.length > 0 && (
+            <div className={cardClass}>
+              <p className="font-display text-sm">Galería reciente</p>
+              <div className="grid grid-cols-3 gap-3">
+                {directImages.map((url) => (
+                  <button
+                    key={url}
+                    type="button"
+                    className="overflow-hidden rounded-lg border border-border"
+                    onClick={() => setImageUrl(url)}
+                  >
+                    <img
+                      src={url}
+                      alt="Imagen generada"
+                      className="h-24 w-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </TabsContent>

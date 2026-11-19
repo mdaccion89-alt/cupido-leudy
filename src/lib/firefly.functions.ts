@@ -217,6 +217,13 @@ export type FireflyImageInput = {
   seed?: number | undefined;
   assets?: FireflyAsset[];
 };
+export type FireflyImageHistoryInput = {
+  prompt: string;
+  imageUrl: string;
+  imageSize: string;
+  provider?: string;
+  seed?: number | undefined;
+};
 export type FireflyVideoInput = {
   prompt: string;
   scenes: FireflyScene[];
@@ -486,21 +493,36 @@ async function pollinationsImage(
   prompt: string,
   imageSize: FireflyImageSize,
   seed: number | undefined,
+  model = "flux",
 ): Promise<DownloadedMedia> {
   const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
-  const query = new URLSearchParams({
-    width: String(width),
-    height: String(height),
-    nologo: "true",
-  });
-  if (seed !== undefined) query.set("seed", String(seed));
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${query}`;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`POLLINATIONS_${response.status}`);
-  const contentType = (response.headers.get("content-type") ?? "").split(";")[0] ?? "";
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (!bytes.byteLength) throw new Error("POLLINATIONS_EMPTY");
-  return { bytes, contentType: contentType || "image/jpeg" };
+  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+  const attempts: string[] = [];
+  for (const candidate of [model, "sdxl"]) {
+    const query = new URLSearchParams({
+      width: String(width),
+      height: String(height),
+      nologo: "true",
+      model: candidate,
+    });
+    if (seed !== undefined) query.set("seed", String(seed));
+    attempts.push(`${base}?${query.toString()}`);
+  }
+  attempts.push(base);
+  let lastError: unknown;
+  for (const url of attempts) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`POLLINATIONS_${response.status}`);
+      const contentType = (response.headers.get("content-type") ?? "").split(";")[0] ?? "";
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!bytes.byteLength) throw new Error("POLLINATIONS_EMPTY");
+      return { bytes, contentType: contentType || "image/jpeg" };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("POLLINATIONS_FAILED");
 }
 
 function hfDetail(status: number, raw: string): string {
@@ -867,7 +889,7 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
             ? async () => huggingFaceImage(resolved, data.imageSize, data.seed)
             : async () => {
                 try {
-                  return await pollinationsImage(resolved, data.imageSize, data.seed);
+                  return await pollinationsImage(resolved, data.imageSize, data.seed, "flux");
                 } catch (error) {
                   console.error("Pollinations falló, usando motores IA", error);
                   return gatewayImage();
@@ -889,6 +911,70 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
       await admin.from("songs").update({ external_model: engineModel }).eq("id", result.songId);
     }
     return result;
+  });
+
+export const saveFireflyImageHistory = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: FireflyImageHistoryInput) => {
+    const prompt = validatePrompt(input?.prompt, "Describe la imagen que quieres crear.");
+    const imageUrl = typeof input?.imageUrl === "string" ? input.imageUrl.trim() : "";
+    if (!/^https:\/\/image\.pollinations\.ai\//i.test(imageUrl))
+      throw new Error("La imagen directa no es válida.");
+    const size = input?.imageSize as FireflyImageSize;
+    const imageSize = FIREFLY_IMAGE_SIZES.includes(size) ? size : "16:9";
+    const seed = validateSeed(input?.seed);
+    const provider = input?.provider === "engines" ? "engines" : "pollinations";
+    return { prompt, imageUrl, imageSize, seed, provider };
+  })
+  .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
+    try {
+      const admin = await getAdminClient();
+      const { data: row, error } = await admin
+        .from("songs")
+        .insert({
+          user_id: context.userId,
+          kind: "image",
+          title: titleFromPrompt(data.prompt),
+          prompt: data.prompt,
+          genre: "firefly",
+          duration_seconds: 0,
+          status: "generating",
+          media_type: "image/jpeg",
+          credits_spent: 0,
+          external_model: data.provider === "engines" ? "pollinations/turbo" : "pollinations/flux",
+        })
+        .select("id")
+        .single();
+      if (error || !row) return { ok: false };
+      try {
+        const response = await fetch(data.imageUrl);
+        if (!response.ok) throw new Error(`POLLINATIONS_${response.status}`);
+        const contentType = (response.headers.get("content-type") ?? "").split(";")[0] ?? "";
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (!bytes.byteLength) throw new Error("POLLINATIONS_EMPTY");
+        const { extension, mediaType } = mediaKindFor("image", contentType);
+        const path = `${context.userId}/${row.id}.${extension}`;
+        const { error: uploadError } = await admin.storage
+          .from("songs")
+          .upload(path, bytes, { contentType: mediaType, upsert: true });
+        if (uploadError) throw uploadError;
+        await admin
+          .from("songs")
+          .update({ status: "ready", storage_path: path, media_type: mediaType, error: null })
+          .eq("id", row.id);
+        return { ok: true };
+      } catch (error) {
+        console.error("no se pudo guardar la imagen directa", error);
+        await admin
+          .from("songs")
+          .update({ status: "failed", error: "No se pudo guardar la imagen." })
+          .eq("id", row.id);
+        return { ok: false };
+      }
+    } catch (error) {
+      console.error("save direct image history failed", error);
+      return { ok: false };
+    }
   });
 
 export const beginFireflyVideo = createServerFn({ method: "POST" })
