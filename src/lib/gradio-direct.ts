@@ -4,6 +4,7 @@ export const HF_SPACES = {
   flux: "black-forest-labs/FLUX.1-schnell",
   wan21: "Wan-AI/Wan2.1-T2V-1.3B",
   ltxVideo: "Lightricks/LTX-Video",
+  musicGen: "facebook/MusicGen",
 } as const;
 
 export const VIDEO_SPACES = [HF_SPACES.wan21, HF_SPACES.ltxVideo] as const;
@@ -117,6 +118,14 @@ function parameterValue(parameter: GradioParameter, context: DirectContext): unk
   if (/batchsize/.test(key)) return 1;
   if (/timesignature/.test(key)) return "4";
   if (/keyscale|key/.test(key)) return "";
+  return parameter.parameter_default ?? null;
+}
+
+function videoParameterValue(parameter: GradioParameter, context: DirectContext): unknown {
+  const component = (parameter.component ?? "").toLowerCase();
+  if (/^(image|file|upload|video|audio)$/.test(component)) return null;
+  const value = parameterValue(parameter, context);
+  if (value !== null && value !== undefined) return value;
   return parameter.parameter_default ?? null;
 }
 
@@ -324,7 +333,11 @@ export async function generateDirectFile(options: {
     const data =
       options.rawParams ??
       (parameters.length
-        ? parameters.map((parameter) => parameterValue(parameter, options.context))
+        ? parameters.map((parameter) =>
+            options.kind === "video"
+              ? videoParameterValue(parameter, options.context)
+              : parameterValue(parameter, options.context),
+          )
         : (options.fallbackParams ?? []));
     const prediction = await client.predict(
       /^\d+$/.test(endpoint) ? Number(endpoint) : endpoint,
@@ -333,6 +346,24 @@ export async function generateDirectFile(options: {
     const location = locateMedia(prediction?.data, options.kind);
     if (!location) throw new Error("NO_OUTPUT_FILE");
     return await downloadMedia(location, client, options.space, options.kind);
+  } finally {
+    try {
+      client.close();
+    } catch {}
+  }
+}
+
+export async function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
+  const prompt = context.instrumental ? `${context.prompt} [inst]` : context.prompt;
+  const client = await Client.connect("facebook/MusicGen", {
+    hf_token: import.meta.env.VITE_HF_TOKEN as string,
+  });
+  try {
+    const prediction = await client.predict("/predict", [prompt, null]);
+    const location = locateMedia(prediction?.data, "audio");
+    if (!location) throw new Error("NO_OUTPUT_FILE");
+    const file = await downloadMedia(location, client, HF_SPACES.musicGen, "audio");
+    return { ...file, url: URL.createObjectURL(file.blob) };
   } finally {
     try {
       client.close();
