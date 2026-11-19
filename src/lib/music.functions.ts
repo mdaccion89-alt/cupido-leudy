@@ -132,6 +132,141 @@ async function songText(prompt: string, instrumental: boolean): Promise<SongText
   }
 }
 
+type DirectSongInput = {
+  prompt: string;
+  lyrics?: string;
+  title?: string;
+  genre: Genre;
+  voice: VoiceType;
+  bpm: number;
+  duration: DurationSeconds;
+  mode?: StudioMode;
+  creationMode?: CreationMode;
+  advanced?: AdvancedParams;
+};
+
+export type PreparedDirectSong =
+  | {
+      ok: true;
+      title: string;
+      caption: string;
+      lyrics: string;
+      chords: string;
+      structure: string;
+    }
+  | { ok: false; status: number; message: string };
+
+function parsePreparedSong(
+  raw: string,
+  fallback: { caption: string; lyrics: string },
+): { caption: string; lyrics: string; chords: string; structure: string } {
+  const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const caption = typeof parsed["caption"] === "string" ? parsed["caption"].trim() : "";
+    const lyrics = typeof parsed["lyrics"] === "string" ? parsed["lyrics"].trim() : "";
+    const chords = typeof parsed["chords"] === "string" ? parsed["chords"].trim() : "";
+    const structure = typeof parsed["structure"] === "string" ? parsed["structure"].trim() : "";
+    if (caption || lyrics)
+      return {
+        caption: caption.slice(0, 700) || fallback.caption,
+        lyrics: lyrics.slice(0, MAX_LYRICS_LENGTH),
+        chords: chords.slice(0, 300),
+        structure: structure.slice(0, 300),
+      };
+  } catch {}
+  return {
+    caption: fallback.caption,
+    lyrics: cleaned.slice(0, MAX_LYRICS_LENGTH),
+    chords: "",
+    structure: "",
+  };
+}
+
+export const prepareDirectSong = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: DirectSongInput) => {
+    const prompt = typeof input?.prompt === "string" ? input.prompt.trim() : "";
+    const lyrics = typeof input?.lyrics === "string" ? input.lyrics.trim() : "";
+    const title =
+      typeof input?.title === "string" ? sanitizePrompt(input.title, MAX_TITLE_LENGTH) : "";
+    if (prompt.length < 3 && lyrics.length < 3)
+      throw new Error("Describe tu canción o escribe una letra.");
+    if (prompt.length > MAX_PROMPT_LENGTH) throw new Error("La descripción es demasiado larga.");
+    if (lyrics.length > MAX_LYRICS_LENGTH) throw new Error("La letra es demasiado larga.");
+    const advanced = sanitizeAdvanced(input.advanced);
+    const genre =
+      typeof input.genre === "string" ? sanitizePrompt(input.genre, MAX_GENRE_LENGTH) : "";
+    if (!isGenre(genre)) throw new Error("Género no válido.");
+    if (!isVoiceType(input.voice)) throw new Error("Tipo de voz no válido.");
+    if (!isBpm(input.bpm)) throw new Error("BPM no válido.");
+    if (!isDuration(input.duration)) throw new Error("Duración no válida.");
+    if (input.mode !== undefined && !isStudioMode(input.mode))
+      throw new Error("Modo de estudio no válido.");
+    if (input.creationMode !== undefined && !isCreationMode(input.creationMode))
+      throw new Error("Modo de creación no válido.");
+    return {
+      prompt,
+      lyrics,
+      title,
+      genre,
+      voice: input.voice,
+      bpm: input.bpm,
+      duration: input.duration,
+      mode: input.mode,
+      creationMode: input.creationMode ?? "simple",
+      advanced,
+    };
+  })
+  .handler(async ({ data }): Promise<PreparedDirectSong> => {
+    const advancedText = data.advanced
+      ? Object.values(data.advanced).filter(Boolean).join("\n")
+      : "";
+    const blocked = findBlockedTerm(
+      [data.title, data.prompt, data.lyrics, data.genre, advancedText].filter(Boolean).join("\n"),
+    );
+    if (blocked)
+      return {
+        ok: false,
+        status: 400,
+        message: `El texto contiene el término no permitido «${blockedTermLabel(blocked)}». Usa una descripción original.`,
+      };
+
+    const musicPrompt = buildMusicPrompt({
+      description: data.prompt,
+      lyrics: data.lyrics,
+      genre: data.genre,
+      voice: data.voice,
+      bpm: data.bpm,
+      seconds: data.duration,
+      ...(data.mode ? { mode: data.mode } : {}),
+      engine: "ace-step",
+      creationMode: data.creationMode,
+      ...(data.advanced ? { advanced: data.advanced } : {}),
+    });
+    const instrumental = data.voice === INSTRUMENTAL;
+    const system = instrumental
+      ? 'You are a music producer writing prompts for ACE-Step. Reply with ONLY one valid JSON object with keys "caption", "lyrics", "chords" and "structure". "caption": a single concise English music caption under 400 characters with genre, mood, instruments, tempo, production and structure tags; no artist names. "lyrics": empty string. "chords": short English chord progression. "structure": short English section list. No markdown, no explanations.'
+      : 'You are a songwriter writing prompts for ACE-Step. Reply with ONLY one valid JSON object with keys "caption", "lyrics", "chords" and "structure". "caption": a single concise English music caption under 400 characters with genre, mood, instruments, tempo, production and structure tags; no artist names. "lyrics": complete original song lyrics in English with [Verse 1], [Chorus], [Verse 2] and [Outro] sections. "chords": short English chord progression. "structure": short English section list. No markdown, no explanations.';
+    const user = `${musicPrompt}\n\nUser idea: ${data.prompt}\nUser lyrics: ${data.lyrics || "none"}\nTitle: ${data.title || "none"}`;
+    let raw: string;
+    try {
+      raw = await geminiText(system, user);
+    } catch (error) {
+      console.error("gemini direct song prep failed, using pollinations", error);
+      raw = await pollinationsText(`${system}\n\n${user}`);
+    }
+    const parsed = parsePreparedSong(raw, { caption: musicPrompt, lyrics: data.lyrics });
+    return {
+      ok: true,
+      title: data.title || titleFromPrompt(data.prompt || data.lyrics),
+      caption: parsed.caption,
+      lyrics: instrumental ? "[Instrumental]" : parsed.lyrics,
+      chords: parsed.chords,
+      structure: parsed.structure,
+    };
+  });
+
 export type ActionResult =
   | { ok: true; songId: string }
   | { ok: false; status: number; message: string };

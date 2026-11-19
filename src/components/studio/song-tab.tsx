@@ -18,13 +18,11 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { CREDIT_COSTS } from "@/lib/credits";
 import {
   ACE_STEP_SERVER_URL_KEY,
   BPM_MAX,
   BPM_MIN,
   DURATIONS,
-  ENGINES,
   GENRES,
   INSTRUMENTAL,
   MAX_GENRE_LENGTH,
@@ -40,7 +38,8 @@ import {
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { generateSong, improvePrompt, writeLyrics } from "@/lib/music.functions";
+import { HF_SPACES, directErrorMessage, generateDirectFile } from "@/lib/gradio-direct";
+import { prepareDirectSong, improvePrompt, writeLyrics } from "@/lib/music.functions";
 import { OptionGroup } from "./option-group";
 import type { StudioTabProps } from "./types";
 
@@ -131,6 +130,18 @@ function readSongBackup(): SongBackup | null {
   }
 }
 
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.slice(result.indexOf(",") + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("No se pudo guardar el respaldo local."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 type SongPreview = {
   songId: string;
   title: string;
@@ -154,14 +165,14 @@ export function SongTab({
 }: StudioTabProps) {
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
-  const generateFn = useServerFn(generateSong);
+  const prepareFn = useServerFn(prepareDirectSong);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [styles, setStyles] = useState<string[]>(["Reguetón"]);
   const [styleSearch, setStyleSearch] = useState("");
   const [stylesOpen, setStylesOpen] = useState(false);
-  const [engine, setEngine] = useState<EngineId>("musicgen-free");
+  const [engine, setEngine] = useState<EngineId>("ace-step");
   const [creationMode, setCreationMode] = useState<CreationMode>("simple");
   const [voice, setVoice] = useState<VoiceType>("Masculina");
   const [instrumental, setInstrumental] = useState(false);
@@ -266,8 +277,8 @@ export function SongTab({
         throw new Error(
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
-      onPendingChange(true, "Componiendo tu canción con IA…");
-      const result = await generateFn({
+      onPendingChange(true, "Preparando letra y tags musicales con Gemini…");
+      const prepared = await prepareFn({
         data: {
           prompt,
           lyrics,
@@ -276,73 +287,89 @@ export function SongTab({
           voice: effectiveVoice,
           bpm,
           duration,
-          engine,
           creationMode,
-          aceStepServerUrl: readAceStepServerUrl() || undefined,
           ...(isAdmin ? { mode } : {}),
           ...(creationMode === "custom" ? { advanced } : {}),
         },
       });
-      if (!result.ok) throw new Error(result.message);
-      if (!result.audioBase64) throw new Error("El motor de música no devolvió audio.");
-      const mediaType = result.mediaType || "video/mp4";
-      const extension = mediaType.includes("wav")
-        ? "wav"
-        : mediaType.includes("mpeg")
-          ? "mp3"
-          : "mp4";
-      const response = await fetch(`data:${mediaType};base64,${result.audioBase64}`);
-      const blob = await response.blob();
+      if (!prepared.ok) throw new Error(prepared.message);
+      onPendingChange(true, "Generando canción real con ACE-Step en Hugging Face…");
+      const file = await generateDirectFile({
+        space: HF_SPACES.aceStep,
+        kind: "audio",
+        context: {
+          prompt: prepared.caption,
+          lyrics: prepared.lyrics,
+          instrumental: effectiveVoice === INSTRUMENTAL,
+          bpm,
+          width: 512,
+          height: 512,
+          seed: Math.floor(Math.random() * 999_999),
+          seconds: duration,
+          steps: 8,
+        },
+      });
+      const blob = file.blob;
+      const mediaType = file.contentType || "audio/mpeg";
+      const extension = file.extension;
+      const audioBase64 = await blobToBase64(blob);
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
-      const songTitle = result.title || title || prompt.slice(0, 60);
+      const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const songTitle = prepared.title || title || prompt.slice(0, 60);
+      const warning =
+        "Canción generada en tu navegador con ACE-Step. Guardada solo en este dispositivo.";
       const backupSaved = saveSongBackup({
-        id: result.songId,
+        id: songId,
         title: songTitle,
         mediaType,
         extension,
-        audioBase64: result.audioBase64,
-        lyrics: result.lyrics,
-        chords: result.chords,
-        structure: result.structure,
+        audioBase64,
+        lyrics: prepared.lyrics,
+        chords: prepared.chords,
+        structure: prepared.structure,
         instrumental: effectiveVoice === INSTRUMENTAL,
-        saved: result.saved,
-        warning: result.warning,
+        saved: false,
+        warning,
       });
       if (backupSaved) setHasBackup(true);
       return {
         studioResult: {
           ok: true as const,
-          songId: result.songId,
+          songId,
           blob,
           mediaType,
           title: songTitle,
           kind: "audio" as const,
         },
         songPreview: {
-          songId: result.songId,
+          songId,
           title: songTitle,
           url,
           extension,
-          lyrics: result.lyrics,
-          chords: result.chords,
-          structure: result.structure,
+          lyrics: prepared.lyrics,
+          chords: prepared.chords,
+          structure: prepared.structure,
           instrumental: effectiveVoice === INSTRUMENTAL,
-          saved: result.saved,
-          warning: result.warning,
+          saved: false,
+          warning,
         },
       };
     },
     onSettled: () => onPendingChange(false, ""),
     onSuccess: ({ studioResult, songPreview }) => {
       setPreview(songPreview);
-      onResult(studioResult, songPreview.saved ? "¡Tu canción y su letra están listas!" : "");
+      onResult(studioResult, "¡Tu canción real y su letra están listas!");
       if (!songPreview.saved && songPreview.warning) toast.warning(songPreview.warning);
     },
     onError: (e) =>
       onResult(
-        { ok: false, status: 400, message: e instanceof Error ? e.message : "No se pudo generar." },
+        {
+          ok: false,
+          status: 400,
+          message: directErrorMessage(e, "audio"),
+        },
         "",
       ),
   });
@@ -422,7 +449,7 @@ export function SongTab({
 
       <OptionGroup
         label="Motor / Versión"
-        options={ENGINES.map((e) => ({ value: e.id, label: e.label }))}
+        options={[{ value: "ace-step", label: "ACE-Step · Hugging Face" }]}
         value={engine}
         onChange={setEngine}
       />
@@ -648,7 +675,7 @@ export function SongTab({
         {mutation.isPending
           ? "Generando…"
           : signedIn
-            ? `Generar Canción · ${CREDIT_COSTS.song} crédito`
+            ? "Generar Canción · Gratis"
             : "Inicia sesión para generar"}
       </Button>
 
