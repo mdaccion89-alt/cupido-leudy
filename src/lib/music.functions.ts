@@ -31,9 +31,11 @@ import {
 import {
   failCreation,
   generateMusicgenAudio,
-  geminiErrorMessage,
   geminiText,
   getAdminClient,
+  pollinationsAudio,
+  pollinationsText,
+  synthesizeSongAudio,
   type GeneratedAudio,
 } from "./server-helpers";
 
@@ -109,8 +111,12 @@ function parseSongText(value: string): SongText {
 async function songText(prompt: string): Promise<SongText> {
   const system =
     'Eres compositor profesional de música latina. Devuelve SOLO un objeto JSON válido con las claves "letra", "acordes" y "estructura". "letra": letra completa y original en español con secciones [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro]. "acordes": progresión por sección en notación C/G/Am/F. "estructura": orden de secciones con duración aproximada. Sin markdown, sin explicaciones y sin artistas reales.';
-  const text = await geminiText(system, prompt);
-  return parseSongText(text);
+  try {
+    return parseSongText(await geminiText(system, prompt));
+  } catch (error) {
+    console.error("gemini song text failed, using pollinations", error);
+    return parseSongText(await pollinationsText(`${system}\n\n${prompt}`));
+  }
 }
 
 export type ActionResult =
@@ -224,11 +230,11 @@ export const generateSong = createServerFn({ method: "POST" })
     try {
       text = await songText(musicPrompt);
     } catch (error) {
-      console.error("gemini song text failed", error);
+      console.error("song text failed after pollinations fallback", error);
       return {
         ok: false,
         status: 500,
-        message: "No se pudo escribir la canción con Gemini. Inténtalo de nuevo.",
+        message: "No se pudo escribir la canción. Inténtalo de nuevo.",
       };
     }
 
@@ -241,6 +247,7 @@ export const generateSong = createServerFn({ method: "POST" })
 
     const admin = await getAdminClient();
     const title = data.title || titleFromPrompt(data.prompt || data.lyrics);
+    let audioProvider = "MusicGen Free (patgpt4)";
     const { data: song, error: insertError } = await admin
       .from("songs")
       .insert({
@@ -256,7 +263,7 @@ export const generateSong = createServerFn({ method: "POST" })
         status: "generating",
         media_type: "video/mp4",
         credits_spent: spent,
-        external_model: "MusicGen Free (patgpt4)",
+        external_model: audioProvider,
       })
       .select("id")
       .single();
@@ -275,16 +282,37 @@ export const generateSong = createServerFn({ method: "POST" })
     try {
       generated = await generateMusicgenAudio(musicPrompt);
     } catch (error) {
-      console.error("musicgen free failed", error);
-      const message =
-        "El motor gratuito de MusicGen no respondió. Te devolvimos los créditos; inténtalo de nuevo.";
-      await failCreation(admin, song.id, userId, message);
-      return { ok: false, status: 502, message };
+      console.error("musicgen free failed, trying pollinations", error);
+      try {
+        const pollinated = await pollinationsAudio(musicPrompt, data.duration);
+        if (pollinated) {
+          generated = pollinated;
+          audioProvider = "Pollinations";
+        } else {
+          generated = synthesizeSongAudio({
+            bpm: data.bpm,
+            seconds: data.duration,
+            seedText: musicPrompt,
+          });
+          audioProvider = "Leudy IA sintetizador";
+        }
+      } catch (pollinationsError) {
+        console.error("pollinations audio failed, using synthesizer", pollinationsError);
+        generated = synthesizeSongAudio({
+          bpm: data.bpm,
+          seconds: data.duration,
+          seedText: musicPrompt,
+        });
+        audioProvider = "Leudy IA sintetizador";
+      }
     }
     if (!generated.bytes.length) {
-      const message = "El motor gratuito de MusicGen no devolvió audio.";
-      await failCreation(admin, song.id, userId, message);
-      return { ok: false, status: 502, message };
+      generated = synthesizeSongAudio({
+        bpm: data.bpm,
+        seconds: data.duration,
+        seedText: musicPrompt,
+      });
+      audioProvider = "Leudy IA sintetizador";
     }
 
     const path = `${userId}/${song.id}.${generated.extension}`;
@@ -304,6 +332,7 @@ export const generateSong = createServerFn({ method: "POST" })
         status: "ready",
         storage_path: path,
         media_type: generated.contentType,
+        external_model: audioProvider,
         error: null,
       })
       .eq("id", song.id);
@@ -354,9 +383,14 @@ export const writeLyrics = createServerFn({ method: "POST" })
         const lyrics = await geminiText(system, user);
         return { ok: true, lyrics: lyrics.slice(0, MAX_LYRICS_LENGTH) };
       } catch (err) {
-        const code = err instanceof Error ? err.message : "GEMINI_UNKNOWN";
-        if (code !== "GEMINI_NOT_CONFIGURED") console.error("gemini lyrics failed", err);
-        return { ok: false, message: geminiErrorMessage(code) };
+        console.error("gemini lyrics failed, using pollinations", err);
+        try {
+          const lyrics = await pollinationsText(`${system}\n\n${user}`);
+          return { ok: true, lyrics: lyrics.slice(0, MAX_LYRICS_LENGTH) };
+        } catch (fallbackError) {
+          console.error("pollinations lyrics failed", fallbackError);
+          return { ok: false, message: "No se pudo escribir la letra. Inténtalo de nuevo." };
+        }
       }
     },
   );
@@ -391,9 +425,18 @@ export const improvePrompt = createServerFn({ method: "POST" })
         if (!clean) return { ok: false, message: "La IA no devolvió una mejora." };
         return { ok: true, prompt: clean };
       } catch (err) {
-        const code = err instanceof Error ? err.message : "GEMINI_UNKNOWN";
-        console.error("gemini prompt improvement failed", err);
-        return { ok: false, message: geminiErrorMessage(code) };
+        console.error("gemini prompt improvement failed, using pollinations", err);
+        try {
+          const improved = await pollinationsText(
+            `${system}\n\n${context ? `${context}.\n` : ""}Idea original: ${data.prompt}`,
+          );
+          const clean = sanitizePrompt(improved);
+          if (!clean) return { ok: false, message: "La IA no devolvió una mejora." };
+          return { ok: true, prompt: clean };
+        } catch (fallbackError) {
+          console.error("pollinations prompt improvement failed", fallbackError);
+          return { ok: false, message: "No se pudo mejorar el prompt. Inténtalo de nuevo." };
+        }
       }
     },
   );

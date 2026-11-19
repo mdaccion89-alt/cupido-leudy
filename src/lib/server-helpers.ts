@@ -1,4 +1,5 @@
 // Helpers used only inside server function handlers. Secrets are read per call, never at module scope.
+import { Buffer } from "node:buffer";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { parseTokenList } from "./music";
@@ -90,6 +91,114 @@ export async function generateMusicgenAudio(prompt: string): Promise<GeneratedAu
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function pollinationsText(prompt: string): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(
+      `https://text.pollinations.ai/${encodeURIComponent(prompt.slice(0, 2000))}`,
+      { signal: controller.signal },
+    );
+    if (!response.ok) throw new Error(`POLLINATIONS_TEXT_${response.status}`);
+    const text = (await response.text()).trim();
+    if (!text) throw new Error("POLLINATIONS_TEXT_EMPTY");
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function pollinationsAudio(
+  prompt: string,
+  duration: number,
+): Promise<GeneratedAudio | null> {
+  const key = process.env["POLLINATIONS_API_KEY"]?.trim();
+  if (!key) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+  try {
+    const query = new URLSearchParams({
+      model: "elevenmusic",
+      duration: String(Math.min(300, Math.max(5, Math.round(duration)))),
+    });
+    const response = await fetch(
+      `https://gen.pollinations.ai/audio/${encodeURIComponent(prompt.slice(0, 1000))}?${query.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${key}` },
+        signal: controller.signal,
+      },
+    );
+    if (!response.ok) throw new Error(`POLLINATIONS_AUDIO_${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) throw new Error("POLLINATIONS_AUDIO_EMPTY");
+    return audioFromBytes(bytes, response.headers.get("content-type") || "audio/mpeg");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function synthesizeSongAudio(options: {
+  bpm: number;
+  seconds: number;
+  seedText: string;
+}): GeneratedAudio {
+  const sampleRate = 16_000;
+  const seconds = Math.min(30, Math.max(8, Math.round(options.seconds)));
+  const sampleCount = sampleRate * seconds;
+  const bpm = Math.min(180, Math.max(60, options.bpm || 110));
+  const beat = 60 / bpm;
+  const chords = [
+    [261.63, 329.63, 392.0],
+    [196.0, 246.94, 392.0],
+    [220.0, 261.63, 329.63],
+    [174.61, 220.0, 349.23],
+  ];
+  let seed = 2166136261;
+  for (let i = 0; i < options.seedText.length; i += 1)
+    seed = Math.imul(seed ^ options.seedText.charCodeAt(i), 16777619) >>> 0;
+
+  const buffer = Buffer.alloc(44 + sampleCount * 2);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + sampleCount * 2, 4);
+  buffer.write("WAVE", 8);
+  buffer.write("fmt ", 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(sampleCount * 2, 40);
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const t = i / sampleRate;
+    const bar = beat * 4;
+    const chord = chords[Math.floor(t / bar) % chords.length] ?? chords[0] ?? [];
+    const barPhase = (t % bar) / bar;
+    const envelope = Math.min(1, barPhase * 20) * Math.min(1, (1 - barPhase) * 12);
+    let tone = 0;
+    for (const note of chord) {
+      tone += Math.sin(2 * Math.PI * note * t) * 0.11;
+      tone += Math.sin(2 * Math.PI * note * 2 * t) * 0.025;
+    }
+    const beatPhase = (t % beat) / beat;
+    const kick =
+      Math.sin(2 * Math.PI * (55 - 30 * beatPhase) * t) *
+      Math.exp(-beatPhase * 12) *
+      0.4;
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const hat = (seed / 0xffffffff - 0.5) * 0.04 * Math.exp(-beatPhase * 35);
+    const value = (tone * envelope + kick + hat) * 0.75;
+    buffer.writeInt16LE(
+      Math.max(-32768, Math.min(32767, Math.round(value * 32767))),
+      44 + i * 2,
+    );
+  }
+  return audioFromBytes(new Uint8Array(buffer), "audio/wav");
 }
 
 export function hfTokens(): string[] {

@@ -81,6 +81,7 @@ type SongPreview = {
   songId: string;
   title: string;
   url: string;
+  extension: string;
   lyrics: string;
   chords: string;
   structure: string;
@@ -167,7 +168,7 @@ export function SongTab({
         throw new Error(
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
-      onPendingChange(true, "Componiendo tu canción con MusicGen…");
+      onPendingChange(true, "Componiendo tu canción con IA…");
       const result = await generateFn({
         data: {
           prompt,
@@ -186,6 +187,11 @@ export function SongTab({
       if (!result.ok) throw new Error(result.message);
       if (!result.audioBase64) throw new Error("El motor de música no devolvió audio.");
       const mediaType = result.mediaType || "video/mp4";
+      const extension = mediaType.includes("wav")
+        ? "wav"
+        : mediaType.includes("mpeg")
+          ? "mp3"
+          : "mp4";
       const response = await fetch(`data:${mediaType};base64,${result.audioBase64}`);
       const blob = await response.blob();
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -205,6 +211,7 @@ export function SongTab({
           songId: result.songId,
           title: songTitle,
           url,
+          extension,
           lyrics: result.lyrics,
           chords: result.chords,
           structure: result.structure,
@@ -522,9 +529,9 @@ export function SongTab({
           <Button asChild variant="glass" size="sm">
             <a
               href={preview.url}
-              download={`${preview.title.replace(/[\\/:*?"<>|]/g, "") || "leudy-ia"}.mp4`}
+              download={`${preview.title.replace(/[\\/:*?"<>|]/g, "") || "leudy-ia"}.${preview.extension}`}
             >
-              Descargar .mp4
+              Descargar .{preview.extension.toUpperCase()}
             </a>
           </Button>
           <div className="space-y-1">

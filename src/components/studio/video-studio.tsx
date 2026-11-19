@@ -26,15 +26,12 @@ import {
   FIREFLY_CAMERA_MOVEMENTS,
   FIREFLY_COUNTRIES,
   FIREFLY_IMAGE_PIXELS,
-  FIREFLY_IMAGE_PROVIDERS,
   FIREFLY_IMAGE_SIZES,
   FIREFLY_LANGUAGES,
   FIREFLY_VOICE_STYLES,
-  generateFireflyImage,
   generateFireflyVoice,
   saveFireflyImageHistory,
   type FireflyAsset,
-  type FireflyImageProvider,
   type FireflyImageSize,
   type FireflyScene,
   type FireflySceneClip,
@@ -80,10 +77,6 @@ function appendToken(current: string, name: string): string {
 }
 
 const DIRECT_IMAGE_TIMEOUT_MS = 15_000;
-
-function isFreeImageProvider(provider: FireflyImageProvider): boolean {
-  return provider === "pollinations";
-}
 
 function buildPollinationsUrl(options: {
   prompt: string;
@@ -139,7 +132,6 @@ async function generateDirectImage(options: {
   width: number;
   height: number;
   seed: number;
-  provider: FireflyImageProvider;
 }): Promise<string> {
   const primary = "flux";
   const base = {
@@ -319,14 +311,12 @@ export function VideoStudio({
 }: VideoStudioProps) {
   const { session } = useAuth();
   const uid = userId ?? session?.user.id ?? null;
-  const imageFn = useServerFn(generateFireflyImage);
   const voiceFn = useServerFn(generateFireflyVoice);
   const historyFn = useServerFn(saveFireflyImageHistory);
 
   const [tab, setTab] = useState("image");
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSize, setImageSize] = useState<FireflyImageSize>("16:9");
-  const [imageProvider, setImageProvider] = useState<FireflyImageProvider>("gemini");
   const [imageSeed, setImageSeed] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [directImages, setDirectImages] = useState<string[]>([]);
@@ -384,50 +374,32 @@ export function VideoStudio({
     setProgress((current) => ({ ...current, active: false, progress: 1 }));
 
   const imageMutation = useMutation({
-    mutationFn: async (): Promise<{ url: string; direct: boolean; seed?: number }> => {
-      if (imageActive > 3) throw new Error("Máximo 3 elementos activos por prompt (@nombre).");
-      if (isFreeImageProvider(imageProvider)) {
-        const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
-        const seed = parseSeed(imageSeed) ?? Math.floor(Math.random() * 999_999);
-        const url = await generateDirectImage({
-          prompt: imagePrompt,
-          width,
-          height,
-          seed,
-          provider: imageProvider,
-        });
-        return { url, direct: true, seed };
-      }
-      const result = await imageFn({
-        data: {
-          prompt: imagePrompt,
-          imageSize,
-          provider: imageProvider,
-          seed: parseSeed(imageSeed),
-          assets,
-        },
+    mutationFn: async (): Promise<{ url: string; seed: number }> => {
+      const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
+      const seed = parseSeed(imageSeed) ?? Math.floor(Math.random() * 999_999);
+      const url = await generateDirectImage({
+        prompt: imagePrompt.trim() || "Una escena cinematográfica original",
+        width,
+        height,
+        seed,
       });
-      if (!result.ok) throw new Error(result.message);
-      return { url: result.url, direct: false };
+      return { url, seed };
     },
-    onMutate: () =>
-      startProgress("Generando imagen…", isFreeImageProvider(imageProvider) ? 15 : 35),
+    onMutate: () => startProgress("Generando imagen con Pollinations…", 15),
     onSuccess: (result) => {
       setImageUrl(result.url);
-      if (result.direct) {
-        setDirectImages((current) =>
-          [result.url, ...current.filter((item) => item !== result.url)].slice(0, 6),
-        );
-        void historyFn({
-          data: {
-            prompt: imagePrompt,
-            imageUrl: result.url,
-            imageSize,
-            provider: imageProvider,
-            seed: result.seed,
-          },
-        }).catch(() => undefined);
-      }
+      setDirectImages((current) =>
+        [result.url, ...current.filter((item) => item !== result.url)].slice(0, 6),
+      );
+      void historyFn({
+        data: {
+          prompt: imagePrompt,
+          imageUrl: result.url,
+          imageSize,
+          provider: "pollinations",
+          seed: result.seed,
+        },
+      }).catch(() => undefined);
       toast.success("Imagen lista.");
     },
     onError: (error) =>
@@ -437,49 +409,45 @@ export function VideoStudio({
 
   const videoMutation = useMutation({
     mutationFn: async (): Promise<SequenceView> => {
-      if (videoActive > 3) throw new Error("Máximo 3 elementos activos por prompt (@nombre).");
-      if (totalSeconds <= 0 || totalSeconds > 60)
-        throw new Error("El total de las escenas debe estar entre 1 y 60 segundos.");
-      if (!uid) throw new Error("Inicia sesión para generar videos.");
-      startProgress("Generando escenas en HD…", Math.max(90, totalSeconds * 14));
-      const seed = parseSeed(videoSeed);
+      startProgress("Generando escenas con Pollinations…", Math.max(60, totalSeconds * 10));
+      const seed = parseSeed(videoSeed) ?? Math.floor(Math.random() * 999_999);
       const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
       const clips: FireflySceneClip[] = [];
-      for (const [index, scene] of scenes.entries()) {
+      const scenesToRender = scenes.length
+        ? scenes
+        : [{ text: videoPrompt.trim() || "Una escena cinematográfica original", seconds: 5 }];
+      for (const [index, scene] of scenesToRender.entries()) {
         advanceProgress(
-          `Creando escena ${index + 1} de ${scenes.length}…`,
-          Math.round(((index + 1) / scenes.length) * 80),
+          `Creando escena ${index + 1} de ${scenesToRender.length}…`,
+          Math.round(((index + 1) / scenesToRender.length) * 80),
         );
-        const scenePrompt = `${videoPrompt}\n${scenes.map((item) => item.text).join("\n")}\nEscena ${index + 1}: ${scene.text}`.trim();
-        const generated = await imageFn({
-          data: {
-            prompt: scenePrompt,
-            imageSize,
-            provider: "gemini",
-            seed: seed === undefined ? undefined : seed + index,
-            assets,
-          },
+        const scenePrompt = `${videoPrompt}\n${scenesToRender.map((item) => item.text).join("\n")}\nEscena ${index + 1}: ${scene.text}`.trim();
+        const url = await generateDirectImage({
+          prompt: scenePrompt,
+          width,
+          height,
+          seed: seed + index,
         });
-        if (!generated.ok) throw new Error(generated.message);
-        const image = await loadCorsImage(generated.url);
+        const image = await loadCorsImage(url);
         advanceProgress(
-          `Animando escena ${index + 1} de ${scenes.length}…`,
-          Math.round(((index + 1) / scenes.length) * 95),
+          `Animando escena ${index + 1} de ${scenesToRender.length}…`,
+          Math.round(((index + 1) / scenesToRender.length) * 95),
         );
+        const seconds = Math.min(30, Math.max(1, Math.round(scene.seconds) || 5));
         const { blob, mediaType } = await animateImageToVideo({
           image,
           width,
           height,
-          seconds: scene.seconds,
+          seconds,
           movement: cameraMovement,
-          seed: seed === undefined ? undefined : seed + index,
+          seed: seed + index,
         });
         clips.push({
-          songId: generated.songId,
+          songId: `local-${Date.now()}-${index}`,
           url: URL.createObjectURL(blob),
           storagePath: "",
           sceneNumber: index + 1,
-          seconds: scene.seconds,
+          seconds,
           mediaType,
           model: "canvas-ken-burns",
         });
@@ -546,19 +514,18 @@ export function VideoStudio({
     else setImagePrompt((current) => appendToken(current, name));
   };
 
-  const imageReady =
-    imagePrompt.trim().length >= 3 &&
-    imageActive <= 3 &&
-    !imageMutation.isPending &&
-    !disabledReason;
-  const videoReady =
-    videoPrompt.trim().length >= 3 &&
-    totalSeconds > 0 &&
-    totalSeconds <= 60 &&
-    videoActive <= 3 &&
-    !videoMutation.isPending &&
-    !disabledReason;
+  const imageReady = !imageMutation.isPending;
+  const videoReady = !videoMutation.isPending;
   const voiceReady = voiceText.trim().length >= 3 && !voiceMutation.isPending && !disabledReason;
+
+  const downloadClip = (clip: FireflySceneClip) => {
+    void fetch(clip.url)
+      .then((response) => response.blob())
+      .then((blob) => {
+        const extension = clip.mediaType.includes("mp4") ? "mp4" : "webm";
+        downloadBlob(blob, `video-escena-${clip.sceneNumber}.${extension}`);
+      });
+  };
 
   return (
     <div className="space-y-7">
@@ -607,16 +574,6 @@ export function VideoStudio({
           </div>
 
           <OptionGroup
-            label="Proveedor"
-            options={FIREFLY_IMAGE_PROVIDERS.map((provider) => ({
-              value: provider.value,
-              label: provider.label,
-            }))}
-            value={imageProvider}
-            onChange={setImageProvider}
-          />
-
-          <OptionGroup
             label="Formato"
             options={FIREFLY_IMAGE_SIZES.map((size) => ({ value: size, label: size }))}
             value={imageSize}
@@ -650,17 +607,11 @@ export function VideoStudio({
             variant="hero"
             size="xl"
             className="w-full whitespace-normal px-6"
-            disabled={signedIn ? !imageReady : false}
-            onClick={() => start(() => void imageMutation.mutate())}
+            disabled={!imageReady}
+            onClick={() => void imageMutation.mutate()}
           >
             {imageMutation.isPending ? <Loader2 className="animate-spin" /> : <Wand2 />}
-            {imageMutation.isPending
-              ? "Generando imagen…"
-              : signedIn
-                ? isFreeImageProvider(imageProvider)
-                  ? "Generar Imagen · Gratis"
-                  : `Generar Imagen · ${CREDIT_COSTS.song} crédito`
-                : "Inicia sesión para generar"}
+            {imageMutation.isPending ? "Generando imagen…" : "Generar Imagen · Gratis"}
           </Button>
 
           {imageUrl && (
@@ -671,8 +622,13 @@ export function VideoStudio({
                 alt="Imagen generada"
                 className="w-full rounded-xl border border-border object-contain"
               />
+              <Button asChild variant="glass" size="sm">
+                <a href={imageUrl} download="imagen-leudy-ia.jpg">
+                  Descargar imagen
+                </a>
+              </Button>
               <p className="text-xs text-muted-foreground">
-                El enlace de descarga caduca en 1 hora{isAdmin ? "" : " y el archivo en 48 horas"}.
+                Imagen generada al instante con Pollinations.
               </p>
             </div>
           )}
@@ -773,15 +729,11 @@ export function VideoStudio({
             variant="hero"
             size="xl"
             className="w-full whitespace-normal px-6"
-            disabled={signedIn ? !videoReady : false}
-            onClick={() => start(() => void videoMutation.mutate())}
+            disabled={!videoReady}
+            onClick={() => void videoMutation.mutate()}
           >
             {videoMutation.isPending ? <Loader2 className="animate-spin" /> : <Wand2 />}
-            {videoMutation.isPending
-              ? "Generando escenas…"
-              : signedIn
-                ? `Generar Video · ${CREDIT_COSTS.video} créditos`
-                : "Inicia sesión para generar"}
+            {videoMutation.isPending ? "Generando escenas…" : "Generar Video · Gratis"}
           </Button>
 
           {videoResult && (
@@ -802,14 +754,7 @@ export function VideoStudio({
                         type="button"
                         variant="glass"
                         size="sm"
-                        onClick={() => {
-                          void fetch(clip.url)
-                            .then((response) => response.blob())
-                            .then((blob) => {
-                              const extension = clip.mediaType.includes("mp4") ? "mp4" : "webm";
-                              downloadBlob(blob, `video-escena-${clip.sceneNumber}.${extension}`);
-                            });
-                        }}
+                        onClick={() => downloadClip(clip)}
                       >
                         Descargar escena {clip.sceneNumber}
                       </Button>
@@ -823,8 +768,13 @@ export function VideoStudio({
                   </div>
                 ))}
               </div>
+              {videoResult.clips[0] && (
+                <Button type="button" variant="hero" onClick={() => downloadClip(videoResult.clips[0]!)}>
+                  Descargar video
+                </Button>
+              )}
               <p className="text-xs text-muted-foreground">
-                Los clips se guardan también en tu historial aunque cierres esta pestaña.
+                Animación creada en canvas a partir de imágenes de Pollinations.
               </p>
             </div>
           )}
