@@ -327,9 +327,12 @@ export function SongTab({
           };
         }
       } catch (error) {
-        console.warn("Preparación con IA no disponible; enviando prompt directo a ACE-Step", error);
+        console.warn(
+          "Preparación con IA no disponible; enviando prompt directo a ACE-Step v1 / MusicGen",
+          error,
+        );
       }
-      onPendingChange(true, "Generando canción real con ACE-Step en Hugging Face…");
+      onPendingChange(true, "Generando canción real con ACE-Step v1 / MusicGen en Hugging Face…");
       const file = await generateDirectSongAudio({
         prompt: prepared.caption,
         lyrics: prepared.lyrics,
@@ -351,7 +354,7 @@ export function SongTab({
       const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const songTitle = prepared.title || title || prompt.slice(0, 60);
       const warning =
-        "Canción generada en tu navegador con ACE-Step. Guardada solo en este dispositivo.";
+        "Canción generada en tu navegador con ACE-Step v1 o MusicGen. Guardada solo en este dispositivo.";
       const backupSaved = saveSongBackup({
         id: songId,
         title: songTitle,
@@ -481,7 +484,7 @@ export function SongTab({
 
       <OptionGroup
         label="Motor / Versión"
-        options={[{ value: "ace-step", label: "ACE-Step · Hugging Face" }]}
+        options={[{ value: "ace-step", label: "ACE-Step v1 / MusicGen · Hugging Face" }]}
         value={engine}
         onChange={setEngine}
       />

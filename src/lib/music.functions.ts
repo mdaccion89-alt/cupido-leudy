@@ -56,10 +56,7 @@ type GenerateInput = {
   aceStepServerUrl?: string;
 };
 
-const ACE_STEP_PUBLIC_SPACES = [
-  "https://ace-step-ace-step-v1-5.hf.space",
-  "https://ace-step-ace-step.hf.space",
-] as const;
+const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
 function blockedTermLabel(match: unknown): string {
   const record = match as Record<string, unknown> | null;

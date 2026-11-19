@@ -4,12 +4,13 @@ export const HF_SPACES = {
   flux: "black-forest-labs/FLUX.1-schnell",
   wan21: "Wan-AI/Wan2.1-T2V-1.3B",
   ltxVideo: "Lightricks/LTX-Video",
-  aceStep: "ACE-Step/Ace-Step-v1.5",
+  aceStep: "ACE-Step/ACE-Step",
+  musicGen: "facebook/MusicGen",
 } as const;
 
 export const VIDEO_SPACES = [HF_SPACES.wan21, HF_SPACES.ltxVideo] as const;
 
-export const ACE_STEP_SPACES = [HF_SPACES.aceStep, "ace-step/ace-step-v1-5"] as const;
+export const MUSIC_SPACES = [HF_SPACES.aceStep, HF_SPACES.musicGen] as const;
 
 export type DirectMediaKind = "image" | "video" | "audio";
 
@@ -121,6 +122,24 @@ function parameterValue(parameter: GradioParameter, context: DirectContext): unk
   if (/timesignature/.test(key)) return "4";
   if (/keyscale|key/.test(key)) return "";
   return parameter.parameter_default ?? null;
+}
+
+function resolveOverride(
+  parameter: GradioParameter,
+  overrides: Record<string, unknown> | undefined,
+): unknown {
+  if (!overrides) return undefined;
+  const name = (parameter.parameter_name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const label = (parameter.label ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const keys = [name, label].filter(Boolean);
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) return overrides[key];
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    const target = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (keys.includes(target)) return value;
+  }
+  return undefined;
 }
 
 const PREFERRED_ENDPOINTS: Record<DirectMediaKind, string[]> = {
@@ -302,6 +321,8 @@ export async function generateDirectFile(options: {
   context: DirectContext;
   endpoint?: string;
   fallbackParams?: unknown[];
+  overrides?: Record<string, unknown>;
+  useDefaults?: boolean;
 }): Promise<DirectFile> {
   const client = await connectDirectSpace(options.space);
   try {
@@ -324,7 +345,12 @@ export async function generateDirectFile(options: {
     }
     const parameters = selected?.parameters ?? [];
     const data = parameters.length
-      ? parameters.map((parameter) => parameterValue(parameter, options.context))
+      ? parameters.map((parameter) => {
+          const override = resolveOverride(parameter, options.overrides);
+          if (override !== undefined) return override;
+          if (!options.useDefaults) return parameterValue(parameter, options.context);
+          return parameter.parameter_default ?? parameterValue(parameter, options.context);
+        })
       : (options.fallbackParams ?? []);
     const prediction = await client.predict(
       /^\d+$/.test(endpoint) ? Number(endpoint) : endpoint,
@@ -340,16 +366,15 @@ export async function generateDirectFile(options: {
   }
 }
 
-type DirectGenerationOptions = Omit<Parameters<typeof generateDirectFile>[0], "space">;
+type SpaceGenerationOptions = Parameters<typeof generateDirectFile>[0];
 
-async function generateFromSpaces(
-  spaces: readonly string[],
-  options: DirectGenerationOptions,
+async function generateFromSpaceOptions(
+  optionsList: SpaceGenerationOptions[],
 ): Promise<DirectFile> {
   let lastError: unknown;
-  for (const space of spaces) {
+  for (const options of optionsList) {
     try {
-      return await generateDirectFile({ ...options, space });
+      return await generateDirectFile(options);
     } catch (error) {
       lastError = error;
     }
@@ -357,16 +382,64 @@ async function generateFromSpaces(
   throw lastError instanceof Error ? lastError : new Error("ALL_SPACES_FAILED");
 }
 
+async function generateFromSpaces(
+  spaces: readonly string[],
+  options: Omit<SpaceGenerationOptions, "space">,
+): Promise<DirectFile> {
+  return generateFromSpaceOptions(spaces.map((space) => ({ ...options, space })));
+}
+
 export function generateDirectVideo(context: DirectContext): Promise<DirectFile> {
   return generateFromSpaces(VIDEO_SPACES, { kind: "video", context });
 }
 
+function musicSpaceOptions(context: DirectContext): SpaceGenerationOptions[] {
+  const prompt = context.prompt;
+  const lyrics = context.instrumental ? "[inst]" : (context.lyrics ?? "");
+  const duration = context.seconds;
+  return [
+    {
+      space: MUSIC_SPACES[0],
+      kind: "audio",
+      context,
+      useDefaults: true,
+      overrides: {
+        prompt,
+        text: prompt,
+        caption: prompt,
+        description: prompt,
+        lyrics,
+        lyric: lyrics,
+        letra: lyrics,
+      },
+      fallbackParams: [prompt, lyrics],
+    },
+    {
+      space: MUSIC_SPACES[1],
+      kind: "audio",
+      context,
+      useDefaults: true,
+      overrides: {
+        prompt,
+        text: prompt,
+        description: prompt,
+        duration,
+        seconds: duration,
+        length: duration,
+      },
+      fallbackParams: [prompt, duration],
+    },
+  ];
+}
+
 export function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
-  return generateFromSpaces(ACE_STEP_SPACES, { kind: "audio", context });
+  return generateFromSpaceOptions(musicSpaceOptions(context));
 }
 
 export function directErrorMessage(error: unknown, kind: DirectMediaKind): string {
-  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const raw = (error instanceof Error ? error.message : String(error ?? "")).trim();
+  if (kind === "audio" || kind === "video")
+    return raw || `Error técnico desconocido al generar ${MEDIA_LABEL[kind]} con Hugging Face.`;
   const lower = raw.toLowerCase();
   const hours = 24 - new Date().getUTCHours();
   if (/quota|exhaust|rate.?limit|429|too many|zero.?gpu|gpu.*(limit|busy|time)|daily limit/i.test(lower))
