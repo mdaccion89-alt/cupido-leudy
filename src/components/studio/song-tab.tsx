@@ -39,8 +39,9 @@ import {
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { directErrorMessage, generateDirectSongAudio } from "@/lib/gradio-direct";
+import { directErrorMessage } from "@/lib/gradio-direct";
 import {
+  generateMusicGenAudio,
   prepareDirectSong,
   improvePrompt,
   writeLyrics,
@@ -136,16 +137,15 @@ function readSongBackup(): SongBackup | null {
   }
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result ?? "");
-      resolve(result.includes(",") ? result.slice(result.indexOf(",") + 1) : result);
-    };
-    reader.onerror = () => reject(new Error("No se pudo guardar el respaldo local."));
-    reader.readAsDataURL(blob);
-  });
+function audioDataUrlToBlob(dataUrl: string): { blob: Blob; base64: string; mime: string } {
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(dataUrl);
+  if (!match) throw new Error("El servidor devolvió un audio no válido.");
+  const mime = match[1] || "audio/flac";
+  const base64 = match[2];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return { blob: new Blob([bytes], { type: mime }), base64, mime };
 }
 
 type SongPreview = {
@@ -172,6 +172,7 @@ export function SongTab({
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
   const prepareFn = useServerFn(prepareDirectSong);
+  const musicFn = useServerFn(generateMusicGenAudio);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
@@ -328,33 +329,27 @@ export function SongTab({
         }
       } catch (error) {
         console.warn(
-          "Preparación con IA no disponible; enviando prompt directo a MusicGen REST",
+          "Preparación con IA no disponible; enviando prompt al servidor MusicGen REST",
           error,
         );
       }
-      onPendingChange(true, "Generando canción real con MusicGen vía API REST de Hugging Face…");
-      const file = await generateDirectSongAudio({
-        prompt: prepared.caption,
-        lyrics: prepared.lyrics,
-        instrumental: effectiveVoice === INSTRUMENTAL,
-        bpm,
-        width: 512,
-        height: 512,
-        seed: Math.floor(Math.random() * 999_999),
-        seconds: duration,
-        steps: 8,
+      onPendingChange(true, "Generando canción real con MusicGen en el servidor…");
+      const generated = await musicFn({
+        data: {
+          prompt: prepared.caption,
+          instrumental: effectiveVoice === INSTRUMENTAL,
+        },
       });
-      const blob = file.blob;
-      const mediaType = file.contentType || "audio/mpeg";
-      const extension = file.extension;
-      const audioBase64 = await blobToBase64(blob);
+      if (!generated.ok) throw new Error(generated.message);
+      const { blob, base64: audioBase64, mime: mediaType } = audioDataUrlToBlob(generated.audio);
+      const extension = generated.extension;
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
       const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const songTitle = prepared.title || title || prompt.slice(0, 60);
       const warning =
-        "Canción generada con MusicGen vía API REST de Hugging Face. Guardada solo en este dispositivo.";
+        "Canción generada con MusicGen en el servidor (API REST de Hugging Face). Guardada solo en este dispositivo.";
       const backupSaved = saveSongBackup({
         id: songId,
         title: songTitle,

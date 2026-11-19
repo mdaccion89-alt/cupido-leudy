@@ -58,6 +58,50 @@ type GenerateInput = {
 
 const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
+const MUSICGEN_REST_MODELS = [
+  "facebook/musicgen-small",
+  "facebook/musicgen-stereo-small",
+] as const;
+
+const MUSICGEN_REST_URLS = [
+  (model: string) => `https://huggingface.co/api/models/${model}/inference`,
+  (model: string) => `https://api-inference.huggingface.co/models/${model}`,
+] as const;
+
+const MUSICGEN_LOADING_WAIT_MS = 15_000;
+
+type MusicGenAudioInput = {
+  prompt: string;
+  instrumental?: boolean;
+};
+
+export type MusicGenAudio =
+  | { ok: true; audio: string; mime: string; extension: string; model: string }
+  | { ok: false; status: number; message: string };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function inferenceDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string") return parsed.error;
+  } catch {}
+  return body;
+}
+
+function audioMimeFrom(contentType: string | null, bytes: Uint8Array): string {
+  const header = contentType?.toLowerCase() ?? "";
+  if (header.includes("flac")) return "audio/flac";
+  if (header.includes("wav")) return "audio/wav";
+  if (bytes[0] === 0x66 && bytes[1] === 0x4c && bytes[2] === 0x61 && bytes[3] === 0x43)
+    return "audio/flac";
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46)
+    return "audio/wav";
+  return "audio/flac";
+}
+
 function blockedTermLabel(match: unknown): string {
   const record = match as Record<string, unknown> | null;
   const term =
@@ -285,6 +329,65 @@ export const prepareDirectSong = createServerFn({ method: "POST" })
       chords: parsed.chords || local.acordes,
       structure: parsed.structure || local.estructura,
     };
+  });
+
+export const generateMusicGenAudio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: MusicGenAudioInput) => {
+    const prompt =
+      typeof input?.prompt === "string"
+        ? sanitizePrompt(input.prompt, MAX_PROMPT_LENGTH).trim()
+        : "";
+    if (prompt.length < 3) throw new Error("Describe tu canción.");
+    return { prompt, instrumental: Boolean(input?.instrumental) };
+  })
+  .handler(async ({ data }): Promise<MusicGenAudio> => {
+    const token = process.env.HF_TOKEN;
+    if (!token)
+      return { ok: false, status: 500, message: "HF_TOKEN no está configurado en el servidor." };
+    const prompt = data.instrumental ? `${data.prompt} [inst]` : data.prompt;
+    let lastStatus = 502;
+    let lastMessage = "No se pudo generar audio con MusicGen.";
+    for (const model of MUSICGEN_REST_MODELS) {
+      for (const buildUrl of MUSICGEN_REST_URLS) {
+        const url = buildUrl(model);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ inputs: prompt }),
+            });
+            if (response.ok) {
+              const bytes = new Uint8Array(await response.arrayBuffer());
+              if (!bytes.length) throw new Error(`EMPTY_AUDIO_${model}`);
+              const mime = audioMimeFrom(response.headers.get("content-type"), bytes);
+              const extension = mime === "audio/wav" ? "wav" : "flac";
+              return {
+                ok: true,
+                audio: `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`,
+                mime,
+                extension,
+                model,
+              };
+            }
+            lastStatus = response.status;
+            lastMessage = `HF_REST_${response.status}_${model}: ${inferenceDetail(await response.text().catch(() => "")) || "sin detalle"}`;
+            if (response.status === 503 && /loading|waking|starting|initializ/i.test(lastMessage) && attempt === 0) {
+              await sleep(MUSICGEN_LOADING_WAIT_MS);
+              continue;
+            }
+            break;
+          } catch (error) {
+            lastMessage = error instanceof Error ? error.message : String(error);
+          }
+        }
+      }
+    }
+    return { ok: false, status: lastStatus, message: lastMessage };
   });
 
 export type ActionResult =

@@ -8,19 +8,6 @@ export const HF_SPACES = {
 
 export const VIDEO_SPACES = [HF_SPACES.wan21, HF_SPACES.ltxVideo] as const;
 
-const MUSIC_MODELS = [
-  "facebook/musicgen-small",
-  "facebook/musicgen-stereo-small",
-  "facebook/musicgen-medium",
-] as const;
-
-const MUSIC_LOADING_WAIT_MS = 15_000;
-
-const MUSIC_INFERENCE_URLS = [
-  (model: string) => `https://huggingface.co/api/models/${model}/inference`,
-  (model: string) => `https://api-inference.huggingface.co/models/${model}`,
-] as const;
-
 export type DirectMediaKind = "image" | "video" | "audio";
 
 export type DirectFile = {
@@ -351,75 +338,6 @@ export async function generateDirectFile(options: {
       client.close();
     } catch {}
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function inferenceDetail(body: string): string {
-  try {
-    const parsed = JSON.parse(body) as { error?: unknown };
-    if (typeof parsed.error === "string") return parsed.error;
-  } catch {}
-  return body;
-}
-
-function isModelLoading(status: number, detail: string): boolean {
-  return status === 503 && /loading|waking|starting|initializ/i.test(detail);
-}
-
-async function postMusicInference(url: string, prompt: string): Promise<Response> {
-  const token = hfToken();
-  if (!token) throw new Error("VITE_HF_TOKEN_MISSING");
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ inputs: prompt }),
-  });
-}
-
-export async function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
-  const prompt = context.instrumental ? `${context.prompt} [inst]` : context.prompt;
-  let lastError: unknown;
-  for (const model of MUSIC_MODELS) {
-    for (const buildUrl of MUSIC_INFERENCE_URLS) {
-      const url = buildUrl(model);
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const response = await postMusicInference(url, prompt);
-          if (response.ok) {
-            const blob = await response.blob();
-            if (!blob.size) throw new Error(`EMPTY_AUDIO_BLOB_${model}`);
-            const mime = blob.type || "audio/mpeg";
-            const extension = extensionFor("audio", url, mime);
-            return {
-              blob,
-              contentType: mime,
-              extension,
-              filename: `leudy-ia-${model.replace(/[^a-z0-9]+/gi, "-")}.${extension}`,
-              url: URL.createObjectURL(blob),
-            };
-          }
-          const detail = inferenceDetail(await response.text().catch(() => ""));
-          lastError = new Error(`HF_REST_${response.status}_${model}: ${detail || "sin detalle"}`);
-          if (isModelLoading(response.status, detail) && attempt === 0) {
-            await sleep(MUSIC_LOADING_WAIT_MS);
-            continue;
-          }
-          break;
-        } catch (error) {
-          lastError = error;
-          const message = error instanceof Error ? error.message : String(error);
-          if (/Failed to fetch|NetworkError|VITE_HF_TOKEN_MISSING/i.test(message)) break;
-        }
-      }
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error("MUSIC_REST_FAILED");
 }
 
 async function generateWan21WithGradio(context: DirectContext): Promise<DirectFile> {
