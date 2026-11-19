@@ -120,6 +120,19 @@ function parseSongText(value: string, instrumental = false): SongText {
   };
 }
 
+function localSongText(prompt: string, instrumental: boolean): SongText {
+  const idea = prompt.trim().slice(0, 300) || "Una canción original";
+  return {
+    letra: instrumental
+      ? ""
+      : `[Verso 1]\n${idea}\n[Coro]\n${idea}\n[Outro]`.slice(0, MAX_LYRICS_LENGTH),
+    acordes: "C - G - Am - F (repetir)",
+    estructura: instrumental
+      ? `Intro instrumental - Desarrollo - Clímax - Outro. ${idea}`.slice(0, MAX_LYRICS_LENGTH)
+      : "Intro - Verso - Coro - Verso - Coro - Outro",
+  };
+}
+
 async function songText(prompt: string, instrumental: boolean): Promise<SongText> {
   const system = instrumental
     ? 'Eres arreglista instrumental de música latina. Devuelve SOLO un objeto JSON válido con las claves "acordes" y "estructura". "acordes": progresión armónica en notación C/G/Am/F que sirva de base a guitarra acústica, requinto y percusión. "estructura": secuencia de secciones instrumentales con arreglos de guitarra, requinto, arpegios y percusión. NO escribas letra, versos, coros ni ninguna voz cantada. Sin markdown y sin explicaciones.'
@@ -127,9 +140,14 @@ async function songText(prompt: string, instrumental: boolean): Promise<SongText
   try {
     return parseSongText(await geminiText(system, prompt), instrumental);
   } catch (error) {
-    console.error("gemini song text failed, using pollinations", error);
-    return parseSongText(await pollinationsText(`${system}\n\n${prompt}`), instrumental);
+    console.warn("gemini song text failed, trying pollinations", error);
   }
+  try {
+    return parseSongText(await pollinationsText(`${system}\n\n${prompt}`), instrumental);
+  } catch (error) {
+    console.warn("pollinations song text failed, using local text", error);
+  }
+  return localSongText(prompt, instrumental);
 }
 
 type DirectSongInput = {
@@ -249,21 +267,26 @@ export const prepareDirectSong = createServerFn({ method: "POST" })
       ? 'You are a music producer writing prompts for ACE-Step. Reply with ONLY one valid JSON object with keys "caption", "lyrics", "chords" and "structure". "caption": a single concise English music caption under 400 characters with genre, mood, instruments, tempo, production and structure tags; no artist names. "lyrics": empty string. "chords": short English chord progression. "structure": short English section list. No markdown, no explanations.'
       : 'You are a songwriter writing prompts for ACE-Step. Reply with ONLY one valid JSON object with keys "caption", "lyrics", "chords" and "structure". "caption": a single concise English music caption under 400 characters with genre, mood, instruments, tempo, production and structure tags; no artist names. "lyrics": complete original song lyrics in English with [Verse 1], [Chorus], [Verse 2] and [Outro] sections. "chords": short English chord progression. "structure": short English section list. No markdown, no explanations.';
     const user = `${musicPrompt}\n\nUser idea: ${data.prompt}\nUser lyrics: ${data.lyrics || "none"}\nTitle: ${data.title || "none"}`;
-    let raw: string;
+    let raw = "";
     try {
       raw = await geminiText(system, user);
     } catch (error) {
-      console.error("gemini direct song prep failed, using pollinations", error);
-      raw = await pollinationsText(`${system}\n\n${user}`);
+      console.warn("gemini direct song prep failed, trying pollinations", error);
+      try {
+        raw = await pollinationsText(`${system}\n\n${user}`);
+      } catch (fallbackError) {
+        console.warn("pollinations direct song prep failed, using local caption", fallbackError);
+      }
     }
     const parsed = parsePreparedSong(raw, { caption: musicPrompt, lyrics: data.lyrics });
+    const local = localSongText(musicPrompt, instrumental);
     return {
       ok: true,
       title: data.title || titleFromPrompt(data.prompt || data.lyrics),
-      caption: parsed.caption,
-      lyrics: instrumental ? "[Instrumental]" : parsed.lyrics,
-      chords: parsed.chords,
-      structure: parsed.structure,
+      caption: parsed.caption || musicPrompt,
+      lyrics: instrumental ? "[inst]" : parsed.lyrics || data.lyrics || local.letra,
+      chords: parsed.chords || local.acordes,
+      structure: parsed.structure || local.estructura,
     };
   });
 
@@ -409,17 +432,7 @@ export const generateSong = createServerFn({ method: "POST" })
     });
 
     const instrumental = data.voice === INSTRUMENTAL;
-    let text: SongText;
-    try {
-      text = await songText(musicPrompt, instrumental);
-    } catch (error) {
-      console.error("song text failed after pollinations fallback", error);
-      return {
-        ok: false,
-        status: 500,
-        message: "No se pudo escribir la canción. Inténtalo de nuevo.",
-      };
-    }
+    const text = await songText(musicPrompt, instrumental);
 
     const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
       _amount: CREDIT_COSTS.song,
@@ -579,8 +592,15 @@ export const writeLyrics = createServerFn({ method: "POST" })
           const lyrics = await pollinationsText(`${system}\n\n${user}`);
           return { ok: true, lyrics: lyrics.slice(0, MAX_LYRICS_LENGTH) };
         } catch (fallbackError) {
-          console.error("pollinations lyrics failed", fallbackError);
-          return { ok: false, message: "No se pudo escribir la letra. Inténtalo de nuevo." };
+          console.warn("pollinations lyrics failed, using local lyrics", fallbackError);
+          return {
+            ok: true,
+            lyrics:
+              `[Intro]\n${data.idea}\n[Verso 1]\n${data.idea}\n[Coro]\n${data.idea}\n[Outro]`.slice(
+                0,
+                MAX_LYRICS_LENGTH,
+              ),
+          };
         }
       }
     },
@@ -613,20 +633,18 @@ export const improvePrompt = createServerFn({ method: "POST" })
           `${context ? `${context}.\n` : ""}Idea original: ${data.prompt}`,
         );
         const clean = sanitizePrompt(improved);
-        if (!clean) return { ok: false, message: "La IA no devolvió una mejora." };
-        return { ok: true, prompt: clean };
+        return { ok: true, prompt: clean || data.prompt };
       } catch (err) {
-        console.error("gemini prompt improvement failed, using pollinations", err);
+        console.warn("gemini prompt improvement failed, using pollinations", err);
         try {
           const improved = await pollinationsText(
             `${system}\n\n${context ? `${context}.\n` : ""}Idea original: ${data.prompt}`,
           );
           const clean = sanitizePrompt(improved);
-          if (!clean) return { ok: false, message: "La IA no devolvió una mejora." };
-          return { ok: true, prompt: clean };
+          return { ok: true, prompt: clean || data.prompt };
         } catch (fallbackError) {
-          console.error("pollinations prompt improvement failed", fallbackError);
-          return { ok: false, message: "No se pudo mejorar el prompt. Inténtalo de nuevo." };
+          console.warn("pollinations prompt improvement failed, using original prompt", fallbackError);
+          return { ok: true, prompt: data.prompt };
         }
       }
     },

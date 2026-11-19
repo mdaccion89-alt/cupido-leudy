@@ -31,6 +31,7 @@ import {
   MAX_TITLE_LENGTH,
   VOICE_TYPES,
   bpmForGenre,
+  buildMusicPrompt,
   findBlockedArtist,
   type CreationMode,
   type DurationSeconds,
@@ -38,8 +39,13 @@ import {
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { HF_SPACES, directErrorMessage, generateDirectFile } from "@/lib/gradio-direct";
-import { prepareDirectSong, improvePrompt, writeLyrics } from "@/lib/music.functions";
+import { directErrorMessage, generateDirectSongAudio } from "@/lib/gradio-direct";
+import {
+  prepareDirectSong,
+  improvePrompt,
+  writeLyrics,
+  type PreparedDirectSong,
+} from "@/lib/music.functions";
 import { OptionGroup } from "./option-group";
 import type { StudioTabProps } from "./types";
 
@@ -277,37 +283,63 @@ export function SongTab({
         throw new Error(
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
-      onPendingChange(true, "Preparando letra y tags musicales con Gemini…");
-      const prepared = await prepareFn({
-        data: {
-          prompt,
-          lyrics,
-          title,
-          genre,
-          voice: effectiveVoice,
-          bpm,
-          duration,
-          creationMode,
-          ...(isAdmin ? { mode } : {}),
-          ...(creationMode === "custom" ? { advanced } : {}),
-        },
+      onPendingChange(true, "Preparando prompt musical…");
+      const localCaption = buildMusicPrompt({
+        description: prompt,
+        lyrics,
+        genre,
+        voice: effectiveVoice,
+        bpm,
+        seconds: duration,
+        ...(isAdmin ? { mode } : {}),
+        engine: "ace-step",
+        creationMode,
+        ...(creationMode === "custom" ? { advanced } : {}),
       });
-      if (!prepared.ok) throw new Error(prepared.message);
+      let prepared: Extract<PreparedDirectSong, { ok: true }> = {
+        ok: true,
+        title: title || prompt.slice(0, 60) || "Canción",
+        caption: localCaption,
+        lyrics: effectiveVoice === INSTRUMENTAL ? "[inst]" : lyrics,
+        chords: "",
+        structure: "",
+      };
+      try {
+        const result = await prepareFn({
+          data: {
+            prompt,
+            lyrics,
+            title,
+            genre,
+            voice: effectiveVoice,
+            bpm,
+            duration,
+            creationMode,
+            ...(isAdmin ? { mode } : {}),
+            ...(creationMode === "custom" ? { advanced } : {}),
+          },
+        });
+        if (result.ok) {
+          prepared = {
+            ...result,
+            caption: result.caption || localCaption,
+            lyrics: effectiveVoice === INSTRUMENTAL ? "[inst]" : result.lyrics || lyrics,
+          };
+        }
+      } catch (error) {
+        console.warn("Preparación con IA no disponible; enviando prompt directo a ACE-Step", error);
+      }
       onPendingChange(true, "Generando canción real con ACE-Step en Hugging Face…");
-      const file = await generateDirectFile({
-        space: HF_SPACES.aceStep,
-        kind: "audio",
-        context: {
-          prompt: prepared.caption,
-          lyrics: prepared.lyrics,
-          instrumental: effectiveVoice === INSTRUMENTAL,
-          bpm,
-          width: 512,
-          height: 512,
-          seed: Math.floor(Math.random() * 999_999),
-          seconds: duration,
-          steps: 8,
-        },
+      const file = await generateDirectSongAudio({
+        prompt: prepared.caption,
+        lyrics: prepared.lyrics,
+        instrumental: effectiveVoice === INSTRUMENTAL,
+        bpm,
+        width: 512,
+        height: 512,
+        seed: Math.floor(Math.random() * 999_999),
+        seconds: duration,
+        steps: 8,
       });
       const blob = file.blob;
       const mediaType = file.contentType || "audio/mpeg";

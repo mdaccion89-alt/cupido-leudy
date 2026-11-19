@@ -2,9 +2,14 @@ import { Client } from "@gradio/client";
 
 export const HF_SPACES = {
   flux: "black-forest-labs/FLUX.1-schnell",
+  wan21: "Wan-AI/Wan2.1-T2V-1.3B",
   ltxVideo: "Lightricks/LTX-Video",
   aceStep: "ACE-Step/Ace-Step-v1.5",
 } as const;
+
+export const VIDEO_SPACES = [HF_SPACES.wan21, HF_SPACES.ltxVideo] as const;
+
+export const ACE_STEP_SPACES = [HF_SPACES.aceStep, "ace-step/ace-step-v1-5"] as const;
 
 export type DirectMediaKind = "image" | "video" | "audio";
 
@@ -99,7 +104,7 @@ function parameterValue(parameter: GradioParameter, context: DirectContext): unk
   if (/randomize/.test(key)) return context.randomizeSeed ?? false;
   if (/caption|description|musiccaption|songdescription|prompt|text/.test(key)) return context.prompt;
   if (/lyrics|letra/.test(key))
-    return context.instrumental ? "[Instrumental]" : (context.lyrics ?? "");
+    return context.instrumental ? "[inst]" : (context.lyrics ?? "");
   if (/bpm|tempo/.test(key)) return context.bpm;
   if (/duration|seconds|length/.test(key)) return context.seconds;
   if (/numframes|frames/.test(key)) return frameCount(context.seconds);
@@ -333,6 +338,31 @@ export async function generateDirectFile(options: {
       client.close();
     } catch {}
   }
+}
+
+type DirectGenerationOptions = Omit<Parameters<typeof generateDirectFile>[0], "space">;
+
+async function generateFromSpaces(
+  spaces: readonly string[],
+  options: DirectGenerationOptions,
+): Promise<DirectFile> {
+  let lastError: unknown;
+  for (const space of spaces) {
+    try {
+      return await generateDirectFile({ ...options, space });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("ALL_SPACES_FAILED");
+}
+
+export function generateDirectVideo(context: DirectContext): Promise<DirectFile> {
+  return generateFromSpaces(VIDEO_SPACES, { kind: "video", context });
+}
+
+export function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
+  return generateFromSpaces(ACE_STEP_SPACES, { kind: "audio", context });
 }
 
 export function directErrorMessage(error: unknown, kind: DirectMediaKind): string {

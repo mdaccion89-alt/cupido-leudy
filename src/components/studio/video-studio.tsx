@@ -20,7 +20,12 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_COSTS } from "@/lib/credits";
 import { downloadBlob } from "@/lib/download";
-import { HF_SPACES, directErrorMessage, generateDirectFile } from "@/lib/gradio-direct";
+import {
+  HF_SPACES,
+  directErrorMessage,
+  generateDirectFile,
+  generateDirectVideo,
+} from "@/lib/gradio-direct";
 import {
   countActiveElements,
   FIREFLY_ACCENTS,
@@ -207,7 +212,7 @@ export function VideoStudio({
 
   const videoMutation = useMutation({
     mutationFn: async (): Promise<SequenceView> => {
-      startProgress("Generando video real con LTX-Video en Hugging Face…", 180);
+      startProgress("Generando video real con Wan2.1 / LTX-Video en Hugging Face…", 180);
       const seed = parseSeed(videoSeed) ?? Math.floor(Math.random() * 999_999);
       const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
       const prompt = [
@@ -218,33 +223,34 @@ export function VideoStudio({
         .filter(Boolean)
         .join("\n");
       const seconds = Math.min(5, Math.max(2, Math.round(totalSeconds) || 5));
-      const file = await generateDirectFile({
-        space: HF_SPACES.ltxVideo,
-        kind: "video",
-        context: {
-          prompt: prompt || "Una escena cinematográfica original",
-          width,
-          height,
-          seed,
-          seconds,
-          steps: 20,
-          bpm: 110,
-          instrumental: true,
-        },
+      const file = await generateDirectVideo({
+        prompt: prompt || "Una escena cinematográfica original",
+        width,
+        height,
+        seed,
+        seconds,
+        steps: 20,
+        bpm: 110,
+        instrumental: true,
       });
       advanceProgress("Descargando video MP4…", 95);
+      const provider = /wan/i.test(file.url)
+        ? "Wan2.1"
+        : /ltx/i.test(file.url)
+          ? "LTX-Video"
+          : "Hugging Face";
       const clip: FireflySceneClip = {
-        songId: `ltx-${Date.now()}`,
+        songId: `video-${Date.now()}`,
         url: URL.createObjectURL(file.blob),
         storagePath: "",
         sceneNumber: 1,
         seconds,
         mediaType: file.contentType,
-        model: "ltx-video",
+        model: provider === "Wan2.1" ? "wan2.1" : "ltx-video",
       };
       return {
-        label: "Video real generado con LTX-Video",
-        generationId: `ltx-${Date.now()}`,
+        label: `Video real generado con ${provider}`,
+        generationId: `video-${Date.now()}`,
         clips: [clip],
         stitched: true,
       };
@@ -522,15 +528,17 @@ export function VideoStudio({
             onClick={() => void videoMutation.mutate()}
           >
             {videoMutation.isPending ? <Loader2 className="animate-spin" /> : <Wand2 />}
-            {videoMutation.isPending ? "Generando video MP4…" : "Generar Video · LTX-Video"}
+            {videoMutation.isPending
+              ? "Probando Wan2.1 / LTX-Video…"
+              : "Generar Video · Wan2.1 / LTX-Video"}
           </Button>
 
           {videoResult && (
             <div className={cardClass}>
               <p className="font-display text-sm">{videoResult.label}</p>
               <p className="text-xs text-muted-foreground">
-                Video MP4 real generado con LTX-Video en Hugging Face. Se puede reproducir y
-                descargar directamente.
+                Video MP4 real generado en Hugging Face (Wan2.1 o LTX-Video, en cascada). Se puede
+                reproducir y descargar directamente.
               </p>
               <div className="space-y-5">
                 {videoResult.clips.map((clip) => (
