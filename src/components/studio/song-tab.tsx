@@ -328,11 +328,11 @@ export function SongTab({
         }
       } catch (error) {
         console.warn(
-          "Preparación con IA no disponible; enviando prompt directo a ACE-Step v1 / MusicGen",
+          "Preparación con IA no disponible; enviando prompt directo a MusicGen REST",
           error,
         );
       }
-      onPendingChange(true, "Generando canción real con ACE-Step v1 / MusicGen en Hugging Face…");
+      onPendingChange(true, "Generando canción real con MusicGen vía API REST de Hugging Face…");
       const file = await generateDirectSongAudio({
         prompt: prepared.caption,
         lyrics: prepared.lyrics,
@@ -354,7 +354,7 @@ export function SongTab({
       const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const songTitle = prepared.title || title || prompt.slice(0, 60);
       const warning =
-        "Canción generada en tu navegador con ACE-Step v1 o MusicGen. Guardada solo en este dispositivo.";
+        "Canción generada con MusicGen vía API REST de Hugging Face. Guardada solo en este dispositivo.";
       const backupSaved = saveSongBackup({
         id: songId,
         title: songTitle,
@@ -484,7 +484,7 @@ export function SongTab({
 
       <OptionGroup
         label="Motor / Versión"
-        options={[{ value: "ace-step", label: "ACE-Step v1 / MusicGen · Hugging Face" }]}
+        options={[{ value: "ace-step", label: "MusicGen · Hugging Face Inference API" }]}
         value={engine}
         onChange={setEngine}
       />

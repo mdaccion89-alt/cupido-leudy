@@ -4,13 +4,22 @@ export const HF_SPACES = {
   flux: "black-forest-labs/FLUX.1-schnell",
   wan21: "Wan-AI/Wan2.1-T2V-1.3B",
   ltxVideo: "Lightricks/LTX-Video",
-  aceStep: "ACE-Step/ACE-Step",
-  musicGen: "facebook/MusicGen",
 } as const;
 
 export const VIDEO_SPACES = [HF_SPACES.wan21, HF_SPACES.ltxVideo] as const;
 
-export const MUSIC_SPACES = [HF_SPACES.aceStep, HF_SPACES.musicGen] as const;
+const MUSIC_MODELS = [
+  "facebook/musicgen-small",
+  "facebook/musicgen-stereo-small",
+  "facebook/musicgen-medium",
+] as const;
+
+const MUSIC_LOADING_WAIT_MS = 15_000;
+
+const MUSIC_INFERENCE_URLS = [
+  (model: string) => `https://huggingface.co/api/models/${model}/inference`,
+  (model: string) => `https://api-inference.huggingface.co/models/${model}`,
+] as const;
 
 export type DirectMediaKind = "image" | "video" | "audio";
 
@@ -122,24 +131,6 @@ function parameterValue(parameter: GradioParameter, context: DirectContext): unk
   if (/timesignature/.test(key)) return "4";
   if (/keyscale|key/.test(key)) return "";
   return parameter.parameter_default ?? null;
-}
-
-function resolveOverride(
-  parameter: GradioParameter,
-  overrides: Record<string, unknown> | undefined,
-): unknown {
-  if (!overrides) return undefined;
-  const name = (parameter.parameter_name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const label = (parameter.label ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const keys = [name, label].filter(Boolean);
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(overrides, key)) return overrides[key];
-  }
-  for (const [key, value] of Object.entries(overrides)) {
-    const target = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (keys.includes(target)) return value;
-  }
-  return undefined;
 }
 
 const PREFERRED_ENDPOINTS: Record<DirectMediaKind, string[]> = {
@@ -321,8 +312,7 @@ export async function generateDirectFile(options: {
   context: DirectContext;
   endpoint?: string;
   fallbackParams?: unknown[];
-  overrides?: Record<string, unknown>;
-  useDefaults?: boolean;
+  rawParams?: unknown[];
 }): Promise<DirectFile> {
   const client = await connectDirectSpace(options.space);
   try {
@@ -344,14 +334,11 @@ export async function generateDirectFile(options: {
       }
     }
     const parameters = selected?.parameters ?? [];
-    const data = parameters.length
-      ? parameters.map((parameter) => {
-          const override = resolveOverride(parameter, options.overrides);
-          if (override !== undefined) return override;
-          if (!options.useDefaults) return parameterValue(parameter, options.context);
-          return parameter.parameter_default ?? parameterValue(parameter, options.context);
-        })
-      : (options.fallbackParams ?? []);
+    const data =
+      options.rawParams ??
+      (parameters.length
+        ? parameters.map((parameter) => parameterValue(parameter, options.context))
+        : (options.fallbackParams ?? []));
     const prediction = await client.predict(
       /^\d+$/.test(endpoint) ? Number(endpoint) : endpoint,
       data,
@@ -366,75 +353,105 @@ export async function generateDirectFile(options: {
   }
 }
 
-type SpaceGenerationOptions = Parameters<typeof generateDirectFile>[0];
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-async function generateFromSpaceOptions(
-  optionsList: SpaceGenerationOptions[],
-): Promise<DirectFile> {
+function inferenceDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string") return parsed.error;
+  } catch {}
+  return body;
+}
+
+function isModelLoading(status: number, detail: string): boolean {
+  return status === 503 && /loading|waking|starting|initializ/i.test(detail);
+}
+
+async function postMusicInference(url: string, prompt: string): Promise<Response> {
+  const token = hfToken();
+  if (!token) throw new Error("VITE_HF_TOKEN_MISSING");
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: prompt }),
+  });
+}
+
+export async function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
+  const prompt = context.instrumental ? `${context.prompt} [inst]` : context.prompt;
   let lastError: unknown;
-  for (const options of optionsList) {
-    try {
-      return await generateDirectFile(options);
-    } catch (error) {
-      lastError = error;
+  for (const model of MUSIC_MODELS) {
+    for (const buildUrl of MUSIC_INFERENCE_URLS) {
+      const url = buildUrl(model);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await postMusicInference(url, prompt);
+          if (response.ok) {
+            const blob = await response.blob();
+            if (!blob.size) throw new Error(`EMPTY_AUDIO_BLOB_${model}`);
+            const mime = blob.type || "audio/mpeg";
+            const extension = extensionFor("audio", url, mime);
+            return {
+              blob,
+              contentType: mime,
+              extension,
+              filename: `leudy-ia-${model.replace(/[^a-z0-9]+/gi, "-")}.${extension}`,
+              url: URL.createObjectURL(blob),
+            };
+          }
+          const detail = inferenceDetail(await response.text().catch(() => ""));
+          lastError = new Error(`HF_REST_${response.status}_${model}: ${detail || "sin detalle"}`);
+          if (isModelLoading(response.status, detail) && attempt === 0) {
+            await sleep(MUSIC_LOADING_WAIT_MS);
+            continue;
+          }
+          break;
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          if (/Failed to fetch|NetworkError|VITE_HF_TOKEN_MISSING/i.test(message)) break;
+        }
+      }
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("ALL_SPACES_FAILED");
+  throw lastError instanceof Error ? lastError : new Error("MUSIC_REST_FAILED");
 }
 
-async function generateFromSpaces(
-  spaces: readonly string[],
-  options: Omit<SpaceGenerationOptions, "space">,
-): Promise<DirectFile> {
-  return generateFromSpaceOptions(spaces.map((space) => ({ ...options, space })));
+async function generateWan21WithGradio(context: DirectContext): Promise<DirectFile> {
+  const rawParams = [context.prompt, "1280*720", 42, true];
+  let lastError: unknown;
+  for (const endpoint of ["/t2v_generation", "/predict"]) {
+    try {
+      return await generateDirectFile({
+        space: HF_SPACES.wan21,
+        kind: "video",
+        context,
+        endpoint,
+        rawParams,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      lastError = new Error(`WAN21_${endpoint}: ${detail}`);
+    }
+  }
+  try {
+    return await generateDirectFile({ space: HF_SPACES.ltxVideo, kind: "video", context });
+  } catch (error) {
+    lastError = error;
+  }
+  throw lastError instanceof Error ? lastError : new Error("VIDEO_GRADIO_FAILED");
 }
 
-export function generateDirectVideo(context: DirectContext): Promise<DirectFile> {
-  return generateFromSpaces(VIDEO_SPACES, { kind: "video", context });
+export function generateVideoWithGradio(context: DirectContext): Promise<DirectFile> {
+  return generateWan21WithGradio(context);
 }
 
-function musicSpaceOptions(context: DirectContext): SpaceGenerationOptions[] {
-  const prompt = context.prompt;
-  const lyrics = context.instrumental ? "[inst]" : (context.lyrics ?? "");
-  const duration = context.seconds;
-  return [
-    {
-      space: MUSIC_SPACES[0],
-      kind: "audio",
-      context,
-      useDefaults: true,
-      overrides: {
-        prompt,
-        text: prompt,
-        caption: prompt,
-        description: prompt,
-        lyrics,
-        lyric: lyrics,
-        letra: lyrics,
-      },
-      fallbackParams: [prompt, lyrics],
-    },
-    {
-      space: MUSIC_SPACES[1],
-      kind: "audio",
-      context,
-      useDefaults: true,
-      overrides: {
-        prompt,
-        text: prompt,
-        description: prompt,
-        duration,
-        seconds: duration,
-        length: duration,
-      },
-      fallbackParams: [prompt, duration],
-    },
-  ];
-}
-
-export function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
-  return generateFromSpaceOptions(musicSpaceOptions(context));
-}
+export const generateDirectVideo = generateVideoWithGradio;
 
 export function directErrorMessage(error: unknown, kind: DirectMediaKind): string {
   const raw = (error instanceof Error ? error.message : String(error ?? "")).trim();
