@@ -1,11 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowLeft, Loader2, Mail } from "lucide-react";
+import { ArrowLeft, Loader2, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { Equalizer } from "@/components/studio/equalizer";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,60 +30,105 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" className="size-4">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
 function AuthPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
-  const [stage, setStage] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
     if (session) navigate({ to: "/" });
   }, [session, navigate]);
 
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = window.setInterval(() => setCooldown((v) => Math.max(0, v - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [cooldown]);
-
-  const sendCode = async (e?: FormEvent) => {
-    e?.preventDefault();
-    if (!email.trim()) return;
+  const signIn = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
-        options: { shouldCreateUser: true, emailRedirectTo: window.location.origin },
+        password,
       });
       if (error) throw error;
-      setStage("code");
-      setCode("");
-      setCooldown(30);
-      toast.success("Te enviamos un código de 6 dígitos a tu correo.");
+      toast.success("Sesión iniciada.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo enviar el código.");
+      toast.error(err instanceof Error ? err.message : "No se pudo iniciar sesión.");
     } finally {
       setBusy(false);
     }
   };
 
-  const verify = async (e: FormEvent) => {
-    e.preventDefault();
-    if (code.length !== 6) return;
+  const signUp = async () => {
+    if (!email.trim() || password.length < 6) {
+      toast.error("Escribe tu correo y una contraseña de al menos 6 caracteres.");
+      return;
+    }
     setBusy(true);
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
-        token: code,
-        type: "email",
+        password,
+        options: { emailRedirectTo: window.location.origin },
       });
       if (error) throw error;
-      toast.success("Sesión iniciada.");
+      toast.success(
+        data.session
+          ? "Cuenta creada. ¡Bienvenido!"
+          : "Cuenta creada. Ya puedes entrar con tu correo y contraseña.",
+      );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Código incorrecto o vencido.");
+      toast.error(err instanceof Error ? err.message : "No se pudo crear la cuenta.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const continueWithGoogle = async () => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo conectar con Google.");
+      setBusy(false);
+    }
+  };
+
+  const enterAsGuest = async () => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInAnonymously();
+      if (error) throw error;
+      toast.success("Entraste como invitado.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo entrar como invitado.");
     } finally {
       setBusy(false);
     }
@@ -117,91 +161,85 @@ function AuthPage() {
           </span>
         </div>
 
-        {stage === "email" ? (
-          <>
-            <h1 className="text-2xl font-semibold">Entra con un código</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Te enviamos un código de 6 dígitos. Sin contraseñas.
-            </p>
+        <h1 className="text-2xl font-semibold">Entra a tu estudio</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Correo y contraseña, Google o invitado. Sin códigos por correo.
+        </p>
 
-            <form onSubmit={sendCode} className="mt-8 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Correo electrónico</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-11 rounded-xl bg-surface/80"
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="hero"
-                className="h-12 w-full rounded-xl"
-                disabled={busy}
-              >
-                {busy && <Loader2 className="animate-spin" />}
-                <Mail /> Enviar código
-              </Button>
-            </form>
-          </>
-        ) : (
-          <>
-            <h1 className="text-2xl font-semibold">Revisa tu correo</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Escribe el código de 6 dígitos enviado a{" "}
-              <span className="text-foreground">{email}</span>.
-            </p>
-            <form onSubmit={verify} className="mt-8 space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="otp">Código de verificación</Label>
-                <InputOTP
-                  id="otp"
-                  maxLength={6}
-                  value={code}
-                  onChange={setCode}
-                  autoFocus
-                  className="justify-center gap-1 sm:gap-2"
-                >
-                  <InputOTPGroup>
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <InputOTPSlot key={i} index={i} className="h-12 w-10 text-base sm:w-11" />
-                    ))}
-                  </InputOTPGroup>
-                </InputOTP>
-              </div>
-              <Button
-                type="submit"
-                variant="hero"
-                className="h-12 w-full rounded-xl"
-                disabled={busy || code.length !== 6}
-              >
-                {busy && <Loader2 className="animate-spin" />}
-                Verificar y entrar
-              </Button>
-            </form>
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-              <button
-                type="button"
-                className="text-primary hover:underline"
-                onClick={() => setStage("email")}
-              >
-                Cambiar correo
-              </button>
-              <button
-                type="button"
-                className="text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={cooldown > 0 || busy}
-                onClick={() => sendCode()}
-              >
-                {cooldown > 0 ? `Reenviar en ${cooldown}s` : "Reenviar código"}
-              </button>
-            </div>
-          </>
-        )}
+        <form onSubmit={signIn} className="mt-8 space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Correo electrónico</Label>
+            <Input
+              id="email"
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="h-11 rounded-xl bg-surface/80"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Contraseña</Label>
+            <Input
+              id="password"
+              type="password"
+              required
+              minLength={6}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="h-11 rounded-xl bg-surface/80"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <Button type="submit" variant="hero" className="h-12 rounded-xl" disabled={busy}>
+              {busy && <Loader2 className="animate-spin" />}
+              Entrar
+            </Button>
+            <Button
+              type="button"
+              variant="glass"
+              className="h-12 rounded-xl"
+              disabled={busy}
+              onClick={signUp}
+            >
+              Crear cuenta
+            </Button>
+          </div>
+        </form>
+
+        <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          o continúa con
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <div className="space-y-3">
+          <Button
+            type="button"
+            variant="google"
+            className="h-12 w-full rounded-xl"
+            disabled={busy}
+            onClick={continueWithGoogle}
+          >
+            {busy ? <Loader2 className="animate-spin" /> : <GoogleIcon />}
+            Continuar con Google
+          </Button>
+          <Button
+            type="button"
+            variant="glass"
+            className="h-12 w-full rounded-xl"
+            disabled={busy}
+            onClick={enterAsGuest}
+          >
+            <UserRound /> Entrar como invitado
+          </Button>
+        </div>
+
+        <p className="mt-5 text-center text-xs text-muted-foreground">
+          El invitado puede crear al instante. Inicia sesión para guardar tus canciones.
+        </p>
       </div>
     </div>
   );

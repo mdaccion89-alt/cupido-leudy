@@ -430,7 +430,7 @@ RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE dname TEXT;
 DECLARE is_admin_email BOOLEAN;
 BEGIN
-  is_admin_email := lower(COALESCE(NEW.email, '')) = 'leudyfeliz81@gmail.com' AND NEW.email_confirmed_at IS NOT NULL;
+  is_admin_email := lower(COALESCE(NEW.email, '')) = 'leudyfeliz81@gmail.com';
   dname := left(COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1), 'Artista'), 60);
   INSERT INTO public.profiles (id, email, display_name, full_name, birth_date, credits, is_admin)
   VALUES (NEW.id, NEW.email, dname, NULLIF(left(NEW.raw_user_meta_data->>'full_name', 120), ''), public.try_date(NEW.raw_user_meta_data->>'birth_date'), 5, is_admin_email)

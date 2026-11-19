@@ -6,10 +6,16 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { getAdminClient, hfTokens } from "./server-helpers";
+import { ADMIN_EMAIL } from "./credits";
 
-type AdminContext = { supabase: SupabaseClient<Database>; userId: string };
+type AdminContext = {
+  supabase: SupabaseClient<Database>;
+  userId: string;
+  claims?: { email?: string | null } | null;
+};
 
-async function assertAdmin({ supabase, userId }: AdminContext) {
+async function assertAdmin({ supabase, userId, claims }: AdminContext) {
+  if (claims?.email?.toLowerCase() === ADMIN_EMAIL) return;
   const { data } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
   if (!data) throw new Error("Forbidden");
 }

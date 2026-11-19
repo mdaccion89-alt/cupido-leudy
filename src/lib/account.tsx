@@ -38,11 +38,11 @@ export function useAccount() {
   });
   return {
     userId,
-    balance: query.data?.balance ?? (isImmediateAdmin ? Infinity : 0),
+    balance: isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
     nextReset: query.data?.nextReset ?? null,
-    isAdmin: query.data?.isAdmin ?? isImmediateAdmin,
-    isOfficial: query.data?.isOfficial ?? false,
-    plan: query.data?.plan ?? "free",
+    isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
+    isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
+    plan: isImmediateAdmin ? "premium" : (query.data?.plan ?? "free"),
     loading: query.isLoading,
     refresh: () => query.refetch(),
   };
