@@ -508,35 +508,80 @@ async function huggingFaceFreeAudio(prompt) {
   };
 }
 
-function synthesizeAudio(prompt) {
-  const sampleRate = 22050;
-  const samples = sampleRate * 12;
-  const pcm = Buffer.alloc(44 + samples * 2);
-  pcm.write("RIFF", 0);
-  pcm.writeUInt32LE(36 + samples * 2, 4);
-  pcm.write("WAVEfmt ", 8);
-  pcm.writeUInt32LE(16, 16);
-  pcm.writeUInt16LE(1, 20);
-  pcm.writeUInt16LE(1, 22);
-  pcm.writeUInt32LE(sampleRate, 24);
-  pcm.writeUInt32LE(sampleRate * 2, 28);
-  pcm.writeUInt16LE(2, 32);
-  pcm.writeUInt16LE(16, 34);
-  pcm.write("data", 36);
-  pcm.writeUInt32LE(samples * 2, 40);
-  let seed = 2166136261;
-  for (const char of prompt) seed = Math.imul(seed ^ char.codePointAt(0), 16777619) >>> 0;
-  const notes = [0, 3, 5, 7, 10, 12, 15, 17];
-  for (let i = 0; i < samples; i += 1) {
-    const t = i / sampleRate;
-    const note = notes[(seed + Math.floor(t * 3)) % notes.length];
-    const freq = 196 * 2 ** (note / 12);
-    const envelope = 0.3 * (1 - ((t * 3) % 1));
-    const wave = Math.sin(2 * Math.PI * freq * t) + 0.35 * Math.sin(4 * Math.PI * freq * t);
-    const value = Math.max(-1, Math.min(1, (envelope * wave) / 1.35));
-    pcm.writeInt16LE(Math.round(value * 32767), 44 + i * 2);
+const gradioMusicSpaces = ["facebook/MusicGen", "haoheliu/audioldm2"];
+
+function gradioFileUrl(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    for (const key of ["url", "path", "name"]) {
+      if (typeof value[key] === "string" && value[key]) return value[key];
+    }
   }
-  return { buffer: pcm, contentType: "audio/wav" };
+  return undefined;
+}
+
+function gradioArgs(parameters, prompt) {
+  if (!Array.isArray(parameters) || !parameters.length) return [prompt];
+  return parameters.map((parameter) => {
+    const name = String(parameter?.parameter_name ?? "").toLowerCase();
+    if (/prompt|text|description|caption|input/.test(name)) return prompt;
+    if (/duration|length|seconds/.test(name)) return 10;
+    if (/seed/.test(name)) return 0;
+    return parameter?.parameter_has_default ? parameter.parameter_default : null;
+  });
+}
+
+async function runGradioMusic(space, prompt) {
+  const { Client } = await import("@gradio/client");
+  const app = await Client.connect(space);
+  let endpoint = "/predict";
+  let args = [prompt];
+  try {
+    const api = await app.view_api();
+    const endpoints = api?.named_endpoints ?? {};
+    const names = Object.keys(endpoints);
+    if (names.length) {
+      endpoint = names.includes("/predict") ? "/predict" : names[0];
+      args = gradioArgs(endpoints[endpoint]?.parameters, prompt);
+    }
+  } catch (error) {
+    console.error(
+      `No se pudo leer la API de ${space}`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+  const result = await app.predict(endpoint, args);
+  for (const item of Array.isArray(result?.data) ? result.data : []) {
+    const url = gradioFileUrl(item);
+    if (!url) continue;
+    const absolute = /^https?:\/\//.test(url)
+      ? url
+      : `https://${space.replace("/", "-").toLowerCase()}.hf.space${url.startsWith("/") ? "" : "/"}${url}`;
+    const response = await fetch(absolute);
+    if (!response.ok) continue;
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length) continue;
+    return {
+      buffer,
+      contentType: response.headers.get("content-type") ?? "audio/wav",
+    };
+  }
+  throw new HfError(`${space} no devolvió audio.`);
+}
+
+async function gradioMusic(prompt) {
+  let lastError;
+  for (const space of gradioMusicSpaces) {
+    try {
+      return await runGradioMusic(space, prompt);
+    } catch (error) {
+      lastError = error;
+      console.error(`Gradio ${space} falló`, error instanceof Error ? error.message : error);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new HfError("Los motores gratuitos de música no respondieron.");
 }
 
 function requestInput(req) {
@@ -575,14 +620,15 @@ function handleHfGeneration(kind) {
       let source = "huggingface";
       if (kind === "audio") {
         try {
-          media = await huggingFaceFreeAudio(prompt);
-        } catch (error) {
+          media = await gradioMusic(prompt);
+          source = "gradio";
+        } catch (gradioError) {
           console.error(
-            "proveedor de audio gratuito falló, usando sintetizador local",
-            error instanceof Error ? error.message : error,
+            "los espacios gratuitos de música fallaron, probando Hugging Face",
+            gradioError instanceof Error ? gradioError.message : gradioError,
           );
-          media = synthesizeAudio(prompt);
-          source = "synthesizer";
+          media = await huggingFaceFreeAudio(prompt);
+          source = "huggingface";
         }
       } else {
         const payload = {

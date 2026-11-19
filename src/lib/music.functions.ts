@@ -40,7 +40,6 @@ import {
   geminiText,
   getAdminClient,
   hfErrorMessage,
-  hfTokens,
   huggingFaceAudio,
   isFalBalanceError,
   type GeneratedAudio,
@@ -92,6 +91,112 @@ function resolveModel(engine: EngineId | undefined): string {
   const defaultModel = engineModel(engine);
   const suffix = engine?.toUpperCase().replace(/-/g, "_") ?? "V7_PRO";
   return process.env[`FAL_MODEL_${suffix}`]?.trim() || defaultModel;
+}
+
+const GRADIO_MUSIC_SPACES = ["facebook/MusicGen", "haoheliu/audioldm2"];
+
+type GradioParameter = {
+  parameter_name?: string;
+  parameter_has_default?: boolean;
+  parameter_default?: unknown;
+};
+
+type GradioApi = {
+  named_endpoints?: Record<string, { parameters?: GradioParameter[] }>;
+};
+
+function gradioFileUrl(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["url", "path", "name"]) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate) return candidate;
+    }
+  }
+  return undefined;
+}
+
+function gradioArgs(parameters: GradioParameter[] | undefined, prompt: string): unknown[] {
+  if (!parameters?.length) return [prompt];
+  return parameters.map((parameter) => {
+    const name = String(parameter.parameter_name ?? "").toLowerCase();
+    if (/prompt|text|description|caption|input/.test(name)) return prompt;
+    if (/duration|length|seconds/.test(name)) return 10;
+    if (/seed/.test(name)) return 0;
+    return parameter.parameter_has_default ? parameter.parameter_default : null;
+  });
+}
+
+async function runGradioMusic(space: string, prompt: string): Promise<GeneratedAudio> {
+  const { Client } = await import("@gradio/client");
+  const app = await Client.connect(space);
+  let endpoint = "/predict";
+  let args: unknown[] = [prompt];
+  try {
+    const api = (await app.view_api()) as unknown as GradioApi;
+    const endpoints = api.named_endpoints ?? {};
+    const names = Object.keys(endpoints);
+    if (names.length) {
+      endpoint = names.includes("/predict") ? "/predict" : (names[0] ?? "/predict");
+      args = gradioArgs(endpoints[endpoint]?.parameters, prompt);
+    }
+  } catch (error) {
+    console.error(
+      `No se pudo leer la API de ${space}`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+  const result = await app.predict(endpoint, args);
+  for (const item of Array.isArray(result.data) ? result.data : []) {
+    const url = gradioFileUrl(item);
+    if (!url) continue;
+    const absolute = /^https?:\/\//.test(url)
+      ? url
+      : `https://${space.replace("/", "-").toLowerCase()}.hf.space${url.startsWith("/") ? "" : "/"}${url}`;
+    const response = await fetch(absolute);
+    if (!response.ok) continue;
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.byteLength) continue;
+    return audioFromBytes(bytes, response.headers.get("content-type") ?? "audio/wav");
+  }
+  throw new Error(`${space} no devolvió audio.`);
+}
+
+async function gradioMusic(prompt: string): Promise<GeneratedAudio> {
+  let lastError: unknown;
+  for (const space of GRADIO_MUSIC_SPACES) {
+    try {
+      return await runGradioMusic(space, prompt);
+    } catch (error) {
+      lastError = error;
+      console.error(`Gradio ${space} falló`, error instanceof Error ? error.message : error);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Los motores gratuitos de música no respondieron.");
+}
+
+async function freeAudio(
+  prompt: string,
+  hfModel = "facebook/musicgen-small",
+): Promise<GeneratedAudio> {
+  try {
+    return await gradioMusic(prompt);
+  } catch (gradioError) {
+    console.error("gradio music failed", gradioError);
+    try {
+      return await huggingFaceAudio(prompt, { model: hfModel });
+    } catch (hfError) {
+      const code = hfError instanceof Error ? hfError.message : "HF_UNKNOWN";
+      if (code === "HF_NOT_CONFIGURED") {
+        const reason = gradioError instanceof Error ? gradioError.message : "";
+        throw new Error(reason || "Los motores gratuitos de música no respondieron.");
+      }
+      throw hfError;
+    }
+  }
 }
 
 export type ActionResult =
@@ -187,21 +292,7 @@ export const generateSong = createServerFn({ method: "POST" })
         };
     }
 
-    const hfAvailable = hfTokens().length > 0;
-    if (!falKey() && !hfAvailable)
-      return {
-        ok: false,
-        status: 500,
-        message:
-          "El administrador debe configurar Fal.ai, HF_TOKENS o la token gratuita de Hugging Face.",
-      };
     const hfEngine = isHfEngine(data.engine);
-    if (hfEngine && !hfAvailable)
-      return {
-        ok: false,
-        status: 500,
-        message: "Este motor usa Hugging Face. El administrador debe configurar HF_TOKENS.",
-      };
 
     const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
       _amount: CREDIT_COSTS.song,
@@ -265,10 +356,10 @@ export const generateSong = createServerFn({ method: "POST" })
     let generated: GeneratedAudio;
     if (hfEngine) {
       try {
-        generated = await huggingFaceAudio(musicPrompt, { model: hfModel });
+        generated = await freeAudio(musicPrompt, hfModel);
       } catch (err) {
         const code = err instanceof Error ? err.message : "HF_UNKNOWN";
-        console.error("hugging face request failed", err);
+        console.error("free audio request failed", err);
         return fail(500, hfErrorMessage(code));
       }
     } else if (falKey()) {
@@ -290,22 +381,22 @@ export const generateSong = createServerFn({ method: "POST" })
       } catch (err) {
         const code = err instanceof Error ? err.message : "FAL_UNKNOWN";
         console.error("music request failed", err);
-        if (!hfAvailable || !isFalBalanceError(err)) return fail(500, falErrorMessage(code));
+        if (!isFalBalanceError(err)) return fail(500, falErrorMessage(code));
         try {
-          generated = await huggingFaceAudio(musicPrompt, { model: "facebook/musicgen-small" });
+          generated = await freeAudio(musicPrompt);
         } catch (fallbackError) {
           const fallbackCode =
             fallbackError instanceof Error ? fallbackError.message : "HF_UNKNOWN";
-          console.error("hugging face fallback failed", fallbackError);
+          console.error("free audio fallback failed", fallbackError);
           return fail(500, hfErrorMessage(fallbackCode));
         }
       }
     } else {
       try {
-        generated = await huggingFaceAudio(musicPrompt, { model: "facebook/musicgen-small" });
+        generated = await freeAudio(musicPrompt);
       } catch (err) {
         const code = err instanceof Error ? err.message : "HF_UNKNOWN";
-        console.error("hugging face request failed", err);
+        console.error("free audio request failed", err);
         return fail(500, hfErrorMessage(code));
       }
     }

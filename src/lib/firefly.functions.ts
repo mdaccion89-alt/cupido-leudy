@@ -865,7 +865,14 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
             })
           : data.provider === "huggingface"
             ? async () => huggingFaceImage(resolved, data.imageSize, data.seed)
-            : async () => pollinationsImage(resolved, data.imageSize, data.seed);
+            : async () => {
+                try {
+                  return await pollinationsImage(resolved, data.imageSize, data.seed);
+                } catch (error) {
+                  console.error("Pollinations falló, usando motores IA", error);
+                  return gatewayImage();
+                }
+              };
     const result = await runFirefly(context.supabase, context.userId, {
       kind: "image",
       model,
