@@ -59,10 +59,15 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [guestUsed, setGuestUsed] = useState(false);
 
   useEffect(() => {
     if (session) navigate({ to: "/" });
   }, [session, navigate]);
+
+  useEffect(() => {
+    setGuestUsed(window.localStorage.getItem("guest_used") === "true");
+  }, []);
 
   const signIn = async (e: FormEvent) => {
     e.preventDefault();
@@ -122,10 +127,17 @@ function AuthPage() {
   };
 
   const enterAsGuest = async () => {
+    if (guestUsed || window.localStorage.getItem("guest_used") === "true") {
+      setGuestUsed(true);
+      toast.error("Ya usaste tu prueba de invitado. Crea una cuenta con correo y contraseña.");
+      return;
+    }
     setBusy(true);
     try {
       const { error } = await supabase.auth.signInAnonymously();
       if (error) throw error;
+      window.localStorage.setItem("guest_used", "true");
+      setGuestUsed(true);
       toast.success("Entraste como invitado.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo entrar como invitado.");
@@ -209,6 +221,15 @@ function AuthPage() {
           </div>
         </form>
 
+        <div className="mt-3 text-center">
+          <a
+            href="mailto:leudyfeliz81@gmail.com?subject=Recuperar%20contrase%C3%B1a%20Leudy%20IA"
+            className="text-xs text-muted-foreground underline hover:text-foreground"
+          >
+            ¿Olvidé mi contraseña? Escribe a leudyfeliz81@gmail.com
+          </a>
+        </div>
+
         <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
           <span className="h-px flex-1 bg-border" />
           o continúa con
@@ -230,15 +251,17 @@ function AuthPage() {
             type="button"
             variant="glass"
             className="h-12 w-full rounded-xl"
-            disabled={busy}
+            disabled={busy || guestUsed}
             onClick={enterAsGuest}
           >
-            <UserRound /> Entrar como invitado
+            <UserRound />
+            {guestUsed ? "Prueba usada · Crea una cuenta" : "Entrar como invitado"}
           </Button>
         </div>
 
         <p className="mt-5 text-center text-xs text-muted-foreground">
-          El invitado puede crear al instante. Inicia sesión para guardar tus canciones.
+          El invitado puede probar una sola vez. Crea una cuenta para seguir usando el estudio y
+          guardar tus canciones.
         </p>
       </div>
     </div>

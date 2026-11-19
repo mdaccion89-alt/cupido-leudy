@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, PenLine, Sparkles, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,135 @@ function cleanStyle(value: string): string {
     .slice(0, 60);
 }
 
+function hashText(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
+}
+
+function profileFor(genre: string): {
+  scale: number[];
+  wave: OscillatorType;
+  bass: OscillatorType;
+  kick: boolean;
+} {
+  const value = genre.toLowerCase();
+  if (/reguet|dembow|trap|hip hop|drill|r&b/.test(value))
+    return { scale: [0, 3, 5, 7, 10], wave: "square", bass: "sine", kick: true };
+  if (/bachata|balada|pop|rock|corrido|gospel/.test(value))
+    return { scale: [0, 2, 4, 5, 7, 9, 11], wave: "triangle", bass: "triangle", kick: true };
+  if (/salsa|merengue|afrobeat|dance|house/.test(value))
+    return { scale: [0, 2, 4, 5, 7, 9, 11], wave: "sawtooth", bass: "triangle", kick: true };
+  if (/jazz|lo-fi|lofi/.test(value))
+    return { scale: [0, 2, 3, 5, 7, 9, 10], wave: "sine", bass: "sine", kick: false };
+  return { scale: [0, 3, 5, 7, 10], wave: "sawtooth", bass: "triangle", kick: true };
+}
+
+function writeAscii(view: DataView, offset: number, value: string): void {
+  for (let index = 0; index < value.length; index += 1)
+    view.setUint8(offset + index, value.charCodeAt(index));
+}
+
+function encodeWav(buffer: AudioBuffer): Blob {
+  const samples = buffer.getChannelData(0);
+  const dataSize = samples.length * 2;
+  const arrayBuffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(arrayBuffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, "WAVE");
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index] ?? 0));
+    view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  return new Blob([arrayBuffer], { type: "audio/wav" });
+}
+
+async function synthesizeSong(options: {
+  genre: string;
+  bpm: number;
+  duration: number;
+  seed: string;
+}): Promise<Blob> {
+  const seconds = Math.max(8, Math.min(options.duration, 60));
+  const sampleRate = 22050;
+  const context = new OfflineAudioContext(1, Math.floor(sampleRate * seconds), sampleRate);
+  const profile = profileFor(options.genre);
+  const seed = hashText(`${options.seed}|${options.genre}`);
+  const beat = 60 / Math.max(60, Math.min(200, options.bpm));
+  const step = beat / 2;
+  const root = 196 * Math.pow(2, ((seed % 3) - 1) / 12);
+  const totalSteps = Math.floor(seconds / step);
+
+  for (let index = 0; index < totalSteps; index += 1) {
+    const time = index * step;
+    const degree = profile.scale[(index * 2 + Math.floor(seed / 7)) % profile.scale.length] ?? 0;
+    const octave = index % 8 >= 6 ? 12 : 0;
+    const frequency = root * Math.pow(2, (degree + octave) / 12);
+    const note = context.createOscillator();
+    note.type = profile.wave;
+    note.frequency.setValueAtTime(frequency, time);
+    const noteGain = context.createGain();
+    noteGain.gain.setValueAtTime(0.0001, time);
+    noteGain.gain.exponentialRampToValueAtTime(0.14, time + 0.02);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, time + step * 0.85);
+    note.connect(noteGain).connect(context.destination);
+    note.start(time);
+    note.stop(Math.min(seconds, time + step));
+
+    if (index % 4 === 0) {
+      const bass = context.createOscillator();
+      bass.type = profile.bass;
+      bass.frequency.setValueAtTime(root / 2, time);
+      const bassGain = context.createGain();
+      bassGain.gain.setValueAtTime(0.0001, time);
+      bassGain.gain.exponentialRampToValueAtTime(0.26, time + 0.03);
+      bassGain.gain.exponentialRampToValueAtTime(0.0001, time + beat * 1.6);
+      bass.connect(bassGain).connect(context.destination);
+      bass.start(time);
+      bass.stop(Math.min(seconds, time + beat * 1.8));
+
+      if (profile.kick) {
+        const kick = context.createOscillator();
+        kick.type = "sine";
+        kick.frequency.setValueAtTime(130, time);
+        kick.frequency.exponentialRampToValueAtTime(45, time + 0.14);
+        const kickGain = context.createGain();
+        kickGain.gain.setValueAtTime(0.0001, time);
+        kickGain.gain.exponentialRampToValueAtTime(0.38, time + 0.01);
+        kickGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.16);
+        kick.connect(kickGain).connect(context.destination);
+        kick.start(time);
+        kick.stop(Math.min(seconds, time + 0.17));
+      }
+    }
+  }
+
+  return encodeWav(await context.startRendering());
+}
+
+type SongPreview = {
+  songId: string;
+  title: string;
+  url: string;
+  lyrics: string;
+  chords: string;
+  structure: string;
+};
+
 export function SongTab({
   signedIn,
   requireSignIn,
@@ -102,6 +231,15 @@ export function SongTab({
   const [duration, setDuration] = useState<DurationSeconds>(60);
   const [mode, setMode] = useState<StudioMode>("standard");
   const [advanced, setAdvanced] = useState({ key: "", mood: "", instruments: "", extra: "" });
+  const [preview, setPreview] = useState<SongPreview | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    [],
+  );
 
   const genre = styles.join(", ").slice(0, MAX_GENRE_LENGTH) || "Reguetón";
   const effectiveVoice: VoiceType = instrumental ? INSTRUMENTAL : voice;
@@ -166,21 +304,41 @@ export function SongTab({
         },
       });
       if (!result.ok) throw new Error(result.message);
-      if (!result.audioBase64) throw new Error("El motor de música no devolvió audio.");
-      const mediaType = result.mediaType || "audio/mpeg";
-      const response = await fetch(`data:${mediaType};base64,${result.audioBase64}`);
-      const blob = await response.blob();
+      const mediaType = "audio/wav";
+      const blob = await synthesizeSong({
+        genre: result.genre || genre,
+        bpm: result.bpm || bpm,
+        duration: result.duration || duration,
+        seed: `${result.title}${result.songId}`,
+      });
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      const url = URL.createObjectURL(blob);
+      previewUrlRef.current = url;
+      const songTitle = result.title || title || prompt.slice(0, 60);
       return {
-        ok: true as const,
-        songId: result.songId,
-        blob,
-        mediaType,
-        title: title || prompt.slice(0, 60),
-        kind: "audio" as const,
+        studioResult: {
+          ok: true as const,
+          songId: result.songId,
+          blob,
+          mediaType,
+          title: songTitle,
+          kind: "audio" as const,
+        },
+        songPreview: {
+          songId: result.songId,
+          title: songTitle,
+          url,
+          lyrics: result.lyrics,
+          chords: result.chords,
+          structure: result.structure,
+        },
       };
     },
     onSettled: () => onPendingChange(false, ""),
-    onSuccess: (r) => onResult(r, "¡Tu canción está lista!"),
+    onSuccess: ({ studioResult, songPreview }) => {
+      setPreview(songPreview);
+      onResult(studioResult, "¡Tu canción y su letra están listas!");
+    },
     onError: (e) =>
       onResult(
         { ok: false, status: 400, message: e instanceof Error ? e.message : "No se pudo generar." },
@@ -479,6 +637,35 @@ export function SongTab({
             ? `Generar Canción · ${CREDIT_COSTS.song} crédito`
             : "Inicia sesión para generar"}
       </Button>
+
+      {preview && (
+        <div className="space-y-4 rounded-xl border border-border bg-surface/60 p-4 backdrop-blur">
+          <p className="font-display text-sm">{preview.title}</p>
+          <audio controls src={preview.url} className="w-full" />
+          <Button asChild variant="glass" size="sm">
+            <a
+              href={preview.url}
+              download={`${preview.title.replace(/[\\/:*?"<>|]/g, "") || "leudy-ia"}.wav`}
+            >
+              Descargar .wav
+            </a>
+          </Button>
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Estructura</p>
+            <p className="text-sm">{preview.structure}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Acordes</p>
+            <p className="text-sm">{preview.chords}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Letra</p>
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 text-sm">
+              {preview.lyrics}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { Buffer } from "node:buffer";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { findBlockedTerm } from "./copyright";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
@@ -28,14 +27,7 @@ import {
   type StudioMode,
   type VoiceType,
 } from "./music";
-import {
-  audioFromBytes,
-  failCreation,
-  geminiErrorMessage,
-  geminiText,
-  getAdminClient,
-  type GeneratedAudio,
-} from "./server-helpers";
+import { geminiErrorMessage, geminiText, getAdminClient } from "./server-helpers";
 
 type GenerateInput = {
   prompt: string;
@@ -79,97 +71,56 @@ function sanitizeAdvanced(value: unknown): AdvancedParams | undefined {
   return Object.values(advanced).some(Boolean) ? advanced : undefined;
 }
 
-const GRADIO_MUSIC_SPACES = ["facebook/MusicGen", "haoheliu/audioldm2"];
-
-type GradioParameter = {
-  parameter_name?: string;
-  parameter_has_default?: boolean;
-  parameter_default?: unknown;
+type SongText = {
+  letra: string;
+  acordes: string;
+  estructura: string;
 };
 
-type GradioApi = {
-  named_endpoints?: Record<string, { parameters?: GradioParameter[] }>;
-};
-
-function gradioFileUrl(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    for (const key of ["url", "path", "name"]) {
-      const candidate = record[key];
-      if (typeof candidate === "string" && candidate) return candidate;
-    }
-  }
-  return undefined;
-}
-
-function gradioArgs(parameters: GradioParameter[] | undefined, prompt: string): unknown[] {
-  if (!parameters?.length) return [prompt];
-  return parameters.map((parameter) => {
-    const name = String(parameter.parameter_name ?? "").toLowerCase();
-    if (/prompt|text|description|caption|input/.test(name)) return prompt;
-    if (/duration|length|seconds/.test(name)) return 10;
-    if (/seed/.test(name)) return 0;
-    return parameter.parameter_has_default ? parameter.parameter_default : null;
-  });
-}
-
-async function runGradioMusic(space: string, prompt: string): Promise<GeneratedAudio> {
-  const { Client } = await import("@gradio/client");
-  const app = await Client.connect(space);
-  let endpoint = "/predict";
-  let args: unknown[] = [prompt];
+function parseSongText(value: string): SongText {
+  const cleaned = value.replace(/```json/gi, "").replace(/```/g, "").trim();
   try {
-    const api = (await app.view_api()) as unknown as GradioApi;
-    const endpoints = api.named_endpoints ?? {};
-    const names = Object.keys(endpoints);
-    if (names.length) {
-      endpoint = names.includes("/predict") ? "/predict" : (names[0] ?? "/predict");
-      args = gradioArgs(endpoints[endpoint]?.parameters, prompt);
-    }
-  } catch (error) {
-    console.error(
-      `No se pudo leer la API de ${space}`,
-      error instanceof Error ? error.message : error,
-    );
-  }
-  const result = await app.predict(endpoint, args);
-  for (const item of Array.isArray(result.data) ? result.data : []) {
-    const url = gradioFileUrl(item);
-    if (!url) continue;
-    const absolute = /^https?:\/\//.test(url)
-      ? url
-      : `https://${space.replace("/", "-").toLowerCase()}.hf.space${url.startsWith("/") ? "" : "/"}${url}`;
-    const response = await fetch(absolute);
-    if (!response.ok) continue;
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.byteLength) continue;
-    return audioFromBytes(bytes, response.headers.get("content-type") ?? "audio/wav");
-  }
-  throw new Error(`${space} no devolvió audio.`);
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const letra = typeof parsed["letra"] === "string" ? parsed["letra"].trim() : "";
+    const acordes = typeof parsed["acordes"] === "string" ? parsed["acordes"].trim() : "";
+    const estructura = typeof parsed["estructura"] === "string" ? parsed["estructura"].trim() : "";
+    if (letra)
+      return {
+        letra: letra.slice(0, MAX_LYRICS_LENGTH),
+        acordes: acordes || "C - G - Am - F (repetir)",
+        estructura: estructura || "Intro - Verso - Coro - Verso - Coro - Outro",
+      };
+  } catch {}
+  return {
+    letra: cleaned.slice(0, MAX_LYRICS_LENGTH),
+    acordes: "C - G - Am - F (repetir)",
+    estructura: "Intro - Verso - Coro - Verso - Coro - Outro",
+  };
 }
 
-async function gradioMusic(prompt: string): Promise<GeneratedAudio> {
-  let lastError: unknown;
-  for (const space of GRADIO_MUSIC_SPACES) {
-    try {
-      return await runGradioMusic(space, prompt);
-    } catch (error) {
-      lastError = error;
-      console.error(`Gradio ${space} falló`, error instanceof Error ? error.message : error);
-    }
-  }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Los motores gratuitos de música no respondieron.");
-}
-
-async function freeAudio(prompt: string): Promise<GeneratedAudio> {
-  return gradioMusic(prompt);
+async function songText(prompt: string): Promise<SongText> {
+  const system =
+    'Eres compositor profesional de música latina. Devuelve SOLO un objeto JSON válido con las claves "letra", "acordes" y "estructura". "letra": letra completa y original en español con secciones [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro]. "acordes": progresión por sección en notación C/G/Am/F. "estructura": orden de secciones con duración aproximada. Sin markdown, sin explicaciones y sin artistas reales.';
+  const text = await geminiText(system, prompt);
+  return parseSongText(text);
 }
 
 export type ActionResult =
-  | { ok: true; songId: string; audioBase64?: string; mediaType?: string }
+  | { ok: true; songId: string }
+  | { ok: false; status: number; message: string };
+
+export type GenerateSongResult =
+  | {
+      ok: true;
+      songId: string;
+      title: string;
+      genre: Genre;
+      bpm: number;
+      duration: DurationSeconds;
+      lyrics: string;
+      chords: string;
+      structure: string;
+    }
   | { ok: false; status: number; message: string };
 
 export const generateSong = createServerFn({ method: "POST" })
@@ -219,7 +170,7 @@ export const generateSong = createServerFn({ method: "POST" })
       advanced,
     };
   })
-  .handler(async ({ data, context }): Promise<ActionResult> => {
+  .handler(async ({ data, context }): Promise<GenerateSongResult> => {
     const { supabase, userId } = context;
 
     const advancedText = data.advanced
@@ -246,50 +197,6 @@ export const generateSong = createServerFn({ method: "POST" })
         };
     }
 
-    const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
-      _amount: CREDIT_COSTS.song,
-      _reason: "Canción",
-    });
-    if (creditError) return { ok: false, status: 402, message: creditErrorMessage(creditError) };
-    const spent = balance === -1 ? 0 : CREDIT_COSTS.song;
-
-    const selectedModel = "gradio/musicgen";
-    const admin = await getAdminClient();
-    const { data: song, error: insertError } = await admin
-      .from("songs")
-      .insert({
-        user_id: userId,
-        kind: "song",
-        title: data.title || titleFromPrompt(data.prompt || data.lyrics),
-        prompt: data.prompt,
-        lyrics: data.lyrics || null,
-        genre: data.genre,
-        voice_type: data.voice,
-        bpm: data.bpm,
-        duration_seconds: data.duration,
-        status: "generating",
-        media_type: "audio/mpeg",
-        credits_spent: spent,
-        external_model: selectedModel,
-      })
-      .select("id")
-      .single();
-    if (insertError || !song) {
-      console.error("songs insert failed", insertError);
-      if (spent)
-        await admin.rpc("grant_credits", {
-          _user_id: userId,
-          _amount: spent,
-          _reason: "Reembolso por creación fallida",
-        });
-      return { ok: false, status: 500, message: "No se pudo empezar la canción." };
-    }
-
-    const fail = async (status: number, message: string): Promise<ActionResult> => {
-      await failCreation(admin, song.id, userId, message);
-      return { ok: false, status, message };
-    };
-
     const musicPrompt = buildMusicPrompt({
       description: data.prompt,
       lyrics: data.lyrics,
@@ -303,42 +210,67 @@ export const generateSong = createServerFn({ method: "POST" })
       ...(data.advanced ? { advanced: data.advanced } : {}),
     });
 
-    let generated: GeneratedAudio;
+    let text: SongText;
     try {
-      generated = await freeAudio(musicPrompt);
+      text = await songText(musicPrompt);
     } catch (error) {
-      console.error("music request failed", error);
-      return fail(
-        500,
-        "Los motores gratuitos de música (MusicGen y audioldm2) no respondieron. Inténtalo de nuevo.",
-      );
-    }
-    if (generated.bytes.byteLength === 0)
-      return fail(502, "El generador no devolvió audio. Inténtalo de nuevo.");
-
-    const path = `${userId}/${song.id}.${generated.extension}`;
-    const { error: uploadError } = await admin.storage
-      .from("songs")
-      .upload(path, generated.bytes, { contentType: generated.contentType, upsert: true });
-    if (uploadError) {
-      console.error("upload failed", uploadError);
-      return fail(500, "La canción se generó pero no se pudo guardar.");
+      console.error("gemini song text failed", error);
+      return {
+        ok: false,
+        status: 500,
+        message: "No se pudo escribir la canción con Gemini. Inténtalo de nuevo.",
+      };
     }
 
-    await admin
+    const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
+      _amount: CREDIT_COSTS.song,
+      _reason: "Canción",
+    });
+    if (creditError) return { ok: false, status: 402, message: creditErrorMessage(creditError) };
+    const spent = balance === -1 ? 0 : CREDIT_COSTS.song;
+
+    const admin = await getAdminClient();
+    const title = data.title || titleFromPrompt(data.prompt || data.lyrics);
+    const { data: song, error: insertError } = await admin
       .from("songs")
-      .update({
+      .insert({
+        user_id: userId,
+        kind: "song",
+        title,
+        prompt: data.prompt,
+        lyrics: data.lyrics || text.letra,
+        genre: data.genre,
+        voice_type: data.voice,
+        bpm: data.bpm,
+        duration_seconds: data.duration,
         status: "ready",
-        storage_path: path,
-        media_type: generated.contentType,
-        error: null,
+        media_type: "audio/wav",
+        credits_spent: spent,
+        external_model: "gemini-2.5-flash",
       })
-      .eq("id", song.id);
+      .select("id")
+      .single();
+    if (insertError || !song) {
+      console.error("songs insert failed", insertError);
+      if (spent)
+        await admin.rpc("grant_credits", {
+          _user_id: userId,
+          _amount: spent,
+          _reason: "Reembolso por creación fallida",
+        });
+      return { ok: false, status: 500, message: "No se pudo guardar la canción." };
+    }
+
     return {
       ok: true,
       songId: song.id,
-      audioBase64: Buffer.from(generated.bytes).toString("base64"),
-      mediaType: generated.contentType,
+      title,
+      genre: data.genre,
+      bpm: data.bpm,
+      duration: data.duration,
+      lyrics: text.letra,
+      chords: text.acordes,
+      structure: text.estructura,
     };
   });
 
@@ -369,51 +301,8 @@ export const writeLyrics = createServerFn({ method: "POST" })
       } catch (err) {
         const code = err instanceof Error ? err.message : "GEMINI_UNKNOWN";
         if (code !== "GEMINI_NOT_CONFIGURED") console.error("gemini lyrics failed", err);
+        return { ok: false, message: geminiErrorMessage(code) };
       }
-      const apiKey = process.env["OPENAI_API_KEY"];
-      if (!apiKey) return { ok: false, message: "La IA de letras no está configurada." };
-      const res = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_output_tokens: 1200,
-          input: [
-            {
-              role: "system",
-              content:
-                "Eres un compositor profesional de música latina. Escribes letras originales en español, con rima y métrica cantables. Devuelve SOLO la letra, con secciones marcadas exactamente como [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro] según convenga. Sin comentarios ni títulos.",
-            },
-            {
-              role: "user",
-              content: `Género: ${data.genre}. Voz: ${data.voice}. Idea: ${data.idea}. Escribe una letra de unos 2-3 minutos con un coro pegajoso que se repita.`,
-            },
-          ],
-        }),
-      });
-      if (!res.ok) {
-        const raw = await res.text();
-        console.error("lyrics error", res.status, raw.slice(0, 400));
-        if (res.status === 429)
-          return { ok: false, message: "Hay muchas solicitudes ahora. Inténtalo en un momento." };
-        if (res.status === 402)
-          return { ok: false, message: "No quedan créditos de IA para escribir letras." };
-        return { ok: false, message: "No se pudo escribir la letra. Inténtalo de nuevo." };
-      }
-      const json = (await res.json()) as {
-        output_text?: string;
-        output?: { type: string; content?: { type: string; text?: string }[] }[];
-      };
-      const text =
-        json.output_text ??
-        (json.output ?? [])
-          .flatMap((o) => o.content ?? [])
-          .filter((c) => c.type === "output_text" && c.text)
-          .map((c) => c.text)
-          .join("\n");
-      if (!text?.trim())
-        return { ok: false, message: "La IA no devolvió una letra. Prueba con otra idea." };
-      return { ok: true, lyrics: text.trim().slice(0, MAX_LYRICS_LENGTH) };
     },
   );
 
