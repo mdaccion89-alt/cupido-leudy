@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { CREDIT_COSTS } from "@/lib/credits";
 import {
+  ACE_STEP_SERVER_URL_KEY,
   BPM_MAX,
   BPM_MIN,
   DURATIONS,
@@ -78,6 +79,21 @@ function cleanStyle(value: string): string {
 }
 
 const SONG_BACKUP_KEY = "leudy-ia:ultima-cancion-respaldo";
+
+function readAceStepServerUrl(): string {
+  try {
+    return localStorage.getItem(ACE_STEP_SERVER_URL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function saveAceStepServerUrl(value: string): void {
+  try {
+    if (value.trim()) localStorage.setItem(ACE_STEP_SERVER_URL_KEY, value.trim());
+    else localStorage.removeItem(ACE_STEP_SERVER_URL_KEY);
+  } catch {}
+}
 
 type SongBackup = {
   id: string;
@@ -262,6 +278,7 @@ export function SongTab({
           duration,
           engine,
           creationMode,
+          aceStepServerUrl: readAceStepServerUrl() || undefined,
           ...(isAdmin ? { mode } : {}),
           ...(creationMode === "custom" ? { advanced } : {}),
         },
@@ -592,6 +609,19 @@ export function SongTab({
 
       {isAdmin && (
         <div className="space-y-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+          <div className="space-y-1">
+            <Label htmlFor="ace-step-server-url">URL personalizada de ACE-Step (opcional)</Label>
+            <Input
+              id="ace-step-server-url"
+              defaultValue={readAceStepServerUrl()}
+              placeholder="https://tu-servidor.hf.space"
+              onBlur={(e) => saveAceStepServerUrl(e.target.value)}
+              className="rounded-xl border-border bg-surface/80"
+            />
+            <p className="text-xs text-muted-foreground">
+              Si está vacía se usan los Spaces públicos oficiales de ACE-Step.
+            </p>
+          </div>
           <OptionGroup
             label="Modo de estudio (Admin Supremo)"
             options={[

@@ -58,6 +58,22 @@ export const VOICE_TYPES = [
 export type VoiceType = (typeof VOICE_TYPES)[number];
 export const INSTRUMENTAL: VoiceType = "Instrumental (Sin Voz)";
 
+export const ACE_STEP_SERVER_URL_KEY = "leudy-ia:ace-step-server-url";
+export const DEFAULT_ACE_STEP_SERVER_URL = "https://gradio.live";
+
+export function normalizeServerUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
 /** Studio modes: user Pro mode needs a paid plan; admin Pro mode is admin-only. */
 export const STUDIO_MODES = ["standard", "user_pro", "admin_pro"] as const;
 export type StudioMode = (typeof STUDIO_MODES)[number];

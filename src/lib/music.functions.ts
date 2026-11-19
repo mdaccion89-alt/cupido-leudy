@@ -19,6 +19,7 @@ import {
   isGenre,
   isStudioMode,
   isVoiceType,
+  normalizeServerUrl,
   sanitizePrompt,
   titleFromPrompt,
   type AdvancedParams,
@@ -31,10 +32,13 @@ import {
 } from "./music";
 import {
   failCreation,
+  generateAceStepAudio,
   geminiText,
+  getAceStepServerUrl,
   getAdminClient,
   pollinationsText,
   synthesizeSongAudio,
+  type GeneratedAudio,
 } from "./server-helpers";
 
 type GenerateInput = {
@@ -49,7 +53,13 @@ type GenerateInput = {
   engine?: EngineId;
   creationMode?: CreationMode;
   advanced?: AdvancedParams;
+  aceStepServerUrl?: string;
 };
+
+const ACE_STEP_PUBLIC_SPACES = [
+  "https://ace-step-ace-step-v1-5.hf.space",
+  "https://ace-step-ace-step.hf.space",
+] as const;
 
 function blockedTermLabel(match: unknown): string {
   const record = match as Record<string, unknown> | null;
@@ -220,6 +230,7 @@ export const generateSong = createServerFn({ method: "POST" })
       engine: input.engine ?? "musicgen-free",
       creationMode: input.creationMode ?? "simple",
       advanced,
+      aceStepServerUrl: normalizeServerUrl(input.aceStepServerUrl),
     };
   })
   .handler(async ({ data, context }): Promise<GenerateSongResult> => {
@@ -284,7 +295,12 @@ export const generateSong = createServerFn({ method: "POST" })
 
     const admin = await getAdminClient();
     const title = data.title || titleFromPrompt(data.prompt || data.lyrics);
-    const audioProvider = "Leudy IA Karplus-Strong";
+    const adminServerUrl = await getAceStepServerUrl(admin);
+    const serverUrls = [data.aceStepServerUrl, adminServerUrl, ...ACE_STEP_PUBLIC_SPACES]
+      .filter((url): url is string => Boolean(url))
+      .filter((url, index, all) => all.indexOf(url) === index);
+    let audioProvider = "ACE-Step (Gradio)";
+    let fallbackWarning: string | undefined;
     const { data: song, error: insertError } = await admin
       .from("songs")
       .insert({
@@ -315,14 +331,35 @@ export const generateSong = createServerFn({ method: "POST" })
       return localWavSongResult({ data, text, title, musicPrompt });
     }
 
-    const generated = synthesizeSongAudio({
-      bpm: data.bpm,
-      seconds: data.duration,
-      seedText: musicPrompt,
-      genre: data.genre,
-      chords: text.acordes,
-      instrumental,
-    });
+    let generated: GeneratedAudio | undefined;
+    for (const serverUrl of serverUrls) {
+      try {
+        generated = await generateAceStepAudio({
+          serverUrl,
+          caption: musicPrompt,
+          lyrics: text.letra,
+          instrumental,
+          bpm: data.bpm,
+          duration: data.duration,
+        });
+        audioProvider = `ACE-Step (${new URL(serverUrl).hostname})`;
+        break;
+      } catch (error) {
+        console.warn("ACE-Step no disponible, probando siguiente servidor", serverUrl, error);
+      }
+    }
+    if (!generated) {
+      generated = synthesizeSongAudio({
+        bpm: data.bpm,
+        seconds: data.duration,
+        seedText: musicPrompt,
+        genre: data.genre,
+        chords: text.acordes,
+        instrumental,
+      });
+      audioProvider = "Leudy IA Karplus-Strong (respaldo local)";
+      fallbackWarning = "Los servidores ACE-Step están llenos; se generó una versión local.";
+    }
 
     const path = `${userId}/${song.id}.${generated.extension}`;
     const { error: uploadError } = await admin.storage
@@ -373,6 +410,7 @@ export const generateSong = createServerFn({ method: "POST" })
       audioBase64: Buffer.from(generated.bytes).toString("base64"),
       mediaType: generated.contentType,
       saved: true,
+      ...(fallbackWarning ? { warning: fallbackWarning } : {}),
     };
   });
 

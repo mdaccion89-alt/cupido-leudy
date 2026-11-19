@@ -1,8 +1,9 @@
 // Helpers used only inside server function handlers. Secrets are read per call, never at module scope.
 import { Buffer } from "node:buffer";
+import { Client } from "@gradio/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { parseTokenList } from "./music";
+import { normalizeServerUrl, parseTokenList } from "./music";
 
 export type Db = SupabaseClient<Database>;
 
@@ -136,6 +137,238 @@ export async function pollinationsAudio(
     return audioFromBytes(bytes, response.headers.get("content-type") || "audio/mpeg");
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+export async function getAceStepServerUrl(admin: Db): Promise<string | undefined> {
+  const { data } = await admin
+    .from("site_settings")
+    .select("custom_sections")
+    .eq("id", 1)
+    .maybeSingle();
+  const sections = data?.custom_sections;
+  if (!sections || typeof sections !== "object" || Array.isArray(sections)) return undefined;
+  return normalizeServerUrl((sections as Record<string, unknown>)["aceStepServerUrl"]);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, code: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(code)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function aceStepParameterValue(
+  parameter: { label?: string; parameter_name?: string; parameter_default?: unknown },
+  context: { caption: string; lyrics: string; instrumental: boolean; bpm: number; duration: number },
+): unknown {
+  const key = `${parameter.label ?? ""} ${parameter.parameter_name ?? ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  if (/caption|description|prompt|musiccaption|songdescription/.test(key)) return context.caption;
+  if (/lyrics|letra/.test(key)) return context.lyrics;
+  if (/bpm|tempo/.test(key)) return context.bpm;
+  if (/duration|seconds|length/.test(key)) return context.duration;
+  if (/instrumental/.test(key)) return context.instrumental;
+  if (/vocallanguage|language|idioma/.test(key)) return context.instrumental ? "unknown" : "es";
+  if (/audioformat|format/.test(key)) return "wav";
+  if (/batchsize/.test(key)) return 1;
+  if (/steps/.test(key)) return 8;
+  if (/seed/.test(key)) return -1;
+  if (/timesignature/.test(key)) return "4";
+  if (/keyscale|key/.test(key)) return "";
+  return parameter.parameter_default ?? null;
+}
+
+function scoreAceStepEndpoint(
+  name: string,
+  info: { returns?: Array<{ label?: string; component?: string }> } | undefined,
+): number {
+  const lower = name.toLowerCase();
+  let score = 0;
+  if (/generationwrapper|generatemusic|text2music|generate/.test(lower)) score += 100;
+  if (/music|audio|song/.test(lower)) score += 30;
+  if (/predict/.test(lower)) score += 10;
+  if (/model|config|upload|token|credential/.test(lower)) score -= 80;
+  if (
+    info?.returns?.some((item) =>
+      /audio|wav|mp3|flac|file/i.test(`${item.label ?? ""} ${item.component ?? ""}`),
+    )
+  )
+    score += 40;
+  return score;
+}
+
+function findGradioAudioLocation(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (
+      /^(https?:\/\/|data:audio\/|\/tmp\/|tmp\/)|(\.(wav|mp3|flac|ogg|m4a)(\?|#|$))/i.test(trimmed)
+    )
+      return trimmed;
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findGradioAudioLocation(item);
+      if (found) return found;
+    }
+    return undefined;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["url", "path", "name"]) {
+      const found = findGradioAudioLocation(record[key]);
+      if (found) return found;
+    }
+    for (const nested of Object.values(record)) {
+      const found = findGradioAudioLocation(nested);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function resolveGradioAudioUrl(location: string, serverUrl: string): string {
+  if (/^(https?:|data:audio\/)/i.test(location)) return location;
+  if (location.startsWith("/file=") || location.startsWith("/gradio_api/file="))
+    return `${serverUrl}${location}`;
+  if (location.startsWith("/tmp/") || location.startsWith("tmp/")) {
+    const normalized = location.startsWith("/") ? location : `/${location}`;
+    return `${serverUrl}/file=${normalized}`;
+  }
+  try {
+    return new URL(location, serverUrl).toString();
+  } catch {
+    return `${serverUrl}/file=${encodeURIComponent(location)}`;
+  }
+}
+
+export async function generateAceStepAudio(input: {
+  serverUrl: string;
+  caption: string;
+  lyrics: string;
+  instrumental: boolean;
+  bpm: number;
+  duration: number;
+}): Promise<GeneratedAudio> {
+  const serverUrl = normalizeServerUrl(input.serverUrl);
+  if (!serverUrl) throw new Error("ACE_STEP_INVALID_URL");
+  const context = {
+    caption: input.caption.slice(0, 512),
+    lyrics: (input.instrumental ? "[Instrumental]" : input.lyrics).slice(0, 4096),
+    instrumental: input.instrumental,
+    bpm: input.bpm,
+    duration: input.duration,
+  };
+  const { client, api } = await withTimeout(
+    (async () => {
+      const connected = await Client.connect(serverUrl);
+      return { client: connected, api: await connected.view_api() };
+    })(),
+    60_000,
+    "ACE_STEP_CONNECT_TIMEOUT",
+  );
+  try {
+    const endpoints = [
+      ...Object.entries(api.named_endpoints),
+      ...Object.entries(api.unnamed_endpoints),
+    ];
+    const selected = endpoints.sort((a, b) =>
+      scoreAceStepEndpoint(b[0], b[1]) - scoreAceStepEndpoint(a[0], a[1]),
+    )[0];
+    const endpoint = selected?.[0] ?? "/predict";
+    const parameters = selected?.[1]?.parameters ?? [];
+    const data = parameters.length
+      ? parameters.map((parameter) => aceStepParameterValue(parameter, context))
+      : [
+          context.caption,
+          context.lyrics,
+          context.bpm,
+          "",
+          "4",
+          context.instrumental ? "unknown" : "es",
+          8,
+          1,
+          true,
+          "0",
+          null,
+          context.duration,
+          1,
+          null,
+          "",
+          0,
+          -1,
+          "",
+          0.5,
+          0.5,
+          "text2music",
+          true,
+          0,
+          1,
+          3,
+          "ode",
+          "euler",
+          1,
+          0,
+          "",
+          "wav",
+          "320k",
+          44100,
+          0.9,
+          true,
+          3,
+          50,
+          0.95,
+          "",
+          true,
+          true,
+          true,
+          false,
+          false,
+          false,
+          false,
+          0.5,
+          4,
+          "vocals",
+          [],
+          true,
+          -1,
+          0,
+          0,
+          0,
+          1,
+          "balanced",
+          0.5,
+          false,
+        ];
+    const prediction = await withTimeout(
+      client.predict(endpoint, data),
+      600_000,
+      "ACE_STEP_TIMEOUT",
+    );
+    const location = findGradioAudioLocation(prediction.data);
+    if (!location) throw new Error("ACE_STEP_NO_AUDIO");
+    const response = await withTimeout(
+      fetch(resolveGradioAudioUrl(location, serverUrl)),
+      120_000,
+      "ACE_STEP_DOWNLOAD_TIMEOUT",
+    );
+    if (!response.ok) throw new Error(`ACE_STEP_DOWNLOAD_${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) throw new Error("ACE_STEP_EMPTY_AUDIO");
+    return audioFromBytes(bytes, response.headers.get("content-type") || "audio/mpeg");
+  } finally {
+    try {
+      client.close();
+    } catch {}
   }
 }
 
