@@ -359,8 +359,12 @@ export async function generateDirectSongAudio(context: DirectContext): Promise<D
     hf_token: import.meta.env.VITE_HF_TOKEN as string,
   });
   try {
-    const prediction = await client.predict("/predict", [prompt, null]);
-    const location = locateMedia(prediction?.data, "audio");
+    const prediction = await client.predict("/predict_batched", [[prompt], [null]]);
+    const firstOutput = Array.isArray(prediction?.data) ? prediction.data[0] : undefined;
+    const batchedOutput = Array.isArray(firstOutput)
+      ? firstOutput[0]
+      : firstOutput ?? prediction?.data;
+    const location = locateMedia(batchedOutput, "audio");
     if (!location) throw new Error("NO_OUTPUT_FILE");
     const file = await downloadMedia(location, client, HF_SPACES.musicGen, "audio");
     return { ...file, url: URL.createObjectURL(file.blob) };
