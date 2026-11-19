@@ -112,8 +112,6 @@ const apiAliases = {
   chat: apiFunctions["assistant-chat"],
 };
 
-const hfAudioModel =
-  process.env.HF_AUDIO_MODEL ?? process.env.HF_MUSIC_MODEL ?? "facebook/musicgen-small";
 const hfVideoProviderId =
   process.env.HF_VIDEO_PROVIDER_ID ?? "fal-ai/wan/v2.2-5b/text-to-video";
 const hfMaxWaitMs = 60 * 60_000;
@@ -481,33 +479,6 @@ function mediaExtension(contentType) {
   return "bin";
 }
 
-async function huggingFaceFreeAudio(prompt) {
-  const result = await httpsCall(
-    `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(hfAudioModel)}`,
-    {
-      method: "POST",
-      body: { inputs: prompt, parameters: { wait_for_model: true } },
-      headers: hfHeaders(),
-      timeout: 5 * 60_000,
-    },
-  );
-  if (!result.status.toString().startsWith("2")) {
-    throw new HfError(`Hugging Face respondió: ${hfMessage(result)}`, result.status);
-  }
-  const json = parseJson(result.buffer);
-  if (typeof json?.audio === "string") {
-    const base64 = json.audio.includes(",") ? json.audio.split(",").pop() : json.audio;
-    return { buffer: Buffer.from(base64, "base64"), contentType: "audio/mpeg" };
-  }
-  if (typeof json?.audio?.url === "string") return downloadHfMedia(json.audio.url);
-  if (typeof json?.audio_url === "string") return downloadHfMedia(json.audio_url);
-  if (result.buffer.length < 128) throw new HfError("Hugging Face no devolvió audio.");
-  return {
-    buffer: result.buffer,
-    contentType: result.headers["content-type"] ?? "audio/mpeg",
-  };
-}
-
 const gradioMusicSpaces = ["facebook/MusicGen", "haoheliu/audioldm2"];
 
 function gradioFileUrl(value) {
@@ -617,19 +588,9 @@ function handleHfGeneration(kind) {
       const input = requestInput(req);
       const prompt = kind === "audio" ? musicPrompt(input) : videoPrompt(input);
       let media;
-      let source = "huggingface";
+      let source = "gradio";
       if (kind === "audio") {
-        try {
-          media = await gradioMusic(prompt);
-          source = "gradio";
-        } catch (gradioError) {
-          console.error(
-            "los espacios gratuitos de música fallaron, probando Hugging Face",
-            gradioError instanceof Error ? gradioError.message : gradioError,
-          );
-          media = await huggingFaceFreeAudio(prompt);
-          source = "huggingface";
-        }
+        media = await gradioMusic(prompt);
       } else {
         const payload = {
           prompt,

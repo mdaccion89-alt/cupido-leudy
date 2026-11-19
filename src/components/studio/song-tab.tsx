@@ -18,7 +18,6 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch } from "@/lib/api-client";
 import { CREDIT_COSTS } from "@/lib/credits";
 import {
   BPM_MAX,
@@ -40,7 +39,7 @@ import {
   type StudioMode,
   type VoiceType,
 } from "@/lib/music";
-import { improvePrompt, writeLyrics } from "@/lib/music.functions";
+import { generateSong, improvePrompt, writeLyrics } from "@/lib/music.functions";
 import { OptionGroup } from "./option-group";
 import type { StudioTabProps } from "./types";
 
@@ -88,6 +87,7 @@ export function SongTab({
 }: StudioTabProps) {
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
+  const generateFn = useServerFn(generateSong);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
@@ -150,10 +150,8 @@ export function SongTab({
           `No podemos imitar ni nombrar a artistas reales como ${blocked}. Usa una descripción original.`,
         );
       onPendingChange(true, "Componiendo tu canción…");
-      const response = await apiFetch("/api/generate-music", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const result = await generateFn({
+        data: {
           prompt,
           lyrics,
           title,
@@ -163,20 +161,20 @@ export function SongTab({
           duration,
           engine,
           creationMode,
-          mode: isAdmin ? mode : undefined,
-          advanced: creationMode === "custom" ? advanced : undefined,
-        }),
+          ...(isAdmin ? { mode } : {}),
+          ...(creationMode === "custom" ? { advanced } : {}),
+        },
       });
-      if (!response.ok) {
-        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(detail?.error ?? `HTTP ${response.status}`);
-      }
+      if (!result.ok) throw new Error(result.message);
+      if (!result.audioBase64) throw new Error("El motor de música no devolvió audio.");
+      const mediaType = result.mediaType || "audio/mpeg";
+      const response = await fetch(`data:${mediaType};base64,${result.audioBase64}`);
       const blob = await response.blob();
       return {
         ok: true as const,
-        songId: `hf-${Date.now()}`,
+        songId: result.songId,
         blob,
-        mediaType: response.headers.get("x-media-type") ?? blob.type ?? "audio/mpeg",
+        mediaType,
         title: title || prompt.slice(0, 60),
         kind: "audio" as const,
       };

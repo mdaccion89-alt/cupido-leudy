@@ -49,37 +49,6 @@ export function audioFromBytes(bytes: Uint8Array, contentType: string): Generate
   };
 }
 
-async function decodeAudioResponse(response: Response): Promise<GeneratedAudio> {
-  const contentType = response.headers.get("content-type") ?? "";
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (!contentType.includes("json")) return audioFromBytes(bytes, contentType);
-
-  const text = new TextDecoder().decode(bytes);
-  const parsed: unknown = JSON.parse(text);
-  const root = Array.isArray(parsed) ? parsed[0] : parsed;
-  const record = root && typeof root === "object" ? (root as Record<string, unknown>) : {};
-  const audio = record["audio"];
-  if (typeof audio === "string") {
-    const base64 = audio.includes(",") ? (audio.split(",").pop() ?? "") : audio;
-    return audioFromBytes(new Uint8Array(Buffer.from(base64, "base64")), contentType);
-  }
-  if (audio && typeof audio === "object") {
-    const audioRecord = audio as Record<string, unknown>;
-    const encoded = audioRecord["bytes"] ?? audioRecord["base64"];
-    if (typeof encoded === "string") {
-      const base64 = encoded.includes(",") ? (encoded.split(",").pop() ?? "") : encoded;
-      return audioFromBytes(new Uint8Array(Buffer.from(base64, "base64")), contentType);
-    }
-    const url = audioRecord["url"] ?? record["audio_url"];
-    if (typeof url === "string") {
-      const download = await fetch(url);
-      if (!download.ok) throw new Error("HF_DOWNLOAD_FAILED");
-      return decodeAudioResponse(download);
-    }
-  }
-  throw new Error("HF_NO_AUDIO");
-}
-
 export function hfTokens(): string[] {
   return parseTokenList([process.env["HF_TOKENS"], process.env["HF_TOKEN"]].join("\n"));
 }
@@ -88,97 +57,9 @@ export function hfToken(): string | undefined {
   return hfTokens()[0];
 }
 
-function hfEndpoint(model: string): string {
-  const custom = process.env["HF_ENDPOINT"]?.trim();
-  if (!custom) return `https://router.huggingface.co/hf-inference/models/${model}`;
-  return custom.replace("{model}", model);
-}
-
-function hfDetail(status: number, raw: string): string {
-  let message = raw.trim();
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-    const nested =
-      record["error"] && typeof record["error"] === "object"
-        ? (record["error"] as Record<string, unknown>)
-        : {};
-    const candidate =
-      nested["message"] ?? nested["error"] ?? record["message"] ?? record["details"];
-    if (typeof candidate === "string" && candidate.trim()) message = candidate.trim();
-    else if (candidate && typeof candidate === "object") message = JSON.stringify(candidate);
-  } catch {
-    if (raw.trim().startsWith("<")) message = "El proveedor devolvió una página HTML inesperada.";
-  }
-  return `HTTP ${status}: ${message.replace(/\s+/g, " ").slice(0, 500) || "sin motivo"}`;
-}
-
 export function isFalBalanceError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return message === "FAL_402" || /insufficient|balance|saldo|cr[eé]dito/i.test(message);
-}
-
-export async function huggingFaceAudio(
-  prompt: string,
-  options: { model?: string } = {},
-): Promise<GeneratedAudio> {
-  const tokens = hfTokens();
-  if (!tokens.length) throw new Error("HF_NOT_CONFIGURED");
-  const model =
-    options.model?.trim() || process.env["HF_MUSIC_MODEL"]?.trim() || "facebook/musicgen-small";
-  const endpoint = hfEndpoint(model);
-  let lastDetail = "sin motivo";
-  for (const token of tokens) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      let response: Response;
-      try {
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ inputs: prompt, parameters: { wait_for_model: true } }),
-        });
-      } catch (error) {
-        lastDetail = `red: ${error instanceof Error ? error.message : String(error)}`;
-        break;
-      }
-      if (response.ok) return decodeAudioResponse(response);
-      const detail = hfDetail(response.status, await response.text());
-      lastDetail = detail;
-      const lower = detail.toLowerCase();
-      const loading = response.status === 503 || /loading|warm.?up|starting/.test(lower);
-      const tokenLimit =
-        response.status === 401 ||
-        response.status === 403 ||
-        response.status === 429 ||
-        /rate limit|quota|limit|exceeded|billing|payment|gated|unauthorized|invalid token/i.test(
-          lower,
-        );
-      if (loading && attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 5_000 * (attempt + 1)));
-        continue;
-      }
-      if (tokenLimit || loading || response.status >= 500) break;
-      throw new Error(`HF_DETAIL:${detail}`);
-    }
-  }
-  throw new Error(`HF_EXHAUSTED:${lastDetail}`);
-}
-
-export function hfErrorMessage(code: string): string {
-  if (code.startsWith("HF_DETAIL:"))
-    return `Hugging Face respondió: ${code.slice("HF_DETAIL:".length)}`;
-  if (code.startsWith("HF_EXHAUSTED:"))
-    return `Todas las tokens de Hugging Face llegaron a su límite. Último motivo: ${code.slice("HF_EXHAUSTED:".length)}`;
-  if (code === "HF_NOT_CONFIGURED")
-    return "El proveedor gratuito no está configurado. El administrador debe añadir una token de Hugging Face.";
-  if (code === "HF_NO_AUDIO" || code === "HF_DOWNLOAD_FAILED")
-    return "Hugging Face no devolvió audio descargable. Revisa el modelo configurado.";
-  if (code === "HF_401" || code === "HF_403")
-    return "La token de Hugging Face no es válida o no tiene permisos.";
-  if (code === "HF_429") return "Hugging Face está ocupado. Inténtalo en unos minutos.";
-  if (code.startsWith("HF_5"))
-    return "El proveedor gratuito no está disponible ahora. Inténtalo de nuevo.";
-  return "No se pudo generar el audio con el proveedor gratuito.";
 }
 
 export function falKey(): string | undefined {

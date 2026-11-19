@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { Buffer } from "node:buffer";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { generateWithGateway } from "@/lib/ai-engine.functions";
 import { ADMIN_EMAIL, CREDIT_COSTS, creditErrorMessage, isPaidPlan } from "@/lib/credits";
 import { sanitizePrompt, titleFromPrompt } from "@/lib/music";
 import {
@@ -11,7 +10,6 @@ import {
   falWait,
   failCreation,
   getAdminClient,
-  hfTokens,
   signOwnedPath,
   type Db,
   type FalSubmit,
@@ -27,10 +25,9 @@ export const FIREFLY_IMAGE_PIXELS = {
 } as const;
 
 export const FIREFLY_IMAGE_PROVIDERS = [
+  { value: "gemini", label: "Gemini Imagen 3 (HD)" },
+  { value: "horde", label: "Stable Horde (gratis)" },
   { value: "pollinations", label: "Pollinations (gratis)" },
-  { value: "engines", label: "Motores IA (gratis)" },
-  { value: "huggingface", label: "Hugging Face FLUX" },
-  { value: "fal", label: "Fal FLUX" },
 ] as const;
 
 export const FIREFLY_ASSET_SLOTS = [
@@ -476,19 +473,6 @@ async function downloadMedia(source: MediaSource): Promise<DownloadedMedia> {
   return { bytes: new Uint8Array(await response.arrayBuffer()), contentType };
 }
 
-async function decodeImageResponse(response: Response): Promise<DownloadedMedia> {
-  const contentType = (response.headers.get("content-type") ?? "").split(";")[0] ?? "";
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (!contentType.includes("json")) {
-    if (!bytes.byteLength) throw new Error("HF_EMPTY");
-    return { bytes, contentType: contentType || "image/png" };
-  }
-  const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
-  const source = findMediaSource(parsed);
-  if (!source) throw new Error("HF_NO_IMAGE");
-  return downloadMedia(source);
-}
-
 async function pollinationsImage(
   prompt: string,
   imageSize: FireflyImageSize,
@@ -525,76 +509,168 @@ async function pollinationsImage(
   throw lastError instanceof Error ? lastError : new Error("POLLINATIONS_FAILED");
 }
 
-function hfDetail(status: number, raw: string): string {
-  let message = raw.trim();
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    const record = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
-    const nested =
-      record["error"] && typeof record["error"] === "object"
-        ? (record["error"] as Record<string, unknown>)
-        : {};
-    const candidate =
-      nested["message"] ?? nested["error"] ?? record["message"] ?? record["details"];
-    if (typeof candidate === "string" && candidate.trim()) message = candidate.trim();
-  } catch {
-    if (raw.trim().startsWith("<")) message = "Respuesta HTML inesperada.";
-  }
-  return `HTTP ${status}: ${message.replace(/\s+/g, " ").slice(0, 500) || "sin motivo"}`;
+function geminiApiKey(): string {
+  const key = process.env["GEMINI_API_KEY"]?.trim();
+  if (!key) throw new Error("GEMINI_NOT_CONFIGURED");
+  return key;
 }
 
-async function huggingFaceImage(
+async function geminiImagenImage(
+  prompt: string,
+  imageSize: FireflyImageSize,
+): Promise<DownloadedMedia> {
+  const key = geminiApiKey();
+  const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
+  const aspectRatio = width > height ? "16:9" : height > width ? "9:16" : "1:1";
+  let lastError: unknown;
+  for (const model of ["imagen-3.0-generate-002", "imagen-3.0-generate-001"]) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            instances: [{ prompt }],
+            parameters: {
+              sampleCount: 1,
+              aspectRatio,
+              sampleImageSize: "2K",
+              personGeneration: "allow_adult",
+            },
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(`GEMINI_${response.status}`);
+      const data = (await response.json()) as {
+        predictions?: Array<{ bytesBase64Encoded?: string; mimeType?: string }>;
+      };
+      const base64 = data.predictions?.find((item) => item.bytesBase64Encoded)?.bytesBase64Encoded;
+      if (!base64) throw new Error("GEMINI_NO_IMAGE");
+      return {
+        bytes: new Uint8Array(Buffer.from(base64, "base64")),
+        contentType: "image/png",
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("GEMINI_FAILED");
+}
+
+async function geminiFlashImage(prompt: string): Promise<DownloadedMedia> {
+  const key = geminiApiKey();
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+      }),
+    },
+  );
+  if (!response.ok) throw new Error(`GEMINI_FLASH_${response.status}`);
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }>;
+      };
+    }>;
+  };
+  for (const candidate of data.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      const base64 = part.inlineData?.data;
+      if (!base64) continue;
+      return {
+        bytes: new Uint8Array(Buffer.from(base64, "base64")),
+        contentType: part.inlineData?.mimeType || "image/png",
+      };
+    }
+  }
+  throw new Error("GEMINI_FLASH_NO_IMAGE");
+}
+
+async function geminiImage(prompt: string, imageSize: FireflyImageSize): Promise<DownloadedMedia> {
+  try {
+    return await geminiImagenImage(prompt, imageSize);
+  } catch (error) {
+    console.error("Gemini Imagen falló, probando Gemini Flash", error);
+    return geminiFlashImage(prompt);
+  }
+}
+
+function hordeHeaders(): Record<string, string> {
+  return {
+    apikey: "0000000000",
+    "Content-Type": "application/json",
+    "Client-Agent": "LeudyIA:1.0:web",
+  };
+}
+
+async function stableHordeImage(
   prompt: string,
   imageSize: FireflyImageSize,
   seed: number | undefined,
 ): Promise<DownloadedMedia> {
-  const tokens = hfTokens();
-  if (!tokens.length) throw new Error("HF_NOT_CONFIGURED");
-  const model = process.env["HF_IMAGE_MODEL"]?.trim() || "black-forest-labs/FLUX.1-schnell";
   const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
-  let lastDetail = "sin motivo";
-  for (const token of tokens) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      let response: Response;
-      try {
-        response = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              width,
-              height,
-              num_inference_steps: 4,
-              guidance_scale: 0,
-              ...(seed !== undefined ? { seed } : {}),
-            },
-          }),
-        });
-      } catch (error) {
-        lastDetail = `red: ${error instanceof Error ? error.message : String(error)}`;
-        break;
-      }
-      if (response.ok) return decodeImageResponse(response);
-      const detail = hfDetail(response.status, await response.text());
-      lastDetail = detail;
-      const lower = detail.toLowerCase();
-      const loading = response.status === 503 || /loading|warm.?up|starting/.test(lower);
-      const tokenLimit =
-        response.status === 401 ||
-        response.status === 403 ||
-        /rate limit|quota|limit|exceeded|billing|payment|gated|unauthorized|invalid token/i.test(
-          lower,
-        );
-      if (loading && attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 3_000 * (attempt + 1)));
-        continue;
-      }
-      if (tokenLimit || loading || response.status >= 500) break;
-      throw new Error(`HF_DETAIL:${detail}`);
-    }
+  const started = await fetch("https://aihorde.net/api/v2/generate/async", {
+    method: "POST",
+    headers: hordeHeaders(),
+    body: JSON.stringify({
+      prompt,
+      params: {
+        width,
+        height,
+        steps: 30,
+        cfg_scale: 7,
+        sampler_name: "Euler a",
+        karras: true,
+        ...(seed !== undefined ? { seed } : {}),
+      },
+      models: [],
+      r2: true,
+    }),
+  });
+  if (!started.ok) throw new Error(`HORDE_${started.status}`);
+  const job = (await started.json()) as { id?: string; message?: string };
+  if (!job.id) throw new Error(`HORDE_NO_JOB:${job.message ?? "sin id"}`);
+
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const check = await fetch(`https://aihorde.net/api/v2/generate/check/${job.id}`, {
+      headers: hordeHeaders(),
+    });
+    if (!check.ok) throw new Error(`HORDE_CHECK_${check.status}`);
+    const info = (await check.json()) as {
+      done?: boolean;
+      faulted?: boolean;
+      message?: string;
+      wait_time?: number;
+    };
+    if (info.faulted) throw new Error(`HORDE_FAULTED:${info.message ?? "trabajo fallido"}`);
+    if (info.done) break;
+    if (Date.now() >= deadline) throw new Error("HORDE_TIMEOUT");
+    const wait = Math.min(Math.max((info.wait_time ?? 2) * 1000, 1_000), 5_000);
+    await new Promise((resolve) => setTimeout(resolve, wait));
   }
-  throw new Error(`HF_EXHAUSTED:${lastDetail}`);
+
+  const status = await fetch(`https://aihorde.net/api/v2/generate/status/${job.id}`, {
+    headers: hordeHeaders(),
+  });
+  if (!status.ok) throw new Error(`HORDE_STATUS_${status.status}`);
+  const payload = (await status.json()) as { generations?: Array<{ img?: string }> };
+  const image = payload.generations?.find((item) => item.img)?.img;
+  if (!image) throw new Error("HORDE_NO_IMAGE");
+  if (/^https?:\/\//i.test(image)) {
+    const response = await fetch(image);
+    if (!response.ok) throw new Error(`HORDE_DOWNLOAD_${response.status}`);
+    const contentType = (response.headers.get("content-type") ?? "").split(";")[0] || "image/webp";
+    return { bytes: new Uint8Array(await response.arrayBuffer()), contentType };
+  }
+  const base64 = image.includes(",") ? (image.split(",").pop() ?? "") : image;
+  return { bytes: new Uint8Array(Buffer.from(base64, "base64")), contentType: "image/webp" };
 }
 
 function mediaKindFor(
@@ -650,6 +726,24 @@ function providerFailure(error: unknown): FireflyFailure {
       ok: false,
       status: code === "POLLINATIONS_429" ? 429 : 502,
       message: `Pollinations no pudo generar la imagen (${code.slice(13)}).`,
+    };
+  if (code === "GEMINI_NOT_CONFIGURED")
+    return {
+      ok: false,
+      status: 503,
+      message: "La clave GEMINI_API_KEY no está configurada en el servidor.",
+    };
+  if (code.startsWith("GEMINI_"))
+    return {
+      ok: false,
+      status: 502,
+      message: "Gemini no pudo generar la imagen. Se probaron los motores gratuitos.",
+    };
+  if (code.startsWith("HORDE_"))
+    return {
+      ok: false,
+      status: 504,
+      message: "Stable Horde no devolvió una imagen a tiempo. Se probó Pollinations.",
     };
   if (code.startsWith("MOTOR_IA:"))
     return { ok: false, status: 502, message: code.slice(9) };
@@ -817,26 +911,12 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
     const assets = validateAssets(input?.assets);
     const providerValues = FIREFLY_IMAGE_PROVIDERS.map((provider) => provider.value);
     const requestedProvider = input?.provider as FireflyImageProvider;
-    const provider = providerValues.includes(requestedProvider)
-      ? requestedProvider
-      : "pollinations";
+    const provider = providerValues.includes(requestedProvider) ? requestedProvider : "gemini";
     const fullPrompt = `${prompt}\n${assets.map((asset) => `@${asset.name}`).join(" ")}`.trim();
     assertElementLimit(fullPrompt, assets);
     return { prompt, imageSize, seed, assets, provider };
   })
   .handler(async ({ data, context }): Promise<FireflyResult> => {
-    if (data.provider === "huggingface" && !hfTokens().length)
-      return {
-        ok: false,
-        status: 503,
-        message: "Hugging Face FLUX necesita una token configurada. Prueba con Pollinations.",
-      };
-    if (data.provider === "fal" && !falKey())
-      return {
-        ok: false,
-        status: 503,
-        message: "Fal FLUX necesita la clave del proveedor. Prueba con Pollinations.",
-      };
     const admin = await getAdminClient();
     let resolved = "";
     try {
@@ -849,55 +929,39 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
       };
     }
     const expiresAt = await expiresAtFor(context.supabase, context.userId, claimsFrom(context));
-    let engineModel = "ai-gateway";
-    const model =
-      data.provider === "engines"
-        ? engineModel
-        : data.provider === "fal"
-          ? process.env["FAL_IMAGE_MODEL"]?.trim() || "fal-ai/flux/dev"
-          : data.provider === "huggingface"
-            ? process.env["HF_IMAGE_MODEL"]?.trim() || "black-forest-labs/FLUX.1-schnell"
-            : "pollinations/image";
-    const gatewayImage = async (): Promise<DownloadedMedia> => {
-      const { width, height } = FIREFLY_IMAGE_PIXELS[data.imageSize];
-      const result = await generateWithGateway(context.supabase, {
-        functionKey: "image",
-        prompt: resolved,
-        width,
-        height,
-        seed: data.seed,
-      });
-      if (!result || !("imageBase64" in result) || !result.imageBase64) {
-        throw new Error("MOTOR_IA: No hay motores IA activos y probados para generar imágenes.");
+    const attempts: Array<() => Promise<DownloadedMedia>> =
+      data.provider === "horde"
+        ? [
+            () => stableHordeImage(resolved, data.imageSize, data.seed),
+            () => pollinationsImage(resolved, data.imageSize, data.seed, "flux"),
+            () => geminiImage(resolved, data.imageSize),
+          ]
+        : data.provider === "pollinations"
+          ? [
+              () => pollinationsImage(resolved, data.imageSize, data.seed, "flux"),
+              () => geminiImage(resolved, data.imageSize),
+              () => stableHordeImage(resolved, data.imageSize, data.seed),
+            ]
+          : [
+              () => geminiImage(resolved, data.imageSize),
+              () => stableHordeImage(resolved, data.imageSize, data.seed),
+              () => pollinationsImage(resolved, data.imageSize, data.seed, "flux"),
+            ];
+    const produce = async (): Promise<DownloadedMedia> => {
+      let lastError: unknown;
+      for (const attempt of attempts) {
+        try {
+          return await attempt();
+        } catch (error) {
+          lastError = error;
+          console.error("motor de imagen falló, probando el siguiente", error);
+        }
       }
-      engineModel = `${result.providerKey}:${result.model}`;
-      return {
-        bytes: new Uint8Array(Buffer.from(result.imageBase64, "base64")),
-        contentType: result.mimeType || "image/png",
-      };
+      throw lastError instanceof Error ? lastError : new Error("IMAGE_ENGINES_FAILED");
     };
-    const produce =
-      data.provider === "engines"
-        ? gatewayImage
-        : data.provider === "fal"
-          ? await falMedia(model, {
-              prompt: resolved,
-              image_size: data.imageSize,
-              ...(data.seed !== undefined ? { seed: data.seed } : {}),
-            })
-          : data.provider === "huggingface"
-            ? async () => huggingFaceImage(resolved, data.imageSize, data.seed)
-            : async () => {
-                try {
-                  return await pollinationsImage(resolved, data.imageSize, data.seed, "flux");
-                } catch (error) {
-                  console.error("Pollinations falló, usando motores IA", error);
-                  return gatewayImage();
-                }
-              };
-    const result = await runFirefly(context.supabase, context.userId, {
+    return runFirefly(context.supabase, context.userId, {
       kind: "image",
-      model,
+      model: `imagen/${data.provider}`,
       cost: CREDIT_COSTS.song,
       reason: "Imagen IA",
       title: titleFromPrompt(data.prompt),
@@ -907,10 +971,6 @@ export const generateFireflyImage = createServerFn({ method: "POST" })
       expiresAt,
       produce,
     });
-    if (result.ok && engineModel !== "ai-gateway") {
-      await admin.from("songs").update({ external_model: engineModel }).eq("id", result.songId);
-    }
-    return result;
   });
 
 export const saveFireflyImageHistory = createServerFn({ method: "POST" })
@@ -918,12 +978,14 @@ export const saveFireflyImageHistory = createServerFn({ method: "POST" })
   .inputValidator((input: FireflyImageHistoryInput) => {
     const prompt = validatePrompt(input?.prompt, "Describe la imagen que quieres crear.");
     const imageUrl = typeof input?.imageUrl === "string" ? input.imageUrl.trim() : "";
-    if (!/^https:\/\/image\.pollinations\.ai\//i.test(imageUrl))
+    if (!/^(https?:\/\/|data:image\/)/i.test(imageUrl))
       throw new Error("La imagen directa no es válida.");
     const size = input?.imageSize as FireflyImageSize;
     const imageSize = FIREFLY_IMAGE_SIZES.includes(size) ? size : "16:9";
     const seed = validateSeed(input?.seed);
-    const provider = input?.provider === "engines" ? "engines" : "pollinations";
+    const providerValues = FIREFLY_IMAGE_PROVIDERS.map((provider) => provider.value);
+    const requestedProvider = input?.provider as FireflyImageProvider;
+    const provider = providerValues.includes(requestedProvider) ? requestedProvider : "pollinations";
     return { prompt, imageUrl, imageSize, seed, provider };
   })
   .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
@@ -941,7 +1003,7 @@ export const saveFireflyImageHistory = createServerFn({ method: "POST" })
           status: "generating",
           media_type: "image/jpeg",
           credits_spent: 0,
-          external_model: data.provider === "engines" ? "pollinations/turbo" : "pollinations/flux",
+          external_model: `imagen/${data.provider}`,
         })
         .select("id")
         .single();

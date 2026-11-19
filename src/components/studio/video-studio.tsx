@@ -17,9 +17,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_COSTS } from "@/lib/credits";
+import { downloadBlob } from "@/lib/download";
 import {
   countActiveElements,
   FIREFLY_ACCENTS,
@@ -29,7 +29,6 @@ import {
   FIREFLY_IMAGE_PROVIDERS,
   FIREFLY_IMAGE_SIZES,
   FIREFLY_LANGUAGES,
-  FIREFLY_VIDEO_MODELS,
   FIREFLY_VOICE_STYLES,
   generateFireflyImage,
   generateFireflyVoice,
@@ -39,7 +38,6 @@ import {
   type FireflyImageSize,
   type FireflyScene,
   type FireflySceneClip,
-  type FireflyVideoModel,
 } from "@/lib/firefly.functions";
 import { uploadOwnFile } from "@/lib/uploads";
 import { VideoElementsEditor } from "./video-elements-editor";
@@ -84,7 +82,7 @@ function appendToken(current: string, name: string): string {
 const DIRECT_IMAGE_TIMEOUT_MS = 15_000;
 
 function isFreeImageProvider(provider: FireflyImageProvider): boolean {
-  return provider === "pollinations" || provider === "engines";
+  return provider === "pollinations";
 }
 
 function buildPollinationsUrl(options: {
@@ -143,7 +141,7 @@ async function generateDirectImage(options: {
   seed: number;
   provider: FireflyImageProvider;
 }): Promise<string> {
-  const primary = options.provider === "engines" ? "turbo" : "flux";
+  const primary = "flux";
   const base = {
     prompt: options.prompt,
     width: options.width,
@@ -164,6 +162,144 @@ async function generateDirectImage(options: {
     }
   }
   throw lastError instanceof Error ? lastError : new Error("Pollinations no respondió.");
+}
+
+function loadCorsImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    const timer = setTimeout(() => {
+      img.onload = null;
+      img.onerror = null;
+      reject(new Error("La imagen tardó demasiado en cargar."));
+    }, DIRECT_IMAGE_TIMEOUT_MS);
+    img.onload = () => {
+      clearTimeout(timer);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      reject(new Error("La imagen generada no permite animarla en el navegador."));
+    };
+    img.src = url;
+  });
+}
+
+function motionFor(movement: string, seed: number | undefined) {
+  const variant = (seed ?? Date.now()) % 4;
+  const direction = variant % 2 === 0 ? 1 : -1;
+  switch (movement) {
+    case "zoom-in":
+      return { from: 1, to: 1.16, dx: 0, dy: 0 };
+    case "zoom-out":
+      return { from: 1.16, to: 1, dx: 0, dy: 0 };
+    case "pan":
+      return { from: 1.08, to: 1.08, dx: direction * 0.06, dy: 0 };
+    case "tracking":
+      return { from: 1.1, to: 1.1, dx: direction * 0.07, dy: -0.02 };
+    case "orbit":
+      return { from: 1.12, to: 1.06, dx: direction * 0.05, dy: 0.03 };
+    case "crane":
+      return { from: 1.05, to: 1.14, dx: 0, dy: -0.05 };
+    default:
+      return { from: 1.03, to: 1.07, dx: 0, dy: 0 };
+  }
+}
+
+async function animateImageToVideo(options: {
+  image: HTMLImageElement;
+  width: number;
+  height: number;
+  seconds: number;
+  movement: string;
+  seed?: number | undefined;
+}): Promise<{ blob: Blob; mediaType: string }> {
+  if (typeof MediaRecorder === "undefined")
+    throw new Error("Tu navegador no soporta grabación de video.");
+  const canvas = document.createElement("canvas");
+  canvas.width = options.width;
+  canvas.height = options.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("No se pudo crear el lienzo de animación.");
+  if (typeof canvas.captureStream !== "function")
+    throw new Error("Tu navegador no soporta captura de video desde lienzo.");
+
+  const mimeCandidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+  const recorderClass = MediaRecorder as unknown as {
+    isTypeSupported?: (type: string) => boolean;
+  };
+  const mimeType = mimeCandidates.find(
+    (candidate) => recorderClass.isTypeSupported?.(candidate) ?? false,
+  );
+  const stream = canvas.captureStream(30);
+  const recorder = mimeType
+    ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 })
+    : new MediaRecorder(stream, { videoBitsPerSecond: 8_000_000 });
+
+  const image = options.image;
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const canvasRatio = options.width / options.height;
+  let sx = 0;
+  let sy = 0;
+  let sw = image.naturalWidth;
+  let sh = image.naturalHeight;
+  if (imageRatio > canvasRatio) {
+    sw = image.naturalHeight * canvasRatio;
+    sx = (image.naturalWidth - sw) / 2;
+  } else {
+    sh = image.naturalWidth / canvasRatio;
+    sy = (image.naturalHeight - sh) / 2;
+  }
+
+  const motion = motionFor(options.movement, options.seed);
+  const chunks: BlobPart[] = [];
+  const resultType = recorder.mimeType || mimeType || "video/webm";
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.onerror = () => reject(new Error("La grabación del video falló."));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: resultType }));
+    recorder.start(100);
+
+    const startedAt = performance.now();
+    const draw = (now: number) => {
+      const progress = Math.min((now - startedAt) / (options.seconds * 1000), 1);
+      const eased = progress * progress * (3 - 2 * progress);
+      const scale = motion.from + (motion.to - motion.from) * eased;
+      const offsetX = motion.dx * options.width * (progress - 0.5) * 2;
+      const offsetY = motion.dy * options.height * (progress - 0.5) * 2;
+      context.fillStyle = "#000000";
+      context.fillRect(0, 0, options.width, options.height);
+      context.save();
+      context.translate(options.width / 2, options.height / 2);
+      context.scale(scale, scale);
+      context.drawImage(
+        image,
+        sx,
+        sy,
+        sw,
+        sh,
+        -options.width / 2 + offsetX,
+        -options.height / 2 + offsetY,
+        options.width,
+        options.height,
+      );
+      context.restore();
+      if (progress >= 1) {
+        if (recorder.state !== "inactive") recorder.stop();
+        return;
+      }
+      requestAnimationFrame(draw);
+    };
+    requestAnimationFrame(draw);
+  });
+  return { blob, mediaType: resultType };
 }
 
 export type VideoStudioProps = {
@@ -190,14 +326,13 @@ export function VideoStudio({
   const [tab, setTab] = useState("image");
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSize, setImageSize] = useState<FireflyImageSize>("16:9");
-  const [imageProvider, setImageProvider] = useState<FireflyImageProvider>("pollinations");
+  const [imageProvider, setImageProvider] = useState<FireflyImageProvider>("gemini");
   const [imageSeed, setImageSeed] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [directImages, setDirectImages] = useState<string[]>([]);
   const [videoPrompt, setVideoPrompt] = useState("");
   const [scenes, setScenes] = useState<FireflyScene[]>([{ text: "", seconds: 5 }]);
   const [cameraMovement, setCameraMovement] = useState("static");
-  const [videoModel, setVideoModel] = useState<FireflyVideoModel>("ltx");
   const [videoSeed, setVideoSeed] = useState("");
   const [referencePath, setReferencePath] = useState<string | null>(null);
   const [assets, setAssets] = useState<FireflyAsset[]>([]);
@@ -306,40 +441,53 @@ export function VideoStudio({
       if (totalSeconds <= 0 || totalSeconds > 60)
         throw new Error("El total de las escenas debe estar entre 1 y 60 segundos.");
       if (!uid) throw new Error("Inicia sesión para generar videos.");
-      startProgress("Generando video con Hugging Face…", Math.max(120, totalSeconds * 8));
-      const response = await apiFetch("/api/generate-video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: videoPrompt,
-          scenes,
-          cameraMovement,
-          seed: parseSeed(videoSeed),
-          model: videoModel,
-          duration: totalSeconds,
-        }),
-      });
-      if (!response.ok) {
-        const detail = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(detail?.error ?? `HTTP ${response.status}`);
-      }
-      const blob = await response.blob();
-      const mediaType = response.headers.get("x-media-type") ?? blob.type ?? "video/mp4";
-      const generationId = `hf-${Date.now()}`;
-      return {
-        label: "Video generado con Hugging Face",
-        generationId,
-        clips: [
-          {
-            songId: generationId,
-            url: URL.createObjectURL(blob),
-            storagePath: "",
-            sceneNumber: 1,
-            seconds: totalSeconds,
-            mediaType,
-            model: videoModel,
+      startProgress("Generando escenas en HD…", Math.max(90, totalSeconds * 14));
+      const seed = parseSeed(videoSeed);
+      const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
+      const clips: FireflySceneClip[] = [];
+      for (const [index, scene] of scenes.entries()) {
+        advanceProgress(
+          `Creando escena ${index + 1} de ${scenes.length}…`,
+          Math.round(((index + 1) / scenes.length) * 80),
+        );
+        const scenePrompt = `${videoPrompt}\n${scenes.map((item) => item.text).join("\n")}\nEscena ${index + 1}: ${scene.text}`.trim();
+        const generated = await imageFn({
+          data: {
+            prompt: scenePrompt,
+            imageSize,
+            provider: "gemini",
+            seed: seed === undefined ? undefined : seed + index,
+            assets,
           },
-        ],
+        });
+        if (!generated.ok) throw new Error(generated.message);
+        const image = await loadCorsImage(generated.url);
+        advanceProgress(
+          `Animando escena ${index + 1} de ${scenes.length}…`,
+          Math.round(((index + 1) / scenes.length) * 95),
+        );
+        const { blob, mediaType } = await animateImageToVideo({
+          image,
+          width,
+          height,
+          seconds: scene.seconds,
+          movement: cameraMovement,
+          seed: seed === undefined ? undefined : seed + index,
+        });
+        clips.push({
+          songId: generated.songId,
+          url: URL.createObjectURL(blob),
+          storagePath: "",
+          sceneNumber: index + 1,
+          seconds: scene.seconds,
+          mediaType,
+          model: "canvas-ken-burns",
+        });
+      }
+      return {
+        label: "Video animado en HD (Ken Burns)",
+        generationId: `local-${Date.now()}`,
+        clips,
         stitched: true,
       };
     },
@@ -568,13 +716,10 @@ export function VideoStudio({
           </div>
 
           <OptionGroup
-            label="Modelo"
-            options={FIREFLY_VIDEO_MODELS.map((model) => ({
-              value: model.value,
-              label: model.label,
-            }))}
-            value={videoModel}
-            onChange={setVideoModel}
+            label="Formato HD"
+            options={FIREFLY_IMAGE_SIZES.map((size) => ({ value: size, label: size }))}
+            value={imageSize}
+            onChange={(value) => setImageSize(value as FireflyImageSize)}
           />
 
           <VideoScenesEditor
@@ -643,19 +788,32 @@ export function VideoStudio({
             <div className={cardClass}>
               <p className="font-display text-sm">{videoResult.label}</p>
               <p className="text-xs text-muted-foreground">
-                {videoResult.stitched
-                  ? "Render único devuelto por el proveedor."
-                  : "Clips en orden. No se creó un MP4 unificado."}
+                Escenas en HD generadas con Gemini y animadas localmente con Ken Burns. Cada clip
+                se puede descargar.
               </p>
               <div className="space-y-5">
                 {videoResult.clips.map((clip) => (
                   <div key={clip.songId} className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                      {clip.sceneNumber === 1 && videoResult.stitched
-                        ? "Render completo"
-                        : `Escena ${clip.sceneNumber}`}{" "}
-                      · {clip.seconds}s
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                        Escena {clip.sceneNumber} · {clip.seconds}s
+                      </p>
+                      <Button
+                        type="button"
+                        variant="glass"
+                        size="sm"
+                        onClick={() => {
+                          void fetch(clip.url)
+                            .then((response) => response.blob())
+                            .then((blob) => {
+                              const extension = clip.mediaType.includes("mp4") ? "mp4" : "webm";
+                              downloadBlob(blob, `video-escena-${clip.sceneNumber}.${extension}`);
+                            });
+                        }}
+                      >
+                        Descargar escena {clip.sceneNumber}
+                      </Button>
+                    </div>
                     <video
                       src={clip.url}
                       controls
@@ -666,7 +824,7 @@ export function VideoStudio({
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                Los enlaces caducan en 1 hora{isAdmin ? "" : " y los archivos en 48 horas"}.
+                Los clips se guardan también en tu historial aunque cierres esta pestaña.
               </p>
             </div>
           )}

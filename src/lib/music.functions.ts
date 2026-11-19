@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { Buffer } from "node:buffer";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { findBlockedTerm } from "./copyright";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
@@ -9,14 +10,12 @@ import {
   MAX_PROMPT_LENGTH,
   MAX_TITLE_LENGTH,
   buildMusicPrompt,
-  engineModel,
   findBlockedArtist,
   isBpm,
   isCreationMode,
   isDuration,
   isEngineId,
   isGenre,
-  isHfEngine,
   isStudioMode,
   isVoiceType,
   sanitizePrompt,
@@ -31,17 +30,10 @@ import {
 } from "./music";
 import {
   audioFromBytes,
-  falErrorMessage,
-  falKey,
-  falSubmit,
-  falWait,
   failCreation,
   geminiErrorMessage,
   geminiText,
   getAdminClient,
-  hfErrorMessage,
-  huggingFaceAudio,
-  isFalBalanceError,
   type GeneratedAudio,
 } from "./server-helpers";
 
@@ -85,12 +77,6 @@ function sanitizeAdvanced(value: unknown): AdvancedParams | undefined {
       typeof input["extra"] === "string" ? sanitizePrompt(input["extra"], MAX_ADVANCED_LENGTH) : "",
   };
   return Object.values(advanced).some(Boolean) ? advanced : undefined;
-}
-
-function resolveModel(engine: EngineId | undefined): string {
-  const defaultModel = engineModel(engine);
-  const suffix = engine?.toUpperCase().replace(/-/g, "_") ?? "V7_PRO";
-  return process.env[`FAL_MODEL_${suffix}`]?.trim() || defaultModel;
 }
 
 const GRADIO_MUSIC_SPACES = ["facebook/MusicGen", "haoheliu/audioldm2"];
@@ -178,45 +164,13 @@ async function gradioMusic(prompt: string): Promise<GeneratedAudio> {
     : new Error("Los motores gratuitos de música no respondieron.");
 }
 
-async function freeAudio(
-  prompt: string,
-  hfModel = "facebook/musicgen-small",
-): Promise<GeneratedAudio> {
-  try {
-    return await gradioMusic(prompt);
-  } catch (gradioError) {
-    console.error("gradio music failed", gradioError);
-    try {
-      return await huggingFaceAudio(prompt, { model: hfModel });
-    } catch (hfError) {
-      const code = hfError instanceof Error ? hfError.message : "HF_UNKNOWN";
-      if (code === "HF_NOT_CONFIGURED") {
-        const reason = gradioError instanceof Error ? gradioError.message : "";
-        throw new Error(reason || "Los motores gratuitos de música no respondieron.");
-      }
-      throw hfError;
-    }
-  }
+async function freeAudio(prompt: string): Promise<GeneratedAudio> {
+  return gradioMusic(prompt);
 }
 
 export type ActionResult =
-  | { ok: true; songId: string }
+  | { ok: true; songId: string; audioBase64?: string; mediaType?: string }
   | { ok: false; status: number; message: string };
-
-function falAudioUrl(body: unknown): string | undefined {
-  if (!body || typeof body !== "object") return undefined;
-  const candidate = body as {
-    audio?: { url?: string };
-    audio_url?: string;
-    output?: { audio?: { url?: string }; audio_url?: string };
-  };
-  return (
-    candidate.audio?.url ??
-    candidate.audio_url ??
-    candidate.output?.audio?.url ??
-    candidate.output?.audio_url
-  );
-}
 
 export const generateSong = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -292,8 +246,6 @@ export const generateSong = createServerFn({ method: "POST" })
         };
     }
 
-    const hfEngine = isHfEngine(data.engine);
-
     const { data: balance, error: creditError } = await supabase.rpc("consume_credits", {
       _amount: CREDIT_COSTS.song,
       _reason: "Canción",
@@ -301,9 +253,7 @@ export const generateSong = createServerFn({ method: "POST" })
     if (creditError) return { ok: false, status: 402, message: creditErrorMessage(creditError) };
     const spent = balance === -1 ? 0 : CREDIT_COSTS.song;
 
-    const falModel = resolveModel(data.engine);
-    const hfModel = process.env["HF_MUSIC_MODEL"]?.trim() || engineModel(data.engine);
-    const selectedModel = hfEngine ? hfModel : falModel;
+    const selectedModel = "gradio/musicgen";
     const admin = await getAdminClient();
     const { data: song, error: insertError } = await admin
       .from("songs")
@@ -354,51 +304,14 @@ export const generateSong = createServerFn({ method: "POST" })
     });
 
     let generated: GeneratedAudio;
-    if (hfEngine) {
-      try {
-        generated = await freeAudio(musicPrompt, hfModel);
-      } catch (err) {
-        const code = err instanceof Error ? err.message : "HF_UNKNOWN";
-        console.error("free audio request failed", err);
-        return fail(500, hfErrorMessage(code));
-      }
-    } else if (falKey()) {
-      try {
-        const submitted = await falSubmit(falModel, {
-          prompt: musicPrompt,
-          duration: data.duration,
-          engine: data.engine,
-        });
-        const output = await falWait(submitted.response_url);
-        const audioUrl = falAudioUrl(output);
-        if (!audioUrl) throw new Error("FAL_NO_AUDIO");
-        const audioResponse = await fetch(audioUrl);
-        if (!audioResponse.ok) throw new Error("FAL_DOWNLOAD_FAILED");
-        generated = audioFromBytes(
-          new Uint8Array(await audioResponse.arrayBuffer()),
-          audioResponse.headers.get("content-type") ?? "",
-        );
-      } catch (err) {
-        const code = err instanceof Error ? err.message : "FAL_UNKNOWN";
-        console.error("music request failed", err);
-        if (!isFalBalanceError(err)) return fail(500, falErrorMessage(code));
-        try {
-          generated = await freeAudio(musicPrompt);
-        } catch (fallbackError) {
-          const fallbackCode =
-            fallbackError instanceof Error ? fallbackError.message : "HF_UNKNOWN";
-          console.error("free audio fallback failed", fallbackError);
-          return fail(500, hfErrorMessage(fallbackCode));
-        }
-      }
-    } else {
-      try {
-        generated = await freeAudio(musicPrompt);
-      } catch (err) {
-        const code = err instanceof Error ? err.message : "HF_UNKNOWN";
-        console.error("free audio request failed", err);
-        return fail(500, hfErrorMessage(code));
-      }
+    try {
+      generated = await freeAudio(musicPrompt);
+    } catch (error) {
+      console.error("music request failed", error);
+      return fail(
+        500,
+        "Los motores gratuitos de música (MusicGen y audioldm2) no respondieron. Inténtalo de nuevo.",
+      );
     }
     if (generated.bytes.byteLength === 0)
       return fail(502, "El generador no devolvió audio. Inténtalo de nuevo.");
@@ -421,7 +334,12 @@ export const generateSong = createServerFn({ method: "POST" })
         error: null,
       })
       .eq("id", song.id);
-    return { ok: true, songId: song.id };
+    return {
+      ok: true,
+      songId: song.id,
+      audioBase64: Buffer.from(generated.bytes).toString("base64"),
+      mediaType: generated.contentType,
+    };
   });
 
 type LyricsInput = { idea: string; genre: Genre; voice: VoiceType };
