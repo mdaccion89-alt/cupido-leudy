@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { findBlockedTerm } from "./copyright";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
 import {
+  INSTRUMENTAL,
   MAX_ADVANCED_LENGTH,
   MAX_GENRE_LENGTH,
   MAX_LYRICS_LENGTH,
@@ -30,13 +31,10 @@ import {
 } from "./music";
 import {
   failCreation,
-  generateMusicgenAudio,
   geminiText,
   getAdminClient,
-  pollinationsAudio,
   pollinationsText,
   synthesizeSongAudio,
-  type GeneratedAudio,
 } from "./server-helpers";
 
 type GenerateInput = {
@@ -87,35 +85,40 @@ type SongText = {
   estructura: string;
 };
 
-function parseSongText(value: string): SongText {
+function parseSongText(value: string, instrumental = false): SongText {
   const cleaned = value.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const defaultAcordes = "C - G - Am - F (repetir)";
+  const defaultEstructura = instrumental
+    ? "Intro instrumental - Arpegio de requinto - Crescendo - Solos de guitarra - Outro"
+    : "Intro - Verso - Coro - Verso - Coro - Outro";
   try {
     const parsed = JSON.parse(cleaned) as Record<string, unknown>;
     const letra = typeof parsed["letra"] === "string" ? parsed["letra"].trim() : "";
     const acordes = typeof parsed["acordes"] === "string" ? parsed["acordes"].trim() : "";
     const estructura = typeof parsed["estructura"] === "string" ? parsed["estructura"].trim() : "";
-    if (letra)
+    if (letra || instrumental)
       return {
-        letra: letra.slice(0, MAX_LYRICS_LENGTH),
-        acordes: acordes || "C - G - Am - F (repetir)",
-        estructura: estructura || "Intro - Verso - Coro - Verso - Coro - Outro",
+        letra: instrumental ? "" : letra.slice(0, MAX_LYRICS_LENGTH),
+        acordes: acordes || defaultAcordes,
+        estructura: estructura || defaultEstructura,
       };
   } catch {}
   return {
-    letra: cleaned.slice(0, MAX_LYRICS_LENGTH),
-    acordes: "C - G - Am - F (repetir)",
-    estructura: "Intro - Verso - Coro - Verso - Coro - Outro",
+    letra: instrumental ? "" : cleaned.slice(0, MAX_LYRICS_LENGTH),
+    acordes: defaultAcordes,
+    estructura: instrumental ? cleaned.slice(0, MAX_LYRICS_LENGTH) || defaultEstructura : defaultEstructura,
   };
 }
 
-async function songText(prompt: string): Promise<SongText> {
-  const system =
-    'Eres compositor profesional de música latina. Devuelve SOLO un objeto JSON válido con las claves "letra", "acordes" y "estructura". "letra": letra completa y original en español con secciones [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro]. "acordes": progresión por sección en notación C/G/Am/F. "estructura": orden de secciones con duración aproximada. Sin markdown, sin explicaciones y sin artistas reales.';
+async function songText(prompt: string, instrumental: boolean): Promise<SongText> {
+  const system = instrumental
+    ? 'Eres arreglista instrumental de música latina. Devuelve SOLO un objeto JSON válido con las claves "acordes" y "estructura". "acordes": progresión armónica en notación C/G/Am/F que sirva de base a guitarra acústica, requinto y percusión. "estructura": secuencia de secciones instrumentales con arreglos de guitarra, requinto, arpegios y percusión. NO escribas letra, versos, coros ni ninguna voz cantada. Sin markdown y sin explicaciones.'
+    : 'Eres compositor profesional de música latina. Devuelve SOLO un objeto JSON válido con las claves "letra", "acordes" y "estructura". "letra": letra completa y original en español con secciones [Intro], [Verso 1], [Pre-Coro], [Coro], [Verso 2], [Puente] y [Outro]. "acordes": progresión por sección en notación C/G/Am/F. "estructura": orden de secciones con duración aproximada. Sin markdown, sin explicaciones y sin artistas reales.';
   try {
-    return parseSongText(await geminiText(system, prompt));
+    return parseSongText(await geminiText(system, prompt), instrumental);
   } catch (error) {
     console.error("gemini song text failed, using pollinations", error);
-    return parseSongText(await pollinationsText(`${system}\n\n${prompt}`));
+    return parseSongText(await pollinationsText(`${system}\n\n${prompt}`), instrumental);
   }
 }
 
@@ -142,7 +145,7 @@ export type GenerateSongResult =
   | { ok: false; status: number; message: string };
 
 function localWavSongResult(input: {
-  data: { genre: Genre; bpm: number; duration: DurationSeconds };
+  data: { genre: Genre; bpm: number; duration: DurationSeconds; voice: VoiceType };
   text: SongText;
   title: string;
   musicPrompt: string;
@@ -151,6 +154,9 @@ function localWavSongResult(input: {
     bpm: input.data.bpm,
     seconds: input.data.duration,
     seedText: input.musicPrompt,
+    genre: input.data.genre,
+    chords: input.text.acordes,
+    instrumental: input.data.voice === INSTRUMENTAL,
   });
   return {
     ok: true,
@@ -256,9 +262,10 @@ export const generateSong = createServerFn({ method: "POST" })
       ...(data.advanced ? { advanced: data.advanced } : {}),
     });
 
+    const instrumental = data.voice === INSTRUMENTAL;
     let text: SongText;
     try {
-      text = await songText(musicPrompt);
+      text = await songText(musicPrompt, instrumental);
     } catch (error) {
       console.error("song text failed after pollinations fallback", error);
       return {
@@ -277,7 +284,7 @@ export const generateSong = createServerFn({ method: "POST" })
 
     const admin = await getAdminClient();
     const title = data.title || titleFromPrompt(data.prompt || data.lyrics);
-    let audioProvider = "MusicGen Free (patgpt4)";
+    const audioProvider = "Leudy IA Karplus-Strong";
     const { data: song, error: insertError } = await admin
       .from("songs")
       .insert({
@@ -291,7 +298,7 @@ export const generateSong = createServerFn({ method: "POST" })
         bpm: data.bpm,
         duration_seconds: data.duration,
         status: "generating",
-        media_type: "video/mp4",
+        media_type: "audio/wav",
         credits_spent: spent,
         external_model: audioProvider,
       })
@@ -308,42 +315,14 @@ export const generateSong = createServerFn({ method: "POST" })
       return localWavSongResult({ data, text, title, musicPrompt });
     }
 
-    let generated: GeneratedAudio;
-    try {
-      generated = await generateMusicgenAudio(musicPrompt);
-    } catch (error) {
-      console.error("musicgen free failed, trying pollinations", error);
-      try {
-        const pollinated = await pollinationsAudio(musicPrompt, data.duration);
-        if (pollinated) {
-          generated = pollinated;
-          audioProvider = "Pollinations";
-        } else {
-          generated = synthesizeSongAudio({
-            bpm: data.bpm,
-            seconds: data.duration,
-            seedText: musicPrompt,
-          });
-          audioProvider = "Leudy IA sintetizador";
-        }
-      } catch (pollinationsError) {
-        console.error("pollinations audio failed, using synthesizer", pollinationsError);
-        generated = synthesizeSongAudio({
-          bpm: data.bpm,
-          seconds: data.duration,
-          seedText: musicPrompt,
-        });
-        audioProvider = "Leudy IA sintetizador";
-      }
-    }
-    if (!generated.bytes.length) {
-      generated = synthesizeSongAudio({
-        bpm: data.bpm,
-        seconds: data.duration,
-        seedText: musicPrompt,
-      });
-      audioProvider = "Leudy IA sintetizador";
-    }
+    const generated = synthesizeSongAudio({
+      bpm: data.bpm,
+      seconds: data.duration,
+      seedText: musicPrompt,
+      genre: data.genre,
+      chords: text.acordes,
+      instrumental,
+    });
 
     const path = `${userId}/${song.id}.${generated.extension}`;
     const { error: uploadError } = await admin.storage

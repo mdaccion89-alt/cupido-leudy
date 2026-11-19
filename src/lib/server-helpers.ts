@@ -143,62 +143,283 @@ export function synthesizeSongAudio(options: {
   bpm: number;
   seconds: number;
   seedText: string;
+  genre?: string;
+  chords?: string;
+  instrumental?: boolean;
 }): GeneratedAudio {
   const sampleRate = 16_000;
-  const seconds = Math.min(30, Math.max(8, Math.round(options.seconds)));
+  const seconds = Math.max(1, Math.round(options.seconds));
   const sampleCount = sampleRate * seconds;
-  const bpm = Math.min(180, Math.max(60, options.bpm || 110));
+  const bpm = Math.min(240, Math.max(40, options.bpm || 110));
   const beat = 60 / bpm;
-  const chords = [
-    [261.63, 329.63, 392.0],
-    [196.0, 246.94, 392.0],
-    [220.0, 261.63, 329.63],
-    [174.61, 220.0, 349.23],
-  ];
+  const stepSeconds = beat / 4;
+  const source = `${options.genre ?? ""} ${options.seedText ?? ""}`
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
   let seed = 2166136261;
-  for (let i = 0; i < options.seedText.length; i += 1)
-    seed = Math.imul(seed ^ options.seedText.charCodeAt(i), 16777619) >>> 0;
+  for (let i = 0; i < source.length; i += 1)
+    seed = Math.imul(seed ^ source.charCodeAt(i), 16777619) >>> 0;
+  let rngState = seed || 1;
+  const random = () => {
+    rngState = (Math.imul(rngState, 1664525) + 1013904223) >>> 0;
+    return rngState / 0xffffffff;
+  };
 
-  const buffer = Buffer.alloc(44 + sampleCount * 2);
-  buffer.write("RIFF", 0);
-  buffer.writeUInt32LE(36 + sampleCount * 2, 4);
-  buffer.write("WAVE", 8);
-  buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(1, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * 2, 28);
-  buffer.writeUInt16LE(2, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write("data", 36);
-  buffer.writeUInt32LE(sampleCount * 2, 40);
+  const profile = /bachata/.test(source)
+    ? {
+        kick: [0, 8],
+        snare: [4, 12],
+        hat: [2, 6, 10, 14],
+        bass: [0, 8],
+        arp: [0, 2, 4, 6, 8, 10, 12, 14],
+        bongo: [12],
+        damping: 0.996,
+        pluckGain: 0.24,
+        bassGain: 0.18,
+        octave: 2,
+      }
+    : /reggaeton|regueton|dembow/.test(source)
+      ? {
+          kick: [0, 6, 8, 14],
+          snare: [4, 12],
+          hat: [0, 2, 4, 6, 8, 10, 12, 14],
+          bass: [0, 6, 8, 14],
+          arp: [0, 4, 8, 12],
+          bongo: [],
+          damping: 0.994,
+          pluckGain: 0.2,
+          bassGain: 0.26,
+          octave: 1,
+        }
+      : /trap/.test(source)
+        ? {
+            kick: [0, 8, 11],
+            snare: [8],
+            hat: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            bass: [0, 3, 8, 11],
+            arp: [0, 6, 12],
+            bongo: [],
+            damping: 0.997,
+            pluckGain: 0.14,
+            bassGain: 0.3,
+            octave: 1,
+          }
+        : /salsa/.test(source)
+          ? {
+              kick: [0, 4, 8, 12],
+              snare: [4, 12],
+              hat: [2, 6, 10, 14],
+              bass: [0, 3, 6, 8, 11, 14],
+              arp: [0, 2, 4, 6, 8, 10, 12, 14],
+              bongo: [4, 12],
+              damping: 0.993,
+              pluckGain: 0.22,
+              bassGain: 0.2,
+              octave: 1,
+            }
+          : /merengue/.test(source)
+            ? {
+                kick: [0, 2, 4, 6, 8, 10, 12, 14],
+                snare: [4, 12],
+                hat: [0, 2, 4, 6, 8, 10, 12, 14],
+                bass: [0, 4, 8, 12],
+                arp: [0, 4, 8, 12],
+                bongo: [],
+                damping: 0.995,
+                pluckGain: 0.2,
+                bassGain: 0.22,
+                octave: 1,
+              }
+            : /balada|bolero|romantica/.test(source)
+              ? {
+                  kick: [0, 8],
+                  snare: [4, 12],
+                  hat: [2, 6, 10, 14],
+                  bass: [0, 8],
+                  arp: [0, 2, 4, 6, 8, 10, 12, 14],
+                  bongo: [],
+                  damping: 0.997,
+                  pluckGain: 0.19,
+                  bassGain: 0.15,
+                  octave: 1,
+                }
+              : {
+                  kick: [0, 8],
+                  snare: [4, 12],
+                  hat: [2, 6, 10, 14],
+                  bass: [0, 8],
+                  arp: [0, 2, 4, 6, 8, 10, 12, 14],
+                  bongo: [],
+                  damping: 0.995,
+                  pluckGain: 0.2,
+                  bassGain: 0.18,
+                  octave: 1,
+                };
 
-  for (let i = 0; i < sampleCount; i += 1) {
-    const t = i / sampleRate;
-    const bar = beat * 4;
-    const chord = chords[Math.floor(t / bar) % chords.length] ?? chords[0] ?? [];
-    const barPhase = (t % bar) / bar;
-    const envelope = Math.min(1, barPhase * 20) * Math.min(1, (1 - barPhase) * 12);
-    let tone = 0;
-    for (const note of chord) {
-      tone += Math.sin(2 * Math.PI * note * t) * 0.11;
-      tone += Math.sin(2 * Math.PI * note * 2 * t) * 0.025;
-    }
-    const beatPhase = (t % beat) / beat;
-    const kick =
-      Math.sin(2 * Math.PI * (55 - 30 * beatPhase) * t) *
-      Math.exp(-beatPhase * 12) *
-      0.4;
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const hat = (seed / 0xffffffff - 0.5) * 0.04 * Math.exp(-beatPhase * 35);
-    const value = (tone * envelope + kick + hat) * 0.75;
-    buffer.writeInt16LE(
-      Math.max(-32768, Math.min(32767, Math.round(value * 32767))),
-      44 + i * 2,
+  const semitones: Record<string, number> = {
+    C: 0,
+    "C#": 1,
+    Db: 1,
+    D: 2,
+    "D#": 3,
+    Eb: 3,
+    E: 4,
+    Fb: 4,
+    "E#": 5,
+    F: 5,
+    "F#": 6,
+    Gb: 6,
+    G: 7,
+    "G#": 8,
+    Ab: 8,
+    A: 9,
+    "A#": 10,
+    Bb: 10,
+    B: 11,
+    Cb: 11,
+    "B#": 0,
+  };
+  const progression: number[][] = [];
+  const chordMatches = [...(options.chords ?? "").matchAll(/([A-G])([#b]?)(m(?:aj|in)?|dim|aug|sus[24]|7)?/gi)];
+  for (const match of chordMatches) {
+    const rawRoot = `${match[1] ?? ""}${match[2] ?? ""}`;
+    const root =
+      rawRoot.length === 2 && rawRoot[1] === "b"
+        ? `${rawRoot[0]?.toUpperCase()}b`
+        : rawRoot.toUpperCase();
+    const base = semitones[root];
+    if (base === undefined) continue;
+    const suffix = (match[3] ?? "").toLowerCase();
+    const intervals = suffix.startsWith("dim")
+      ? [0, 3, 6]
+      : suffix.startsWith("aug")
+        ? [0, 4, 8]
+        : suffix.startsWith("m") && !suffix.startsWith("maj")
+          ? [0, 3, 7]
+          : [0, 4, 7];
+    progression.push(
+      intervals.map((interval) => {
+        const midi = 60 + ((base + interval) % 12);
+        return 440 * 2 ** ((midi - 69) / 12);
+      }),
     );
   }
-  return audioFromBytes(new Uint8Array(buffer), "audio/wav");
+  if (!progression.length) {
+    progression.push(
+      [261.63, 329.63, 392.0],
+      [196.0, 246.94, 392.0],
+      [220.0, 261.63, 329.63],
+      [174.61, 220.0, 349.23],
+    );
+  }
+  if (progression.length > 8) progression.splice(8);
+
+  const mix = new Float64Array(sampleCount);
+  const pluckGain = profile.pluckGain * (options.instrumental ? 1.15 : 1);
+
+  const writePluck = (
+    frequency: number,
+    startSample: number,
+    lengthSamples: number,
+    amplitude: number,
+  ) => {
+    if (startSample < 0 || startSample >= sampleCount || lengthSamples <= 0) return;
+    const delay = Math.max(2, Math.min(2048, Math.round(sampleRate / frequency)));
+    const line = new Float32Array(delay);
+    for (let i = 0; i < delay; i += 1) line[i] = random() * 2 - 1;
+    let index = 0;
+    const end = Math.min(sampleCount, startSample + lengthSamples);
+    for (let i = startSample; i < end; i += 1) {
+      const current = line[index] ?? 0;
+      const next = line[(index + 1) % delay] ?? 0;
+      line[index] = profile.damping * 0.5 * (current + next);
+      index = (index + 1) % delay;
+      const age = i - startSample;
+      const envelope = Math.min(1, age / 40) * Math.max(0, 1 - age / lengthSamples);
+      mix[i] = (mix[i] ?? 0) + current * amplitude * envelope;
+    }
+  };
+
+  const writeKick = (startSample: number, amplitude: number) => {
+    const length = Math.floor(sampleRate * 0.2);
+    let phase = 0;
+    for (let i = 0; i < length; i += 1) {
+      const position = startSample + i;
+      if (position >= sampleCount) break;
+      const p = i / length;
+      phase += (2 * Math.PI * (110 - 70 * p)) / sampleRate;
+      mix[position] = (mix[position] ?? 0) + Math.sin(phase) * (1 - p) * amplitude;
+    }
+  };
+
+  const writeHit = (
+    startSample: number,
+    lengthSeconds: number,
+    amplitude: number,
+    decay: number,
+    tone: number,
+  ) => {
+    const length = Math.max(1, Math.floor(sampleRate * lengthSeconds));
+    for (let i = 0; i < length; i += 1) {
+      const position = startSample + i;
+      if (position >= sampleCount) break;
+      const p = i / length;
+      const noise = random() * 2 - 1;
+      const body = tone ? Math.sin((2 * Math.PI * tone * i) / sampleRate) * 0.45 : 0;
+      mix[position] =
+        (mix[position] ?? 0) + (noise * 0.7 + body) * Math.exp(-p * decay) * amplitude;
+    }
+  };
+
+  const totalSteps = Math.ceil(seconds / stepSeconds);
+  for (let step = 0; step < totalSteps; step += 1) {
+    const inBar = step % 16;
+    const chord = progression[Math.floor(step / 16) % progression.length] ?? progression[0] ?? [];
+    const start = Math.floor(step * stepSeconds * sampleRate);
+    if (profile.arp.includes(inBar)) {
+      const note = chord[Math.floor(step / 2) % chord.length] ?? chord[0] ?? 261.63;
+      writePluck(
+        note * profile.octave,
+        start,
+        Math.floor(sampleRate * stepSeconds * 3),
+        pluckGain,
+      );
+    }
+    if (profile.bass.includes(inBar)) {
+      writePluck(
+        (chord[0] ?? 130.81) / 2,
+        start,
+        Math.floor(sampleRate * beat * 1.5),
+        profile.bassGain,
+      );
+    }
+    if (profile.kick.includes(inBar)) writeKick(start, 0.5);
+    if (profile.snare.includes(inBar)) writeHit(start, 0.14, 0.28, 9, 190);
+    if (profile.hat.includes(inBar)) writeHit(start, 0.04, 0.1, 18, 0);
+    if (profile.bongo.includes(inBar)) writeHit(start, 0.09, 0.22, 14, 240);
+  }
+
+  const wav = Buffer.alloc(44 + sampleCount * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + sampleCount * 2, 4);
+  wav.write("WAVE", 8);
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(sampleCount * 2, 40);
+  for (let i = 0; i < sampleCount; i += 1) {
+    const value = Math.max(-1, Math.min(1, mix[i] ?? 0));
+    wav.writeInt16LE(Math.round(value * 32767), 44 + i * 2);
+  }
+  return audioFromBytes(new Uint8Array(wav), "audio/wav");
 }
 
 export function hfTokens(): string[] {

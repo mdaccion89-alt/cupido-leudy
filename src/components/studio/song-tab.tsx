@@ -88,14 +88,18 @@ type SongBackup = {
   lyrics: string;
   chords: string;
   structure: string;
+  instrumental: boolean;
   saved: boolean;
   warning: string | undefined;
 };
 
-function saveSongBackup(backup: SongBackup) {
+function saveSongBackup(backup: SongBackup): boolean {
   try {
     localStorage.setItem(SONG_BACKUP_KEY, JSON.stringify(backup));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readSongBackup(): SongBackup | null {
@@ -119,6 +123,7 @@ type SongPreview = {
   lyrics: string;
   chords: string;
   structure: string;
+  instrumental: boolean;
   saved: boolean;
   warning: string | undefined;
 };
@@ -182,6 +187,7 @@ export function SongTab({
       lyrics: backup.lyrics,
       chords: backup.chords,
       structure: backup.structure,
+      instrumental: backup.instrumental,
       saved: backup.saved,
       warning: backup.warning,
     });
@@ -274,7 +280,7 @@ export function SongTab({
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
       const songTitle = result.title || title || prompt.slice(0, 60);
-      saveSongBackup({
+      const backupSaved = saveSongBackup({
         id: result.songId,
         title: songTitle,
         mediaType,
@@ -283,10 +289,11 @@ export function SongTab({
         lyrics: result.lyrics,
         chords: result.chords,
         structure: result.structure,
+        instrumental: effectiveVoice === INSTRUMENTAL,
         saved: result.saved,
         warning: result.warning,
       });
-      setHasBackup(true);
+      if (backupSaved) setHasBackup(true);
       return {
         studioResult: {
           ok: true as const,
@@ -304,6 +311,7 @@ export function SongTab({
           lyrics: result.lyrics,
           chords: result.chords,
           structure: result.structure,
+          instrumental: effectiveVoice === INSTRUMENTAL,
           saved: result.saved,
           warning: result.warning,
         },
@@ -638,19 +646,23 @@ export function SongTab({
             </p>
           )}
           <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Estructura</p>
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              {preview.instrumental ? "Arreglo instrumental" : "Estructura"}
+            </p>
             <p className="text-sm">{preview.structure}</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Acordes</p>
             <p className="text-sm">{preview.chords}</p>
           </div>
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Letra</p>
-            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 text-sm">
-              {preview.lyrics}
-            </pre>
-          </div>
+          {!preview.instrumental && (
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Letra</p>
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 text-sm">
+                {preview.lyrics}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>
