@@ -160,31 +160,28 @@ export function VideoStudio({
   const imageMutation = useMutation({
     mutationFn: async (): Promise<{ url: string; seed: number; extension: string }> => {
       const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
-      const seed = parseSeed(imageSeed) ?? Math.floor(Math.random() * 999_999);
+      const prompt = imagePrompt.trim() || "Una escena cinematográfica original";
+      const rawSeed = imageSeed.trim();
+      const numericSeed = Number(rawSeed) || 0;
+      const randomizeSeed = !rawSeed;
       const file = await generateDirectFile({
         space: HF_SPACES.flux,
         kind: "image",
         context: {
-          prompt: imagePrompt.trim() || "Una escena cinematográfica original",
+          prompt,
           width,
           height,
-          seed,
+          seed: numericSeed,
+          randomizeSeed,
           steps: 4,
           seconds: 5,
           bpm: 110,
           instrumental: true,
         },
-        endpoint: "/predict",
-        fallbackParams: [
-          imagePrompt.trim() || "Una escena cinematográfica original",
-          seed,
-          false,
-          width,
-          height,
-          4,
-        ],
+        endpoint: "/infer",
+        fallbackParams: [prompt, numericSeed, randomizeSeed, width, height, 4],
       });
-      return { url: URL.createObjectURL(file.blob), seed, extension: file.extension };
+      return { url: URL.createObjectURL(file.blob), seed: numericSeed, extension: file.extension };
     },
     onMutate: () => startProgress("Generando imagen con FLUX.1 en Hugging Face…", 60),
     onSuccess: (result) => {

@@ -23,6 +23,7 @@ export type DirectContext = {
   width: number;
   height: number;
   seed: number;
+  randomizeSeed?: boolean;
   seconds: number;
   bpm: number;
   instrumental: boolean;
@@ -95,7 +96,7 @@ function frameCount(seconds: number): number {
 function parameterValue(parameter: GradioParameter, context: DirectContext): unknown {
   const key = parameterKey(parameter);
   if (/negative/.test(key)) return context.negativePrompt ?? NEGATIVE_PROMPT;
-  if (/randomize/.test(key)) return false;
+  if (/randomize/.test(key)) return context.randomizeSeed ?? false;
   if (/caption|description|musiccaption|songdescription|prompt|text/.test(key)) return context.prompt;
   if (/lyrics|letra/.test(key))
     return context.instrumental ? "[Instrumental]" : (context.lyrics ?? "");
@@ -117,9 +118,16 @@ function parameterValue(parameter: GradioParameter, context: DirectContext): unk
   return parameter.parameter_default ?? null;
 }
 
+const PREFERRED_ENDPOINTS: Record<DirectMediaKind, string[]> = {
+  image: ["/infer", "/generate", "/text_to_image", "/txt2img"],
+  video: ["/text_to_video", "/generate", "/infer", "/text2video"],
+  audio: ["/generate", "/generate_music", "/text_to_music", "/text2music", "/infer"],
+};
+
 function scoreEndpoint(name: string, info: ApiEndpoint, kind: DirectMediaKind): number {
   const lower = name.toLowerCase();
   let score = 0;
+  if (PREFERRED_ENDPOINTS[kind].some((preferred) => lower === preferred.toLowerCase())) score += 120;
   if (/generate|infer|predict|text2|txt2|createsong/.test(lower)) score += 50;
   if (/generationwrapper|generatemusic|text2music/.test(lower)) score += 60;
   if (kind === "image" && /image|flux|draw/.test(lower)) score += 25;
@@ -145,6 +153,23 @@ function scoreEndpoint(name: string, info: ApiEndpoint, kind: DirectMediaKind): 
   if (kind === "video" && hasImage && !hasVideo) score -= 45;
   if (kind === "audio" && hasImage && !hasAudio) score -= 45;
   return score;
+}
+
+function selectGenerationEndpoint(
+  entries: [string, ApiEndpoint][],
+  kind: DirectMediaKind,
+): [string, ApiEndpoint] | undefined {
+  const candidates = entries.filter(([name]) => !/load_?example/i.test(name));
+  let best: [string, ApiEndpoint] | undefined;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    const score = scoreEndpoint(candidate[0], candidate[1], kind);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best ?? candidates[0];
 }
 
 function mimeMatches(mime: string, kind: DirectMediaKind): boolean {
@@ -276,26 +301,30 @@ export async function generateDirectFile(options: {
   const client = await connectDirectSpace(options.space);
   try {
     const api = (await client.view_api()) as unknown as ApiInfo;
-    const entries = [
-      ...Object.entries(api.named_endpoints ?? {}),
-      ...Object.entries(api.unnamed_endpoints ?? {}),
-    ];
-    let endpoint: string = options.endpoint ?? "/predict";
-    let parameters: GradioParameter[] = [];
-    if (options.endpoint) {
-      const selected = api.named_endpoints?.[options.endpoint] ?? api.unnamed_endpoints?.[options.endpoint];
-      parameters = selected?.parameters ?? [];
-    } else {
-      const best = entries
-        .map(([name, info]) => ({ name, info, score: scoreEndpoint(name, info, options.kind) }))
-        .sort((a, b) => b.score - a.score)[0];
-      endpoint = best?.name ?? "/predict";
-      parameters = best?.info.parameters ?? [];
+    const named = api.named_endpoints ?? {};
+    const unnamed = api.unnamed_endpoints ?? {};
+    const entries: [string, ApiEndpoint][] = [...Object.entries(named), ...Object.entries(unnamed)];
+    let endpoint = options.endpoint ?? "";
+    let selected = endpoint ? named[endpoint] ?? unnamed[endpoint] : undefined;
+    if (!selected) {
+      const fallback = selectGenerationEndpoint(entries, options.kind);
+      if (fallback) {
+        endpoint = fallback[0];
+        selected = fallback[1];
+      } else if (named["/predict"] ?? unnamed["/predict"]) {
+        endpoint = "/predict";
+      } else {
+        throw new Error("NO_GENERATION_ENDPOINT");
+      }
     }
+    const parameters = selected?.parameters ?? [];
     const data = parameters.length
       ? parameters.map((parameter) => parameterValue(parameter, options.context))
       : (options.fallbackParams ?? []);
-    const prediction = await client.predict(endpoint, data);
+    const prediction = await client.predict(
+      /^\d+$/.test(endpoint) ? Number(endpoint) : endpoint,
+      data,
+    );
     const location = locateMedia(prediction?.data, options.kind);
     if (!location) throw new Error("NO_OUTPUT_FILE");
     return await downloadMedia(location, client, options.space, options.kind);
@@ -316,6 +345,8 @@ export function directErrorMessage(error: unknown, kind: DirectMediaKind): strin
     return "El token de Hugging Face no es válido o no tiene acceso al Space. Revisa VITE_HF_TOKEN.";
   if (/connect|network|fetch|timeout|sleeping|building|loading/i.test(lower))
     return "Hugging Face está iniciando el Space o no responde. Inténtalo de nuevo en unos segundos.";
+  if (/no_generation_endpoint/i.test(lower))
+    return `El Space no expone ningún endpoint de generación de ${MEDIA_LABEL[kind]} compatible. Inténtalo otra vez.`;
   if (/no_output_file|empty_file/i.test(lower))
     return `El Space no devolvió un archivo de ${MEDIA_LABEL[kind]} válido. Inténtalo otra vez.`;
   return `No se pudo generar la ${MEDIA_LABEL[kind]} con Hugging Face: ${raw.slice(0, 180) || "error desconocido"}`;
