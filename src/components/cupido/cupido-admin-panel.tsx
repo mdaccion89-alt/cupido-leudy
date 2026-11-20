@@ -1,0 +1,344 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { BadgeCheck, Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
+import { savePaypalEmail } from "@/lib/admin.functions";
+import { countryFlag, countryName } from "@/lib/cupido";
+
+type VerificationRow = {
+  id: string;
+  display_name: string;
+  avatar_url: string;
+  selfie_path: string;
+  country_code: string;
+  verification_status: string;
+  is_verified_blue: boolean;
+};
+
+type WithdrawalRow = {
+  id: string;
+  user_id: string;
+  amount: number;
+  country_code: string;
+  method: string;
+  account_details: string;
+  status: string;
+  created_at: string;
+};
+
+type GiftRow = {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  gift_id: string;
+  credits: number;
+  cash_value: number;
+  created_at: string;
+};
+
+export function CupidoAdminPanel() {
+  const queryClient = useQueryClient();
+  const savePaypal = useServerFn(savePaypalEmail);
+  const [paypalEmail, setPaypalEmail] = useState("");
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["cupido-admin"] });
+  };
+
+  const verifications = useQuery({
+    queryKey: ["cupido-admin", "verifications"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("creator_profiles")
+        .select("id,display_name,avatar_url,selfie_path,country_code,verification_status,is_verified_blue")
+        .eq("verification_status", "pending")
+        .order("display_name");
+      if (error) throw error;
+      return (data ?? []) as VerificationRow[];
+    },
+  });
+
+  const withdrawals = useQuery({
+    queryKey: ["cupido-admin", "withdrawals"],
+    enabled: true,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cupido_withdrawals")
+        .select("id,user_id,amount,country_code,method,account_details,status,created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as WithdrawalRow[];
+    },
+  });
+
+  const gifts = useQuery({
+    queryKey: ["cupido-admin", "gifts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cupido_gift_sends")
+        .select("id,sender_id,receiver_id,gift_id,credits,cash_value,created_at")
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      return (data ?? []) as GiftRow[];
+    },
+  });
+
+  const paypal = useQuery({
+    queryKey: ["cupido-admin", "paypal"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("payment_settings")
+        .select("paypal_email")
+        .eq("id", 1)
+        .maybeSingle();
+      setPaypalEmail(data?.paypal_email ?? "");
+      return data?.paypal_email ?? "";
+    },
+  });
+
+  const reviewVerification = useMutation({
+    mutationFn: async ({ userId, approve }: { userId: string; approve: boolean }) => {
+      const { error } = await supabase.rpc("cupido_review_verification", {
+        _user_id: userId,
+        _approve: approve,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      toast.success(variables.approve ? "Insignia azul aprobada." : "Verificación rechazada.");
+      invalidate();
+    },
+    onError: () => toast.error("No se pudo revisar la verificación."),
+  });
+
+  const reviewWithdrawal = useMutation({
+    mutationFn: async ({ id, approve }: { id: string; approve: boolean }) => {
+      const { error } = await supabase.rpc("cupido_review_withdrawal", { _id: id, _approve: approve });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      toast.success(variables.approve ? "Retiro aprobado y enviado." : "Retiro rechazado; saldo devuelto.");
+      invalidate();
+    },
+    onError: () => toast.error("No se pudo revisar el retiro."),
+  });
+
+  const savePaypalConfig = useMutation({
+    mutationFn: async () => {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paypalEmail.trim()))
+        throw new Error("Escribe un correo PayPal válido.");
+      await savePaypal({ data: { email: paypalEmail.trim() } });
+    },
+    onSuccess: () => {
+      toast.success("Correo PayPal del Admin Supremo actualizado.");
+      invalidate();
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar PayPal."),
+  });
+
+  const selfieUrl = async (path: string) => {
+    if (!path) return "";
+    const { data } = await supabase.storage.from("cupido-private").createSignedUrl(path, 300);
+    return data?.signedUrl ?? "";
+  };
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-3xl border border-pink-400/20 bg-pink-500/[0.06] p-5">
+        <div className="flex items-center gap-3">
+          <ShieldCheck className="size-5 text-pink-300" />
+          <div>
+            <h2 className="font-display text-lg text-white">Verificación azul</h2>
+            <p className="text-xs text-muted-foreground">
+              Revisa selfies y decide quién recibe la insignia azul verificada.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(verifications.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay selfies pendientes.</p>
+          ) : (
+            verifications.data!.map((row) => (
+              <div key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-12 items-center justify-center overflow-hidden rounded-full bg-pink-500/20 text-sm text-pink-100">
+                    {row.avatar_url ? (
+                      <img src={row.avatar_url} alt="" className="size-full object-cover" />
+                    ) : (
+                      row.display_name.slice(0, 2).toUpperCase()
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1 truncate text-sm font-medium text-white">
+                      {row.display_name}
+                      {row.is_verified_blue && <BadgeCheck className="size-4 text-sky-300" />}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {countryFlag(row.country_code)} {countryName(row.country_code)}
+                    </p>
+                  </div>
+                </div>
+                <SelfiePreview path={row.selfie_path} load={selfieUrl} />
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    className="flex-1"
+                    disabled={reviewVerification.isPending}
+                    onClick={() => reviewVerification.mutate({ userId: row.id, approve: true })}
+                  >
+                    <Check className="size-4" /> Aprobar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="glass"
+                    className="flex-1"
+                    disabled={reviewVerification.isPending}
+                    onClick={() => reviewVerification.mutate({ userId: row.id, approve: false })}
+                  >
+                    <X className="size-4" /> Rechazar
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-amber-400/20 bg-amber-500/[0.06] p-5">
+        <div className="flex items-center gap-3">
+          <Wallet className="size-5 text-amber-300" />
+          <div>
+            <h2 className="font-display text-lg text-white">Retiros pendientes</h2>
+            <p className="text-xs text-muted-foreground">Saldo generado por regalos recibidos.</p>
+          </div>
+        </div>
+        <div className="mt-4 space-y-3">
+          {(withdrawals.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay retiros pendientes.</p>
+          ) : (
+            withdrawals.data!.map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white">
+                    US${Number(row.amount).toFixed(2)} · {row.method}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {countryFlag(row.country_code)} {countryName(row.country_code)} · {row.account_details}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={reviewWithdrawal.isPending}
+                    onClick={() => reviewWithdrawal.mutate({ id: row.id, approve: true })}
+                  >
+                    <Check className="size-4" /> Pagar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="glass"
+                    disabled={reviewWithdrawal.isPending}
+                    onClick={() => reviewWithdrawal.mutate({ id: row.id, approve: false })}
+                  >
+                    <X className="size-4" /> Rechazar
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex items-center gap-3">
+            <Gift className="size-5 text-violet-300" />
+            <h2 className="font-display text-lg text-white">Últimos regalos</h2>
+          </div>
+          <div className="mt-4 space-y-2">
+            {(gifts.data ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aún no hay regalos enviados.</p>
+            ) : (
+              gifts.data!.map((gift) => (
+                <div key={gift.id} className="flex justify-between gap-3 rounded-xl bg-black/20 px-3 py-2 text-xs">
+                  <span className="truncate text-muted-foreground">
+                    {gift.gift_id} · {gift.sender_id.slice(0, 8)} → {gift.receiver_id.slice(0, 8)}
+                  </span>
+                  <span className="shrink-0 text-white">
+                    {gift.credits.toLocaleString("es")} cr · US${Number(gift.cash_value).toFixed(2)}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+          <div className="flex items-center gap-3">
+            <Wallet className="size-5 text-emerald-300" />
+            <h2 className="font-display text-lg text-white">PayPal del Admin Supremo</h2>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Los pagos de créditos y tarjeta llegan a esta cuenta. Nunca compartas el secreto de PayPal.
+          </p>
+          <div className="mt-4 space-y-2">
+            <Label htmlFor="cupido-paypal-email">Correo PayPal</Label>
+            <Input
+              id="cupido-paypal-email"
+              type="email"
+              value={paypalEmail}
+              onChange={(event) => setPaypalEmail(event.target.value)}
+              placeholder="admin@paypal.com"
+            />
+            {paypal.isLoading ? (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="size-3 animate-spin" /> Cargando configuración…
+              </p>
+            ) : null}
+            <Button
+              className="mt-2"
+              disabled={savePaypalConfig.isPending}
+              onClick={() => savePaypalConfig.mutate()}
+            >
+              Guardar PayPal
+            </Button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SelfiePreview({ path, load }: { path: string; load: (path: string) => Promise<string> }) {
+  const [url, setUrl] = useState("");
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!path || ready) return;
+    setReady(true);
+    void load(path).then(setUrl);
+  }, [path, ready, load]);
+
+  return (
+    <div className="mt-3 flex h-32 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+      {url ? (
+        <img src={url} alt="Selfie de verificación" className="h-full object-contain" />
+      ) : (
+        <span className="px-3 text-center text-xs text-muted-foreground">
+          {path ? "Selfie privada disponible para revisión." : "El usuario no envió selfie."}
+        </span>
+      )}
+    </div>
+  );
+}

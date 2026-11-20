@@ -8,16 +8,17 @@ export const DAILY_FREE_CREDITS = 5;
 export const FREE_FILE_RETENTION_DAYS = 7;
 
 export const CREDIT_PACKAGES = [
-  { id: "pack-10", credits: 10, price: "4.99", label: "Inicial" },
-  { id: "pack-30", credits: 30, price: "12.99", label: "Creador", featured: true },
-  { id: "pack-100", credits: 100, price: "34.99", label: "Estudio" },
+  { id: "pack-5000", credits: 5000, price: "19.99", label: "Cupido" },
+  { id: "pack-12000", credits: 12000, price: "39.99", label: "Popular", featured: true },
+  { id: "pack-30000", credits: 30000, price: "89.99", label: "Corazón" },
+  { id: "pack-80000", credits: 80000, price: "199.99", label: "Admin Supremo" },
 ] as const;
 export type CreditPackage = (typeof CREDIT_PACKAGES)[number];
 
 export type PlanId = "free" | "pro" | "premium";
 export const PLANS = [
-  { id: "pro", name: "PRO", price: "9.99", days: 30, bonusCredits: 50 },
-  { id: "premium", name: "Premium", price: "19.99", days: 30, bonusCredits: 150 },
+  { id: "pro", name: "PRO", price: "9.99", days: 30, bonusCredits: 5000 },
+  { id: "premium", name: "Premium", price: "19.99", days: 30, bonusCredits: 12000 },
 ] as const;
 export type Plan = (typeof PLANS)[number];
 

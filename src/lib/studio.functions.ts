@@ -439,9 +439,9 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
       logo = s?.signedUrl ?? "";
     }
     return {
-      site_title: data?.site_title ?? "Leudy IA Adobe",
-      site_tagline: data?.site_tagline ?? "Convierte tus ideas en canciones",
-      banner_text: data?.banner_text ?? "",
+      site_title: data?.site_title ?? "Cupido Leudy ❤️",
+      site_tagline: data?.site_tagline ?? "Citas reales, chat social y videos cortos",
+      banner_text: data?.banner_text ?? "Encuentra conexiones reales. Verificación azul, seguridad y diversión.",
       banner_image: banner,
       logo_url: logo,
       primary_color: data?.primary_color ?? "",

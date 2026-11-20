@@ -66,16 +66,26 @@ export function paypalMessage(err: unknown) {
 
 export const createPaypalOrder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { packageId: string }) => {
+  .inputValidator((input: { packageId: string; returnUrl?: string }) => {
     const pack = findPackage(input?.packageId);
     if (!pack) throw new Error("Paquete no válido.");
-    return { packageId: pack.id };
+    let returnUrl: string | null = null;
+    if (input.returnUrl) {
+      try {
+        const url = new URL(input.returnUrl);
+        if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad");
+        returnUrl = url.toString();
+      } catch {
+        throw new Error("URL de retorno no válida.");
+      }
+    }
+    return { packageId: pack.id, returnUrl };
   })
   .handler(
     async ({
       data,
       context,
-    }): Promise<{ ok: true; orderId: string } | { ok: false; message: string }> => {
+    }): Promise<{ ok: true; orderId: string; approveUrl: string } | { ok: false; message: string }> => {
       const pack = findPackage(data.packageId)!;
       const admin = await getAdminClient();
       const { data: settings } = await admin
@@ -100,15 +110,28 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
             purchase_units: [
               {
                 reference_id: pack.id,
-                description: `${pack.credits} créditos · Leudy IA Adobe`,
+                description: `${pack.credits} créditos · Cupido Leudy`,
                 amount: { currency_code: "USD", value: pack.price },
                 ...(payeeEmail ? { payee: { email_address: payeeEmail } } : {}),
               },
             ],
+            ...(data.returnUrl
+              ? {
+                  application_context: {
+                    return_url: data.returnUrl,
+                    cancel_url: data.returnUrl,
+                    user_action: "PAY_NOW",
+                  },
+                }
+              : {}),
           }),
         });
         const orderId = String(order["id"] ?? "");
         if (!orderId) throw new Error("PAYPAL_NO_ID");
+        const links = (order["links"] as { href?: string; rel?: string }[] | undefined) ?? [];
+        const approveUrl =
+          links.find((link) => link.rel === "approve")?.href ??
+          `https://www.paypal.com/checkoutnow?token=${orderId}`;
         await admin.from("paypal_orders").insert({
           user_id: context.userId,
           package_id: pack.id,
@@ -117,7 +140,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
           currency: "USD",
           paypal_order_id: orderId,
         });
-        return { ok: true, orderId };
+        return { ok: true, orderId, approveUrl };
       } catch (err) {
         return { ok: false, message: paypalMessage(err) };
       }

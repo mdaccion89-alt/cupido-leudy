@@ -12,9 +12,12 @@ import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { SiteHeader } from "@/components/studio/site-header";
-import { ThankYouChatWidget } from "@/components/studio/thank-you-chat-widget";
+import { SiteFooter } from "@/components/cupido/site-footer";
+import { TermsModal } from "@/components/cupido/terms-modal";
+import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-context";
+import { BRAND } from "@/lib/cupido";
 
 function NotFoundComponent() {
   return (
@@ -81,16 +84,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Leudy IA Adobe — Música con inteligencia artificial" },
+      { title: `${BRAND} — Citas reales, chat social y videos cortos` },
       {
         name: "description",
-        content: "Genera canciones originales con IA a partir de una descripción.",
+        content:
+          "Conoce personas reales, chatea, comparte videos cortos y verifica tu perfil con la insignia azul de Cupido Leudy.",
       },
-      { name: "author", content: "Leudy IA Adobe" },
-      { property: "og:title", content: "Leudy IA Adobe" },
+      { name: "author", content: BRAND },
+      { property: "og:title", content: BRAND },
       {
         property: "og:description",
-        content: "Genera canciones originales con IA a partir de una descripción.",
+        content:
+          "Citas reales, chat social, llamadas en vivo y videos cortos con seguridad verificada.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -136,9 +141,15 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
-        <SiteHeader />
-        <Outlet />
-        <ThankYouChatWidget />
+        <div className="flex min-h-screen flex-col">
+          <SiteHeader />
+          <div className="flex-1">
+            <Outlet />
+          </div>
+          <SiteFooter />
+        </div>
+        <EscudoWidget />
+        <TermsModal />
         <Toaster theme="dark" position="top-center" />
       </AuthProvider>
     </QueryClientProvider>

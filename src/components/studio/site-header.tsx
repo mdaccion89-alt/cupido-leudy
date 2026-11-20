@@ -3,29 +3,30 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BadgeCheck,
   Crown,
+  Heart,
   Infinity as InfinityIcon,
   LogOut,
+  MessageCircle,
+  Phone,
   ShieldCheck,
+  ShoppingBag,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { Equalizer } from "./equalizer";
 
 const NAV_LINKS = [
-  { to: "/", label: "Estudio Musical", active: (path: string) => path === "/" },
-  {
-    to: "/video-studio",
-    label: "Cine y Video IA",
-    active: (path: string) => path.startsWith("/video-studio"),
-  },
+  { to: "/", label: "Inicio", active: (path: string) => path === "/" },
   {
     to: "/comunidad",
-    label: "Comunidad",
+    label: "Descubrir",
     active: (path: string) => path.startsWith("/comunidad"),
   },
+  { to: "/chat", label: "Chat", active: (path: string) => path.startsWith("/chat") },
+  { to: "/llamadas", label: "Llamadas", active: (path: string) => path.startsWith("/llamadas") },
+  { to: "/tienda", label: "Tienda", active: (path: string) => path.startsWith("/tienda") },
 ] as const;
 
 export function SiteHeader() {
@@ -54,7 +55,7 @@ export function SiteHeader() {
             {settings.logo_url ? (
               <img src={settings.logo_url} alt="" className="size-full object-cover" />
             ) : (
-              <Equalizer bars={4} className="h-4 [&>span]:bg-primary-foreground [&>span]:bg-none" />
+              <Heart className="h-5 w-5 fill-primary-foreground text-primary-foreground" />
             )}
           </span>
           <span className="flex flex-col leading-tight">
@@ -69,6 +70,16 @@ export function SiteHeader() {
         <nav className="flex items-center gap-1" aria-label="Navegación principal">
           {NAV_LINKS.map((item) => {
             const active = item.active(pathname);
+            const Icon =
+              item.to === "/"
+                ? Heart
+                : item.to === "/comunidad"
+                  ? Heart
+                  : item.to === "/chat"
+                    ? MessageCircle
+                    : item.to === "/llamadas"
+                      ? Phone
+                      : ShoppingBag;
             return (
               <Button
                 asChild
@@ -82,7 +93,10 @@ export function SiteHeader() {
                     : "rounded-full border border-transparent text-muted-foreground hover:text-foreground"
                 }
               >
-                <Link to={item.to}>{item.label}</Link>
+                <Link to={item.to} className="inline-flex items-center gap-1.5">
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
               </Button>
             );
           })}

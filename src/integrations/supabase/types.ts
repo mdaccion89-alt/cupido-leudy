@@ -139,32 +139,59 @@ export type Database = {
         Row: {
           avatar_url: string;
           bio: string;
+          country_code: string;
           created_at: string;
           display_name: string;
+          drinks: boolean;
           follower_count: number;
+          friend_count: number;
+          has_kids: boolean;
           id: string;
           is_official: boolean;
           is_premium: boolean;
+          is_verified_blue: boolean;
+          looking_for: string;
+          moderation_status: string;
+          selfie_path: string;
+          verification_status: string;
         };
         Insert: {
           avatar_url?: string;
           bio?: string;
+          country_code?: string;
           created_at?: string;
           display_name?: string;
+          drinks?: boolean;
           follower_count?: number;
+          friend_count?: number;
+          has_kids?: boolean;
           id: string;
           is_official?: boolean;
           is_premium?: boolean;
+          is_verified_blue?: boolean;
+          looking_for?: string;
+          moderation_status?: string;
+          selfie_path?: string;
+          verification_status?: string;
         };
         Update: {
           avatar_url?: string;
           bio?: string;
+          country_code?: string;
           created_at?: string;
           display_name?: string;
+          drinks?: boolean;
           follower_count?: number;
+          friend_count?: number;
+          has_kids?: boolean;
           id?: string;
           is_official?: boolean;
           is_premium?: boolean;
+          is_verified_blue?: boolean;
+          looking_for?: string;
+          moderation_status?: string;
+          selfie_path?: string;
+          verification_status?: string;
         };
         Relationships: [
           {
@@ -349,33 +376,42 @@ export type Database = {
       profiles: {
         Row: {
           birth_date: string | null;
+          country_code: string | null;
           created_at: string;
           display_name: string | null;
           email: string | null;
           full_name: string | null;
           id: string;
+          phone: string | null;
           plan: string;
           plan_expires_at: string | null;
+          terms_accepted_at: string | null;
         };
         Insert: {
           birth_date?: string | null;
+          country_code?: string | null;
           created_at?: string;
           display_name?: string | null;
           email?: string | null;
           full_name?: string | null;
           id: string;
+          phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;
+          terms_accepted_at?: string | null;
         };
         Update: {
           birth_date?: string | null;
+          country_code?: string | null;
           created_at?: string;
           display_name?: string | null;
           email?: string | null;
           full_name?: string | null;
           id?: string;
+          phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;
+          terms_accepted_at?: string | null;
         };
         Relationships: [];
       };
@@ -598,6 +634,239 @@ export type Database = {
         };
         Relationships: [];
       };
+    cupido_balances: {
+      Row: { balance: number; updated_at: string; user_id: string };
+      Insert: { balance?: number; updated_at?: string; user_id: string };
+      Update: { balance?: number; updated_at?: string; user_id?: string };
+      Relationships: [];
+    };
+    cupido_calls: {
+      Row: {
+        callee_id: string;
+        caller_id: string;
+        created_at: string;
+        credits_spent: number;
+        id: string;
+        mode: string;
+        status: string;
+      };
+      Insert: {
+        callee_id: string;
+        caller_id: string;
+        created_at?: string;
+        credits_spent?: number;
+        id?: string;
+        mode: string;
+        status?: string;
+      };
+      Update: {
+        callee_id?: string;
+        caller_id?: string;
+        created_at?: string;
+        credits_spent?: number;
+        id?: string;
+        mode?: string;
+        status?: string;
+      };
+      Relationships: [];
+    };
+    cupido_conversations: {
+      Row: { created_at: string; id: string; participant_a: string; participant_b: string };
+      Insert: { created_at?: string; id?: string; participant_a: string; participant_b: string };
+      Update: { created_at?: string; id?: string; participant_a?: string; participant_b?: string };
+      Relationships: [];
+    };
+    cupido_friends: {
+      Row: {
+        addressee_id: string;
+        created_at: string;
+        requester_id: string;
+        status: string;
+      };
+      Insert: {
+        addressee_id: string;
+        created_at?: string;
+        requester_id: string;
+        status?: string;
+      };
+      Update: {
+        addressee_id?: string;
+        created_at?: string;
+        requester_id?: string;
+        status?: string;
+      };
+      Relationships: [];
+    };
+    cupido_gift_sends: {
+      Row: {
+        cash_value: number;
+        created_at: string;
+        credits: number;
+        gift_id: string;
+        id: string;
+        receiver_id: string;
+        sender_id: string;
+      };
+      Insert: {
+        cash_value: number;
+        created_at?: string;
+        credits: number;
+        gift_id: string;
+        id?: string;
+        receiver_id: string;
+        sender_id: string;
+      };
+      Update: {
+        cash_value?: number;
+        created_at?: string;
+        credits?: number;
+        gift_id?: string;
+        id?: string;
+        receiver_id?: string;
+        sender_id?: string;
+      };
+      Relationships: [];
+    };
+    cupido_likes: {
+      Row: { actor_id: string; created_at: string; kind: string; target_id: string };
+      Insert: { actor_id: string; created_at?: string; kind: string; target_id: string };
+      Update: { actor_id?: string; created_at?: string; kind?: string; target_id?: string };
+      Relationships: [];
+    };
+    cupido_messages: {
+      Row: {
+        audio_path: string;
+        body: string;
+        conversation_id: string;
+        created_at: string;
+        id: string;
+        sender_id: string;
+      };
+      Insert: {
+        audio_path?: string;
+        body?: string;
+        conversation_id: string;
+        created_at?: string;
+        id?: string;
+        sender_id: string;
+      };
+      Update: {
+        audio_path?: string;
+        body?: string;
+        conversation_id?: string;
+        created_at?: string;
+        id?: string;
+        sender_id?: string;
+      };
+      Relationships: [];
+    };
+    cupido_post_likes: {
+      Row: { created_at: string; post_id: string; user_id: string };
+      Insert: { created_at?: string; post_id: string; user_id: string };
+      Update: { created_at?: string; post_id?: string; user_id?: string };
+      Relationships: [];
+    };
+    cupido_posts: {
+      Row: {
+        caption: string;
+        created_at: string;
+        id: string;
+        kind: string;
+        likes_count: number;
+        media_path: string;
+        moderation_status: string;
+        user_id: string;
+      };
+      Insert: {
+        caption?: string;
+        created_at?: string;
+        id?: string;
+        kind: string;
+        likes_count?: number;
+        media_path: string;
+        moderation_status?: string;
+        user_id: string;
+      };
+      Update: {
+        caption?: string;
+        created_at?: string;
+        id?: string;
+        kind?: string;
+        likes_count?: number;
+        media_path?: string;
+        moderation_status?: string;
+        user_id?: string;
+      };
+      Relationships: [];
+    };
+    cupido_reports: {
+      Row: {
+        created_at: string;
+        id: string;
+        reason: string;
+        reported_id: string;
+        reporter_id: string;
+        status: string;
+      };
+      Insert: {
+        created_at?: string;
+        id?: string;
+        reason?: string;
+        reported_id: string;
+        reporter_id: string;
+        status?: string;
+      };
+      Update: {
+        created_at?: string;
+        id?: string;
+        reason?: string;
+        reported_id?: string;
+        reporter_id?: string;
+        status?: string;
+      };
+      Relationships: [];
+    };
+    cupido_terms_acceptance: {
+      Row: { accepted_at: string; user_id: string; version: string };
+      Insert: { accepted_at?: string; user_id: string; version: string };
+      Update: { accepted_at?: string; user_id?: string; version?: string };
+      Relationships: [];
+    };
+    cupido_withdrawals: {
+      Row: {
+        account_details: string;
+        amount: number;
+        country_code: string;
+        created_at: string;
+        id: string;
+        method: string;
+        reviewed_at: string | null;
+        status: string;
+        user_id: string;
+      };
+      Insert: {
+        account_details: string;
+        amount: number;
+        country_code: string;
+        created_at?: string;
+        id?: string;
+        method: string;
+        reviewed_at?: string | null;
+        status?: string;
+        user_id: string;
+      };
+      Update: {
+        account_details?: string;
+        amount?: number;
+        country_code?: string;
+        created_at?: string;
+        id?: string;
+        method?: string;
+        reviewed_at?: string | null;
+        status?: string;
+        user_id?: string;
+      };
+      Relationships: [];
     };
     Views: {
       [_ in never]: never;
@@ -651,6 +920,36 @@ export type Database = {
           voice_type: string;
         }[];
       };
+    cupido_accept_terms: { Args: { _version: string }; Returns: undefined };
+    cupido_admin_auto_terms: { Args: never; Returns: undefined };
+    cupido_can_access_conversation: { Args: { _conversation: string }; Returns: boolean };
+    cupido_open_conversation: { Args: { _other: string }; Returns: string };
+    cupido_request_withdrawal: {
+      Args: { _account_details: string; _amount: number; _country_code: string; _method: string };
+      Returns: string;
+    };
+    cupido_review_verification: { Args: { _approve: boolean; _user_id: string }; Returns: undefined };
+    cupido_review_withdrawal: { Args: { _approve: boolean; _id: string }; Returns: undefined };
+    cupido_save_profile: {
+      Args: {
+        _bio: string;
+        _country_code: string;
+        _display_name: string;
+        _drinks: boolean;
+        _has_kids: boolean;
+        _looking_for: string;
+      };
+      Returns: undefined;
+    };
+    cupido_send_gift: {
+      Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string };
+      Returns: string;
+    };
+    cupido_set_avatar: { Args: { _moderation: string; _url: string }; Returns: undefined };
+    cupido_start_call: { Args: { _callee: string; _mode: string }; Returns: string };
+    cupido_submit_selfie: { Args: { _path: string }; Returns: undefined };
+    cupido_answer_call: { Args: { _accept: boolean; _id: string }; Returns: undefined };
+    cupido_end_call: { Args: { _id: string; _status: string }; Returns: undefined };
     };
     Enums: {
       app_role: "admin" | "admin_supremo" | "user";

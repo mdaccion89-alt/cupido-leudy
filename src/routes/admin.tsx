@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { AiEnginesManager } from "@/components/admin/ai-engines-manager";
+import { CupidoAdminPanel } from "@/components/cupido/cupido-admin-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +27,7 @@ import {
 } from "@/lib/admin.functions";
 
 export const Route = createFileRoute("/admin")({
-  head: () => ({ meta: [{ title: "Panel Admin Supremo — Leudy IA Adobe" }] }),
+  head: () => ({ meta: [{ title: "Panel Admin Supremo — Cupido Leudy ❤️" }] }),
   component: AdminPage,
 });
 
@@ -210,13 +211,14 @@ function AdminDashboard() {
         <div>
           <h1 className="font-display text-2xl font-semibold">Panel Admin Supremo</h1>
           <p className="text-sm text-muted-foreground">
-            Configuración, usuarios, revisiones e integraciones en Supabase real.
+            Verificación azul, regalos, retiros, PayPal y configuración general en Supabase real.
           </p>
         </div>
       </div>
 
       <Tabs defaultValue="identidad">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-7">
+          <TabsTrigger value="cupido">Cupido</TabsTrigger>
           <TabsTrigger value="identidad">Identidad</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
           <TabsTrigger value="revisiones">Revisiones</TabsTrigger>
@@ -224,6 +226,10 @@ function AdminDashboard() {
           <TabsTrigger value="motores">Motores IA</TabsTrigger>
           <TabsTrigger value="distribuciones">Distribuciones</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="cupido" className="mt-6">
+          <CupidoAdminPanel />
+        </TabsContent>
 
         <TabsContent value="identidad" className="mt-6">
           <section className="panel grain space-y-5 p-6">

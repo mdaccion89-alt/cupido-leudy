@@ -12,11 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as LlamadasRouteImport } from './routes/llamadas'
 import { Route as PerfilRouteImport } from './routes/perfil'
-import { Route as VerifyRouteImport } from './routes/verify'
-import { Route as VideoStudioRouteImport } from './routes/video-studio'
-import { Route as ArtistaIdRouteImport } from './routes/artista/$id'
+import { Route as TiendaRouteImport } from './routes/tienda'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -33,9 +33,19 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ComunidadRoute = ComunidadRouteImport.update({
   id: '/comunidad',
   path: '/comunidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LlamadasRoute = LlamadasRouteImport.update({
+  id: '/llamadas',
+  path: '/llamadas',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PerfilRoute = PerfilRouteImport.update({
@@ -43,19 +53,9 @@ const PerfilRoute = PerfilRouteImport.update({
   path: '/perfil',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VerifyRoute = VerifyRouteImport.update({
-  id: '/verify',
-  path: '/verify',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const VideoStudioRoute = VideoStudioRouteImport.update({
-  id: '/video-studio',
-  path: '/video-studio',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ArtistaIdRoute = ArtistaIdRouteImport.update({
-  id: '/artista/$id',
-  path: '/artista/$id',
+const TiendaRoute = TiendaRouteImport.update({
+  id: '/tienda',
+  path: '/tienda',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -63,32 +63,32 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
-  '/verify': typeof VerifyRoute
-  '/video-studio': typeof VideoStudioRoute
-  '/artista/$id': typeof ArtistaIdRoute
+  '/tienda': typeof TiendaRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
-  '/verify': typeof VerifyRoute
-  '/video-studio': typeof VideoStudioRoute
-  '/artista/$id': typeof ArtistaIdRoute
+  '/tienda': typeof TiendaRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
+  '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
-  '/verify': typeof VerifyRoute
-  '/video-studio': typeof VideoStudioRoute
-  '/artista/$id': typeof ArtistaIdRoute
+  '/tienda': typeof TiendaRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -96,42 +96,42 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/auth'
+    | '/chat'
     | '/comunidad'
+    | '/llamadas'
     | '/perfil'
-    | '/verify'
-    | '/video-studio'
-    | '/artista/$id'
+    | '/tienda'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admin'
     | '/auth'
+    | '/chat'
     | '/comunidad'
+    | '/llamadas'
     | '/perfil'
-    | '/verify'
-    | '/video-studio'
-    | '/artista/$id'
+    | '/tienda'
   id:
     | '__root__'
     | '/'
     | '/admin'
     | '/auth'
+    | '/chat'
     | '/comunidad'
+    | '/llamadas'
     | '/perfil'
-    | '/verify'
-    | '/video-studio'
-    | '/artista/$id'
+    | '/tienda'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
+  ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
+  LlamadasRoute: typeof LlamadasRoute
   PerfilRoute: typeof PerfilRoute
-  VerifyRoute: typeof VerifyRoute
-  VideoStudioRoute: typeof VideoStudioRoute
-  ArtistaIdRoute: typeof ArtistaIdRoute
+  TiendaRoute: typeof TiendaRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -157,11 +157,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/comunidad': {
       id: '/comunidad'
       path: '/comunidad'
       fullPath: '/comunidad'
       preLoaderRoute: typeof ComunidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/llamadas': {
+      id: '/llamadas'
+      path: '/llamadas'
+      fullPath: '/llamadas'
+      preLoaderRoute: typeof LlamadasRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/perfil': {
@@ -171,25 +185,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PerfilRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/verify': {
-      id: '/verify'
-      path: '/verify'
-      fullPath: '/verify'
-      preLoaderRoute: typeof VerifyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/video-studio': {
-      id: '/video-studio'
-      path: '/video-studio'
-      fullPath: '/video-studio'
-      preLoaderRoute: typeof VideoStudioRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/artista/$id': {
-      id: '/artista/$id'
-      path: '/artista/$id'
-      fullPath: '/artista/$id'
-      preLoaderRoute: typeof ArtistaIdRouteImport
+    '/tienda': {
+      id: '/tienda'
+      path: '/tienda'
+      fullPath: '/tienda'
+      preLoaderRoute: typeof TiendaRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -199,11 +199,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
+  ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,
+  LlamadasRoute: LlamadasRoute,
   PerfilRoute: PerfilRoute,
-  VerifyRoute: VerifyRoute,
-  VideoStudioRoute: VideoStudioRoute,
-  ArtistaIdRoute: ArtistaIdRoute,
+  TiendaRoute: TiendaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -49,9 +49,9 @@ export function useAccount() {
 }
 
 export const DEFAULT_SETTINGS: PublicSettings = {
-  site_title: "Leudy IA Adobe",
-  site_tagline: "Convierte tus ideas en canciones",
-  banner_text: "",
+  site_title: "Cupido Leudy ❤️",
+  site_tagline: "Citas reales, chat social y videos cortos",
+  banner_text: "Encuentra conexiones reales. Verificación azul, seguridad y diversión.",
   banner_image: "",
   logo_url: "",
   primary_color: "",

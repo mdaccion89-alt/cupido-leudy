@@ -1,6 +1,6 @@
-# Leudy IA Adobe
+# Cupido Leudy ❤️
 
-Genera música con inteligencia artificial desde una interfaz oscura y moderna: describe tu canción, elige género, voz, duración y guarda tus creaciones en tu cuenta.
+Citas reales, chat social, videos cortos, verificación azul, llamadas en vivo y regalos con saldo retirable. Ejecuta `supabase_cupido.sql` en el SQL Editor de Supabase para activar el esquema de Cupido.
 
 ## Desarrollo
 
