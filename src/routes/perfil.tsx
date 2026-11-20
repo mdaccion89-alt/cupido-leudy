@@ -268,6 +268,18 @@ function ProfilePage() {
   if (authLoading || profile.isLoading)
     return <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Cargando perfil…</div>;
 
+  if (profile.isError) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center px-5">
+        <div className="panel grain max-w-md p-8 text-center">
+          <h1 className="text-xl font-semibold">No se pudo cargar este perfil</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Intenta recargar la página en unos segundos.</p>
+          <Button className="mt-5" onClick={() => void profile.refetch()}>Reintentar</Button>
+        </div>
+      </main>
+    );
+  }
+
   if (!profileId) {
     return (
       <main className="flex min-h-[60vh] items-center justify-center px-5">
@@ -284,12 +296,14 @@ function ProfilePage() {
     );
   }
 
-  const creator = profile.data?.creator;
+  const creator = profile.data?.creator ?? null;
+  const privateProfile = profile.data?.privateProfile ?? null;
   const own = viewerId === profileId;
-  const isAdmin = account.isAdmin && own;
+  const isAdmin = Boolean(account.isAdmin) && own;
   const verified = Boolean(creator?.is_verified_blue);
-  const followers = creator?.follower_count ?? 0;
-  const friends = creator?.friend_count ?? 0;
+  const followers = Math.max(0, Number(creator?.follower_count) || 0);
+  const friends = Math.max(0, Number(creator?.friend_count) || 0);
+  const countryForDisplay = typeof creator?.country_code === "string" ? creator.country_code : (privateProfile?.country_code ?? "DO");
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
@@ -325,9 +339,9 @@ function ProfilePage() {
                 {creator?.verification_status === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
-                {countryFlag(creator?.country_code)} {countryName(creator?.country_code)} ·{" "}
-                {extraField(creator, "age") ?? profile.data?.privateProfile?.age ?? "—"} años ·{" "}
-                {extraField(creator, "gender") ?? profile.data?.privateProfile?.gender ?? "—"} ·{" "}
+                {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}
+                {extraField(creator, "age") ?? privateProfile?.age ?? "—"} años ·{" "}
+                {extraField(creator, "gender") ?? privateProfile?.gender ?? "—"} ·{" "}
                 {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
               </p>
             </div>

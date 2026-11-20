@@ -53,8 +53,8 @@ const POST_COLUMN_SETS = [
   "id,user_id,media_path,kind,caption,likes_count,created_at",
 ];
 
-export function isSupremePost(email?: string | null): boolean {
-  return email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
+export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
+  return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
 }
 
 export function formatCount(value: number): string {
@@ -64,17 +64,31 @@ export function formatCount(value: number): string {
   return String(Math.max(0, Math.floor(value)));
 }
 
-export function displayedMetrics(post: FeedPost, now = Date.now()): { likes: string; views: string } {
-  const realLikes = Math.max(0, Number(post.likes_count) || 0);
-  const realViews = Math.max(0, Number(post.views_count) || 0);
-  if (!post.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
-  const published = Date.parse(post.created_at);
-  const minutes = Number.isFinite(published)
-    ? Math.max(0, Math.floor((now - published) / 60_000) - 2)
-    : 0;
+function postSeed(id?: string | null): number {
+  const text = String(id ?? "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function displayedMetrics(post?: FeedPost | null, now = Date.now()): { likes: string; views: string } {
+  const realLikes = Math.max(0, Number(post?.likes_count) || 0);
+  const realViews = Math.max(0, Number(post?.views_count) || 0);
+  if (!post?.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
+
+  const seed = postSeed(post.id);
+  const baseLikes = 12_400 + (seed % 56_501);
+  const baseViews = 19_200 + ((seed >>> 7) % 75_301);
+  const published = Date.parse(String(post.created_at ?? ""));
+  const minutes = Number.isFinite(published) ? Math.max(0, Math.floor((now - published) / 60_000) - 2) : 0;
+  const likeGrowth = minutes * (2 + (seed % 5));
+  const viewGrowth = minutes * (12 + ((seed >>> 4) % 19));
   return {
-    likes: formatCount(30_000 + minutes * 37 + realLikes),
-    views: formatCount(42_000 + minutes * 310 + realViews),
+    likes: formatCount(baseLikes + likeGrowth + realLikes),
+    views: formatCount(baseViews + viewGrowth + realViews),
   };
 }
 
@@ -143,6 +157,7 @@ export async function fetchFeed(options: {
   const engagement = await fetchEngagement(postIds, viewerId);
 
   const posts: FeedPost[] = filtered.flatMap((row): FeedPost[] => {
+    if (!row || typeof row !== "object") return [];
     const url = String(row.media_url ?? row.media_path ?? "");
     if (!url) return [];
     const email = emails.get(row.user_id) ?? null;
@@ -163,7 +178,7 @@ export async function fetchFeed(options: {
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
       email,
-      is_super_admin: isSupremePost(email),
+      is_super_admin: isSupremePost(email, Boolean(row.is_super_admin)),
     }];
   });
 

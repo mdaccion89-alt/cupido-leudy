@@ -133,7 +133,7 @@ export function WallFeed({
   };
 
   const handleShare = async (postId: string) => {
-    const post = feed.data?.posts.find((item) => item.id === postId);
+    const post = feed.data?.posts?.find((item) => item.id === postId);
     if (!post) return;
     try {
       const result = await sharePost(post);
@@ -202,6 +202,11 @@ export function WallFeed({
     }
   };
 
+  const posts = feed.data?.posts ?? [];
+  const likedIds = feed.data?.liked;
+  const dislikedIds = feed.data?.disliked;
+  const savedIds = feed.data?.saved;
+
   return (
     <div className="space-y-5">
       {!hideUpload && (
@@ -238,18 +243,18 @@ export function WallFeed({
 
       {feed.isLoading ? (
         <p className="text-sm text-muted-foreground">Cargando publicaciones reales…</p>
-      ) : feed.data?.posts.length ? (
+      ) : posts.length ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {feed.data.posts.map((post) => (
+          {posts.map((post) => (
             <MediaCard
               key={post.id}
               media={post}
-              liked={feed.data!.liked.has(post.id)}
-              disliked={feed.data!.disliked.has(post.id)}
-              saved={feed.data!.saved.has(post.id)}
-              onLike={() => void handleLike(post.id, post.user_id, feed.data!.liked.has(post.id))}
-              onDislike={() => void handleDislike(post.id, feed.data!.disliked.has(post.id))}
-              onSave={() => void handleSave(post.id, feed.data!.saved.has(post.id))}
+              liked={likedIds?.has(post.id) ?? false}
+              disliked={dislikedIds?.has(post.id) ?? false}
+              saved={savedIds?.has(post.id) ?? false}
+              onLike={() => void handleLike(post.id, post.user_id, likedIds?.has(post.id) ?? false)}
+              onDislike={() => void handleDislike(post.id, dislikedIds?.has(post.id) ?? false)}
+              onSave={() => void handleSave(post.id, savedIds?.has(post.id) ?? false)}
               onShare={() => void handleShare(post.id)}
             />
           ))}

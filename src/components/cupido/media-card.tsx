@@ -78,9 +78,9 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
         {media.kind === "video" ? (
-          <video src={media.media_url} controls playsInline loop muted className="h-full w-full object-cover" />
+          <video src={media.media_url ?? ""} controls playsInline loop muted className="h-full w-full object-cover" />
         ) : (
-          <img src={media.media_url} alt={media.caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
+          <img src={media.media_url ?? ""} alt={media.caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}
         <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
           {media.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : <ImageIcon className="mr-1 inline h-3 w-3" />}
@@ -90,15 +90,15 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       <div className="p-4">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 border border-pink-400/40">
-            <AvatarImage src={media.avatar_url} alt={media.display_name} />
+            <AvatarImage src={media.avatar_url ?? ""} alt={media.display_name ?? "Miembro de Cupido"} />
             <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
-              {media.display_name.slice(0, 2).toUpperCase()}
+              {(media.display_name ?? "Miembro de Cupido").slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
-              {media.display_name}
-              <VerifiedBadge email={media.email} verified={media.is_verified_blue} className="ml-1 inline size-4" />
+              {media.display_name ?? "Miembro de Cupido"}
+              <VerifiedBadge email={media.email} verified={Boolean(media.is_verified_blue)} className="ml-1 inline size-4" />
             </p>
             <p className="line-clamp-2 text-xs text-muted-foreground">{media.caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
@@ -125,7 +125,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             className="gap-1"
             aria-label="No me gusta"
           >
-            <ThumbsDown className="size-3.5" /> 👎 {Math.max(0, media.dislikes_count)}
+            <ThumbsDown className="size-3.5" /> 👎 {Math.max(0, Number(media.dislikes_count) || 0)}
           </Button>
           <Button
             variant={saved ? "default" : "outline"}
@@ -143,7 +143,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             className="gap-1"
             aria-label="Comentarios"
           >
-            <MessageCircle className="size-3.5" /> 💬 {media.comments_count}
+            <MessageCircle className="size-3.5" /> 💬 {Math.max(0, Number(media.comments_count) || 0)}
           </Button>
           <Button variant="outline" size="sm" onClick={onShare} className="col-span-2 gap-1" aria-label="Compartir">
             <Share2 className="size-3.5" /> ↗️ Compartir
@@ -161,14 +161,14 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {comments.data?.map((comment) => (
                 <div key={comment.id} className="flex gap-2 text-xs">
                   <Avatar className="size-6">
-                    <AvatarImage src={comment.avatar_url} alt={comment.display_name} />
+                    <AvatarImage src={comment.avatar_url ?? ""} alt={comment.display_name ?? "Miembro"} />
                     <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">
-                      {comment.display_name.slice(0, 2).toUpperCase()}
+                      {(comment.display_name ?? "Miembro").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <p className="min-w-0 flex-1 text-white">
-                    <span className="mr-1 font-medium">{comment.display_name}</span>
-                    <span className="text-muted-foreground">{comment.body}</span>
+                    <span className="mr-1 font-medium">{comment.display_name ?? "Miembro"}</span>
+                    <span className="text-muted-foreground">{comment.body ?? ""}</span>
                   </p>
                 </div>
               ))}

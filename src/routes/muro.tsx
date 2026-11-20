@@ -11,6 +11,7 @@ export const Route = createFileRoute("/muro")({
 
 function MuroPage() {
   const { session } = useAuth();
+  const viewerId = session?.user.id ?? null;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8">
@@ -24,9 +25,9 @@ function MuroPage() {
             Publicaciones reales de todas las personas. Me gusta, comentarios, favoritos y compartir al instante.
           </p>
         </div>
-        {!session && <Button asChild><Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link></Button>}
+        {!viewerId && <Button asChild><Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link></Button>}
       </header>
-      <WallFeed />
+      <WallFeed emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️" />
     </main>
   );
 }
