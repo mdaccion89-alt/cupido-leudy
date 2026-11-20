@@ -3,21 +3,43 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { findPackage } from "./credits";
 import { getAdminClient } from "./server-helpers";
 
-const PAYPAL_API_BASE =
-  process.env["PAYPAL_API_BASE"] ??
-  (process.env["PAYPAL_MODE"] === "live"
-    ? "https://api-m.paypal.com"
-    : "https://api-m.sandbox.paypal.com");
+type PaypalConfig = {
+  apiBase: string;
+  clientId: string;
+  secret: string;
+  email: string;
+  mode: "sandbox" | "live";
+};
 
-let cachedToken: { value: string; expiresAt: number } | undefined;
+let cachedToken: { key: string; value: string; expiresAt: number } | undefined;
 
-async function paypalToken() {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) return cachedToken.value;
-  const clientId = process.env["PAYPAL_CLIENT_ID"];
-  const secret = process.env["PAYPAL_SECRET"];
-  if (!clientId || !secret) throw new Error("PAYPAL_NOT_CONFIGURED");
-  const basic = Buffer.from(`${clientId}:${secret}`).toString("base64");
-  const res = await fetch(`${PAYPAL_API_BASE}/v1/oauth2/token`, {
+async function getPaypalConfig(): Promise<PaypalConfig> {
+  const admin = await getAdminClient();
+  const { data } = await admin
+    .from("payment_settings")
+    .select("paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+    .eq("id", 1)
+    .maybeSingle();
+  const mode: "sandbox" | "live" = data?.paypal_mode === "sandbox" ? "sandbox" : "live";
+  const apiBase =
+    process.env["PAYPAL_API_BASE"] ??
+    (mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com");
+  return {
+    apiBase,
+    clientId: data?.paypal_client_id?.trim() || process.env["PAYPAL_CLIENT_ID"] || "",
+    secret: data?.paypal_secret?.trim() || process.env["PAYPAL_SECRET"] || "",
+    email: data?.paypal_email?.trim() || "",
+    mode,
+  };
+}
+
+async function paypalToken(config: PaypalConfig) {
+  const key = `${config.mode}:${config.clientId}`;
+  if (cachedToken && cachedToken.key === key && cachedToken.expiresAt > Date.now() + 30_000)
+    return cachedToken.value;
+  if (!config.clientId || !config.secret) throw new Error("PAYPAL_NOT_CONFIGURED");
+  const basic = Buffer.from(`${config.clientId}:${config.secret}`).toString("base64");
+  const res = await fetch(`${config.apiBase}/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${basic}`,
@@ -32,15 +54,17 @@ async function paypalToken() {
   const json = (await res.json()) as { access_token?: string; expires_in?: number };
   if (!json.access_token) throw new Error("PAYPAL_NO_TOKEN");
   cachedToken = {
+    key,
     value: json.access_token,
     expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
   };
   return json.access_token;
 }
 
-export async function paypal(path: string, init: RequestInit = {}) {
-  const token = await paypalToken();
-  const res = await fetch(`${PAYPAL_API_BASE}${path}`, {
+export async function paypal(path: string, init: RequestInit = {}, config?: PaypalConfig) {
+  const activeConfig = config ?? (await getPaypalConfig());
+  const token = await paypalToken(activeConfig);
+  const res = await fetch(`${activeConfig.apiBase}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -95,12 +119,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
         .maybeSingle();
       if (settings && !settings.purchases_enabled)
         return { ok: false, message: "Las compras están desactivadas por ahora." };
-      const { data: pay } = await admin
-        .from("payment_settings")
-        .select("paypal_email")
-        .eq("id", 1)
-        .maybeSingle();
-      const payeeEmail = pay?.paypal_email?.trim();
+      const config = await getPaypalConfig();
       try {
         const order = await paypal("/v2/checkout/orders", {
           method: "POST",
@@ -110,22 +129,17 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
             purchase_units: [
               {
                 reference_id: pack.id,
-                description: `${pack.credits} créditos · Cupido Leudy`,
+                description: `${pack.credits.toLocaleString("es")} monedas brillantes · Cupido Leudy`,
                 amount: { currency_code: "USD", value: pack.price },
-                ...(payeeEmail ? { payee: { email_address: payeeEmail } } : {}),
+                ...(config.email ? { payee: { email_address: config.email } } : {}),
               },
             ],
-            ...(data.returnUrl
-              ? {
-                  application_context: {
-                    return_url: data.returnUrl,
-                    cancel_url: data.returnUrl,
-                    user_action: "PAY_NOW",
-                  },
-                }
-              : {}),
+            application_context: {
+              ...(data.returnUrl ? { return_url: data.returnUrl, cancel_url: data.returnUrl } : {}),
+              user_action: "PAY_NOW",
+            },
           }),
-        });
+        }, config);
         const orderId = String(order["id"] ?? "");
         if (!orderId) throw new Error("PAYPAL_NO_ID");
         const links = (order["links"] as { href?: string; rel?: string }[] | undefined) ?? [];
@@ -170,12 +184,14 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
     if (!pack) return { ok: false, message: "Paquete no válido." };
 
     try {
+      const config = await getPaypalConfig();
       const captured = await paypal(
         `/v2/checkout/orders/${encodeURIComponent(data.orderId)}/capture`,
         {
           method: "POST",
           headers: { "PayPal-Request-Id": `capture-${order.id}` },
         },
+        config,
       );
       type Capture = { status?: string; amount?: { currency_code?: string; value?: string } };
       const units =

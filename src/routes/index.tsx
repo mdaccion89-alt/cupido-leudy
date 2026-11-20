@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
-import { safeExtension, uploadPublicImage } from "@/lib/storage";
+import { compressImageFile, readVideoDuration, safeExtension, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -296,16 +296,34 @@ function CupidoHome() {
       toast.error("Elige una foto o un video corto.");
       return;
     }
-    const maxBytes = isVideo ? 60 * 1024 * 1024 : 12 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      toast.error(isVideo ? "El video debe pesar menos de 60 MB." : "La foto debe pesar menos de 12 MB.");
+    if (isVideo && file.size > 20 * 1024 * 1024) {
+      toast.error("El video debe pesar menos de 20 MB para ahorrar espacio.");
+      return;
+    }
+    if (!isVideo && file.size > 25 * 1024 * 1024) {
+      toast.error("La foto es demasiado grande. Elige una imagen de menos de 25 MB.");
+      return;
+    }
+    let uploadFile = file;
+    try {
+      if (isVideo) {
+        const duration = await readVideoDuration(file);
+        if (duration > 20) {
+          toast.error("Los videos deben durar máximo 20 segundos.");
+          return;
+        }
+      } else {
+        uploadFile = await compressImageFile(file);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo preparar el archivo.");
       return;
     }
     setUploading(true);
-    const extension = safeExtension(file.name, isVideo ? "mp4" : "jpg");
+    const extension = safeExtension(uploadFile.name, isVideo ? "mp4" : "jpg");
     let url: string;
     try {
-      const result = await uploadPublicImage(userId!, file, "posts", extension);
+      const result = await uploadPublicImage(userId!, uploadFile, "posts", extension);
       url = result.url;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "No se pudo subir el archivo.");

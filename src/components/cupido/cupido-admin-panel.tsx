@@ -7,14 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
-import { savePaypalEmail } from "@/lib/admin.functions";
+import { savePaypalBusinessSettings, type PaypalBusinessInput } from "@/lib/admin.functions";
 import { countryFlag, countryName } from "@/lib/cupido";
+
+const LIVE_POSES = ["Frente", "Derecha", "Izquierda"];
 
 type VerificationRow = {
   id: string;
   display_name: string;
   avatar_url: string;
   selfie_path: string;
+  verification_frames: string[];
   country_code: string;
   verification_status: string;
   is_verified_blue: boolean;
@@ -43,8 +46,14 @@ type GiftRow = {
 
 export function CupidoAdminPanel() {
   const queryClient = useQueryClient();
-  const savePaypal = useServerFn(savePaypalEmail);
-  const [paypalEmail, setPaypalEmail] = useState("");
+  const savePaypal = useServerFn(savePaypalBusinessSettings);
+  const [paypalConfig, setPaypalConfig] = useState<PaypalBusinessInput>({
+    email: "",
+    businessName: "",
+    clientId: "",
+    secret: "",
+    mode: "live",
+  });
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["cupido-admin"] });
@@ -55,7 +64,7 @@ export function CupidoAdminPanel() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("creator_profiles")
-        .select("id,display_name,avatar_url,selfie_path,country_code,verification_status,is_verified_blue")
+        .select("id,display_name,avatar_url,selfie_path,verification_frames,country_code,verification_status,is_verified_blue")
         .eq("verification_status", "pending")
         .order("display_name");
       if (error) throw error;
@@ -95,11 +104,18 @@ export function CupidoAdminPanel() {
     queryFn: async () => {
       const { data } = await supabase
         .from("payment_settings")
-        .select("paypal_email")
+        .select("paypal_email,paypal_business_name,paypal_client_id,paypal_secret,paypal_mode")
         .eq("id", 1)
         .maybeSingle();
-      setPaypalEmail(data?.paypal_email ?? "");
-      return data?.paypal_email ?? "";
+      const next = {
+        email: data?.paypal_email ?? "",
+        businessName: data?.paypal_business_name ?? "",
+        clientId: data?.paypal_client_id ?? "",
+        secret: data?.paypal_secret ?? "",
+        mode: data?.paypal_mode === "sandbox" ? ("sandbox" as const) : ("live" as const),
+      };
+      setPaypalConfig(next);
+      return next;
     },
   });
 
@@ -132,12 +148,10 @@ export function CupidoAdminPanel() {
 
   const savePaypalConfig = useMutation({
     mutationFn: async () => {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paypalEmail.trim()))
-        throw new Error("Escribe un correo PayPal válido.");
-      await savePaypal({ data: { email: paypalEmail.trim() } });
+      await savePaypal({ data: paypalConfig });
     },
     onSuccess: () => {
-      toast.success("Correo PayPal del Admin Supremo actualizado.");
+      toast.success("Configuración PayPal Business actualizada.");
       invalidate();
     },
     onError: (error) =>
@@ -156,15 +170,15 @@ export function CupidoAdminPanel() {
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-5 text-pink-300" />
           <div>
-            <h2 className="font-display text-lg text-white">Verificación azul</h2>
+            <h2 className="font-display text-lg text-white">Selfies pendientes / Revisiones</h2>
             <p className="text-xs text-muted-foreground">
-              Revisa selfies y decide quién recibe la insignia azul verificada.
+              Revisa las 3 capturas en vivo de cada usuario y decide quién recibe la insignia azul.
             </p>
           </div>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {(verifications.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay selfies pendientes.</p>
+            <p className="text-sm text-muted-foreground">No hay verificaciones pendientes.</p>
           ) : (
             verifications.data!.map((row) => (
               <div key={row.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -186,7 +200,18 @@ export function CupidoAdminPanel() {
                     </p>
                   </div>
                 </div>
-                <SelfiePreview path={row.selfie_path} load={selfieUrl} />
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {(row.verification_frames.length === 3 ? row.verification_frames : [row.selfie_path]).map(
+                    (path, index) => (
+                      <div key={`${row.id}-${index}`}>
+                        <p className="mb-1 text-center text-[11px] text-sky-200">
+                          {LIVE_POSES[index] ?? "Captura"}
+                        </p>
+                        <SelfiePreview path={path} load={selfieUrl} compact />
+                      </div>
+                    ),
+                  )}
+                </div>
                 <div className="mt-3 flex gap-2">
                   <Button
                     size="sm"
@@ -287,20 +312,57 @@ export function CupidoAdminPanel() {
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
           <div className="flex items-center gap-3">
             <Wallet className="size-5 text-emerald-300" />
-            <h2 className="font-display text-lg text-white">PayPal del Admin Supremo</h2>
+            <h2 className="font-display text-lg text-white">Integraciones PayPal Business (Checkout Real)</h2>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            Los pagos de créditos y tarjeta llegan a esta cuenta. Nunca compartas el secreto de PayPal.
+            Los pagos de créditos y tarjeta llegan a esta cuenta Business. Nunca compartas el secreto de PayPal.
           </p>
           <div className="mt-4 space-y-2">
-            <Label htmlFor="cupido-paypal-email">Correo PayPal</Label>
+            <Label htmlFor="cupido-paypal-business">Nombre del negocio</Label>
+            <Input
+              id="cupido-paypal-business"
+              value={paypalConfig.businessName}
+              onChange={(event) => setPaypalConfig((current) => ({ ...current, businessName: event.target.value }))}
+              placeholder="Cupido Leudy"
+            />
+            <Label htmlFor="cupido-paypal-email">Correo Business</Label>
             <Input
               id="cupido-paypal-email"
               type="email"
-              value={paypalEmail}
-              onChange={(event) => setPaypalEmail(event.target.value)}
-              placeholder="admin@paypal.com"
+              value={paypalConfig.email}
+              onChange={(event) => setPaypalConfig((current) => ({ ...current, email: event.target.value }))}
+              placeholder="pagos@cupidoleudy.com"
             />
+            <Label htmlFor="cupido-paypal-client">Client ID</Label>
+            <Input
+              id="cupido-paypal-client"
+              value={paypalConfig.clientId}
+              onChange={(event) => setPaypalConfig((current) => ({ ...current, clientId: event.target.value }))}
+              placeholder="Client ID de la app PayPal"
+            />
+            <Label htmlFor="cupido-paypal-secret">Secret</Label>
+            <Input
+              id="cupido-paypal-secret"
+              type="password"
+              value={paypalConfig.secret}
+              onChange={(event) => setPaypalConfig((current) => ({ ...current, secret: event.target.value }))}
+              placeholder="Secreto de la app PayPal"
+            />
+            <Label htmlFor="cupido-paypal-mode">Modo</Label>
+            <select
+              id="cupido-paypal-mode"
+              value={paypalConfig.mode}
+              onChange={(event) =>
+                setPaypalConfig((current) => ({
+                  ...current,
+                  mode: event.target.value === "sandbox" ? "sandbox" : "live",
+                }))
+              }
+              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="live">Live (producción)</option>
+              <option value="sandbox">Sandbox (pruebas)</option>
+            </select>
             {paypal.isLoading ? (
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3 animate-spin" /> Cargando configuración…
@@ -311,7 +373,7 @@ export function CupidoAdminPanel() {
               disabled={savePaypalConfig.isPending}
               onClick={() => savePaypalConfig.mutate()}
             >
-              Guardar PayPal
+              Guardar PayPal Business
             </Button>
           </div>
         </div>
@@ -320,7 +382,15 @@ export function CupidoAdminPanel() {
   );
 }
 
-function SelfiePreview({ path, load }: { path: string; load: (path: string) => Promise<string> }) {
+function SelfiePreview({
+  path,
+  load,
+  compact = false,
+}: {
+  path: string;
+  load: (path: string) => Promise<string>;
+  compact?: boolean;
+}) {
   const [url, setUrl] = useState("");
   const [ready, setReady] = useState(false);
 
@@ -331,7 +401,7 @@ function SelfiePreview({ path, load }: { path: string; load: (path: string) => P
   }, [path, ready, load]);
 
   return (
-    <div className="mt-3 flex h-32 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+    <div className={`${compact ? "h-24" : "mt-3 h-32"} flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30`}>
       {url ? (
         <img src={url} alt="Selfie de verificación" className="h-full object-contain" />
       ) : (

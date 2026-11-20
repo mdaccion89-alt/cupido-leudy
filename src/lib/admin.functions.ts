@@ -102,14 +102,38 @@ export const uploadSiteAsset = createServerFn({ method: "POST" })
     return { ok: true, url: publicData.publicUrl };
   });
 
-export const savePaypalEmail = createServerFn({ method: "POST" })
+export type PaypalBusinessInput = {
+  email: string;
+  businessName: string;
+  clientId: string;
+  secret: string;
+  mode: "sandbox" | "live";
+};
+
+export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .validator((input: { email: string }) => input)
+  .validator((input: PaypalBusinessInput) => {
+    const email = input?.email?.trim() ?? "";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Escribe un correo PayPal válido.");
+    return {
+      email,
+      businessName: (input.businessName ?? "").trim().slice(0, 120),
+      clientId: (input.clientId ?? "").trim().slice(0, 240),
+      secret: (input.secret ?? "").trim().slice(0, 240),
+      mode: input.mode === "sandbox" ? "sandbox" : "live",
+    };
+  })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
     const { error } = await context.supabase
       .from("payment_settings")
-      .update({ paypal_email: data.email.trim() })
+      .update({
+        paypal_email: data.email,
+        paypal_business_name: data.businessName,
+        paypal_client_id: data.clientId,
+        paypal_secret: data.secret,
+        paypal_mode: data.mode,
+      })
       .eq("id", 1);
     if (error) throw error;
     return { ok: true };

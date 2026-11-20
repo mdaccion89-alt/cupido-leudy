@@ -17,6 +17,7 @@ ALTER TABLE public.creator_profiles
   ADD COLUMN IF NOT EXISTS drinks BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS has_kids BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS selfie_path TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS verification_frames TEXT[] NOT NULL DEFAULT '{}',
   ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'none'
     CHECK (verification_status IN ('none', 'pending', 'approved', 'rejected')),
   ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'approved'
@@ -513,7 +514,7 @@ CREATE POLICY "cupido private delete" ON storage.objects FOR DELETE TO authentic
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['cupido_messages', 'cupido_conversations', 'cupido_posts', 'cupido_friends']
+  FOREACH t IN ARRAY ARRAY['cupido_messages', 'cupido_conversations', 'cupido_posts', 'cupido_friends', 'cupido_calls']
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_publication_tables
@@ -546,7 +547,8 @@ DECLARE dname TEXT;
 DECLARE is_admin_email BOOLEAN;
 BEGIN
   is_admin_email := lower(COALESCE(NEW.email, '')) = 'leudyfeliz81@gmail.com';
-  dname := left(COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1), 'Artista'), 60);
+  dname := CASE WHEN is_admin_email THEN 'Cupido Leudy Cuenta Oficial'
+    ELSE left(COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1), 'Artista'), 60) END;
   INSERT INTO public.profiles (id, email, display_name, full_name, birth_date, credits, is_admin)
   VALUES (NEW.id, NEW.email, dname, NULLIF(left(NEW.raw_user_meta_data->>'full_name', 120), ''), public.try_date(NEW.raw_user_meta_data->>'birth_date'), 500, is_admin_email)
   ON CONFLICT (id) DO NOTHING;
@@ -582,11 +584,11 @@ BEGIN
   admin_email := user_email = 'leudyfeliz81@gmail.com';
 
   INSERT INTO public.profiles (id, email, display_name, full_name, credits, is_admin)
-  VALUES (uid, user_email, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), NULL, 500, admin_email)
+  VALUES (uid, user_email, CASE WHEN admin_email THEN 'Cupido Leudy Cuenta Oficial' ELSE left(split_part(COALESCE(user_name, user_email), '@', 1), 60) END, NULL, 500, admin_email)
   ON CONFLICT (id) DO NOTHING;
 
   INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
-  SELECT uid, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), admin_email, admin_email
+  SELECT uid, CASE WHEN admin_email THEN 'Cupido Leudy Cuenta Oficial' ELSE left(split_part(COALESCE(user_name, user_email), '@', 1), 60) END, admin_email, admin_email
   WHERE NOT EXISTS (SELECT 1 FROM public.creator_profiles WHERE id = uid);
 
   INSERT INTO public.user_credits (user_id, balance, daily_reset_at)
@@ -612,8 +614,9 @@ BEGIN
     INSERT INTO public.cupido_terms_acceptance (user_id, version) VALUES (admin_id, '2026-01')
       ON CONFLICT (user_id) DO UPDATE SET version = '2026-01', accepted_at = now();
     UPDATE public.profiles SET terms_accepted_at = now() WHERE id = admin_id;
-    UPDATE public.creator_profiles SET is_verified_blue = true, verification_status = 'approved',
-      moderation_status = 'approved', is_official = true WHERE id = admin_id;
+    UPDATE public.profiles SET display_name = 'Cupido Leudy Cuenta Oficial' WHERE id = admin_id;
+    UPDATE public.creator_profiles SET display_name = 'Cupido Leudy Cuenta Oficial', is_verified_blue = true, verification_status = 'approved',
+      moderation_status = 'approved', is_official = true, is_premium = true WHERE id = admin_id;
   END IF;
 END $$;
 

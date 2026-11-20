@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Camera, Gift, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { BadgeCheck, Gift, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +11,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
 import { supabase } from "@/integrations/supabase/client";
+import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
-import { uploadPublicImage } from "@/lib/storage";
+import { compressImageFile, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string }) => search,
@@ -36,14 +38,22 @@ function extensionOf(file: File, fallback: string): string {
   return file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || fallback;
 }
 
+function dataUrlBytes(dataUrl: string): Uint8Array {
+  const base64 = dataUrl.split(",").pop() ?? "";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
 function ProfilePage() {
   const { session, loading: authLoading } = useAuth();
+  const account = useAccount();
   const { userId: searchId } = Route.useSearch();
   const viewerId = session?.user.id ?? null;
   const profileId = searchId ?? viewerId;
   const queryClient = useQueryClient();
   const avatarInput = useRef<HTMLInputElement>(null);
-  const selfieInput = useRef<HTMLInputElement>(null);
   const moderatePhoto = useServerFn(moderateCupidoPhoto);
 
   const [editing, setEditing] = useState(false);
@@ -141,12 +151,13 @@ function ProfilePage() {
     mutationFn: async (file: File) => {
       if (!viewerId) throw new Error("Inicia sesión.");
       if (!file.type.startsWith("image/")) throw new Error("Elige una imagen válida.");
-      if (file.size > 12 * 1024 * 1024) throw new Error("La imagen debe pesar menos de 12 MB.");
-      const dataUrl = await readFileAsBase64(file);
+      if (file.size > 25 * 1024 * 1024) throw new Error("La imagen debe pesar menos de 25 MB.");
+      const uploadFile = await compressImageFile(file);
+      const dataUrl = await readFileAsBase64(uploadFile);
       const verdict = await moderatePhoto({ data: { dataUrl } });
       if (!verdict.ok) throw new Error(verdict.message);
       if (!verdict.safe && !verdict.needsReview) throw new Error(verdict.reason);
-      const { url } = await uploadPublicImage(viewerId, file, "avatars", extensionOf(file, "jpg"));
+      const { url } = await uploadPublicImage(viewerId, uploadFile, "avatars", extensionOf(uploadFile, "jpg"));
       const { error: rpcError } = await supabase.rpc("cupido_set_avatar", {
         _url: url,
         _moderation: verdict.needsReview ? "pending" : "approved",
@@ -162,33 +173,29 @@ function ProfilePage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo subir la foto."),
   });
 
-  const selfieUpload = useMutation({
-    mutationFn: async (file: File) => {
+  const liveVerification = useMutation({
+    mutationFn: async (frames: string[]) => {
       if (!viewerId) throw new Error("Inicia sesión.");
-      if (!file.type.startsWith("image/")) throw new Error("Elige una selfie válida.");
-      const dataUrl = await readFileAsBase64(file);
-      const verdict = await moderatePhoto({ data: { dataUrl } });
-      if (!verdict.ok) throw new Error(verdict.message);
-      if (!verdict.safe && !verdict.needsReview) throw new Error(verdict.reason);
-      const path = `${viewerId}/selfies/${Date.now()}.${extensionOf(file, "jpg")}`;
-      const { error } = await supabase.storage.from("cupido-private").upload(path, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-      if (error) throw error;
-      const { error: rpcError } = await supabase.rpc("cupido_submit_selfie", { _path: path });
+      if (frames.length !== 3) throw new Error("Debes completar las 3 poses.");
+      const stamp = Date.now();
+      const paths: string[] = [];
+      for (let index = 0; index < frames.length; index += 1) {
+        const path = `${viewerId}/verification/${stamp}-${index + 1}.jpg`;
+        const { error } = await supabase.storage.from("cupido-private").upload(path, dataUrlBytes(frames[index]!), {
+          contentType: "image/jpeg",
+          upsert: false,
+        });
+        if (error) throw error;
+        paths.push(path);
+      }
+      const { error: rpcError } = await supabase.rpc("cupido_submit_live_verification", { _frames: paths });
       if (rpcError) throw rpcError;
-      return verdict;
     },
-    onSuccess: (verdict) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
-      toast.success(
-        verdict.needsReview
-          ? "Selfie recibida. El Escudo y el Admin Supremo la revisarán."
-          : "Selfie aprobada por el Escudo. El Admin Supremo decidirá tu insignia azul.",
-      );
+      toast.success("3 capturas enviadas. El Admin Supremo revisará tu verificación ❤️");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar la selfie."),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar la verificación."),
   });
 
   const toggleFollow = useMutation({
@@ -250,6 +257,7 @@ function ProfilePage() {
 
   const creator = profile.data?.creator;
   const own = viewerId === profileId;
+  const isAdmin = account.isAdmin && own;
   const verified = Boolean(creator?.is_verified_blue);
   const followers = creator?.follower_count ?? 0;
   const friends = creator?.friend_count ?? 0;
@@ -273,6 +281,7 @@ function ProfilePage() {
                 {verified && (
                   <BadgeCheck className="size-6 fill-sky-400 text-white" aria-label="Verificado" />
                 )}
+                {creator?.is_official && <Badge className="bg-gradient-to-r from-pink-500 to-violet-500">Cuenta Oficial</Badge>}
                 {creator?.verification_status === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
                 {creator?.verification_status === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
               </div>
@@ -327,8 +336,13 @@ function ProfilePage() {
           {own && editing && (
             <div className="mt-8 grid gap-5 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Nombre público</Label>
-                <Input value={displayName} maxLength={60} onChange={(event) => setDisplayName(event.target.value)} />
+                <Label>{isAdmin ? "Nombre público (Cuenta Oficial)" : "Nombre público"}</Label>
+                <Input
+                  value={displayName}
+                  maxLength={60}
+                  disabled={isAdmin}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Nombre completo</Label>
@@ -390,34 +404,30 @@ function ProfilePage() {
             </div>
           )}
 
-          {own && (
-            <div className="mt-6 rounded-2xl border border-sky-400/30 bg-sky-500/10 p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="flex items-center gap-2 font-semibold text-white">
-                    <Camera className="h-4 w-4 text-sky-300" /> Verificación azul
-                  </p>
-                  <p className="mt-1 text-xs text-sky-100/70">
-                    Sube una selfie real. El Admin Supremo la revisa y activa tu insignia azul.
-                  </p>
-                </div>
-                <Button variant="secondary" onClick={() => selfieInput.current?.click()} disabled={selfieUpload.isPending}>
-                  {selfieUpload.isPending ? <Loader2 className="animate-spin" /> : <Camera />}
-                  {creator?.verification_status === "approved" ? "Actualizar selfie" : "Enviar selfie"}
-                </Button>
-                <input
-                  ref={selfieInput}
-                  type="file"
-                  accept="image/*"
-                  capture="user"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) selfieUpload.mutate(file);
-                    event.currentTarget.value = "";
-                  }}
-                />
+          {own && !isAdmin && (
+            <div className="mt-6">
+              <LiveFaceVerification onComplete={(frames) => liveVerification.mutateAsync(frames)} />
+            </div>
+          )}
+
+          {own && viewerId && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
+              <div>
+                <p className="text-sm font-medium text-white">Invita y gana +200 monedas brillantes</p>
+                <p className="mt-1 text-xs text-pink-100/70">
+                  Comparte tu enlace. Recibirás la recompensa cuando tu invitado apruebe su verificación facial.
+                </p>
               </div>
+              <Button
+                variant="secondary"
+                className="gap-2"
+                onClick={() => {
+                  void navigator.clipboard.writeText(`${window.location.origin}/auth?ref=${viewerId}`);
+                  toast.success("Enlace de referido copiado ❤️");
+                }}
+              >
+                <UserPlus className="size-4" /> Copiar mi enlace
+              </Button>
             </div>
           )}
         </div>

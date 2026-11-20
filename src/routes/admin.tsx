@@ -20,7 +20,7 @@ import {
   saveAdminSettings,
   type AdminSettings,
 } from "@/lib/admin.functions";
-import { safeExtension, uploadPublicImage } from "@/lib/storage";
+import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Panel Admin Supremo — Cupido Leudy ❤️" }] }),
@@ -129,8 +129,9 @@ function AdminDashboard() {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("Inicia sesión para subir la imagen.");
-      const extension = safeExtension(file.name, "png");
-      const { url } = await uploadPublicImage(authData.user.id, file, "identity", extension);
+      const uploadFile = await compressImageFile(file);
+      const extension = safeExtension(uploadFile.name, "jpg");
+      const { url } = await uploadPublicImage(authData.user.id, uploadFile, "identity", extension);
       setSettings((current) => (current ? { ...current, [field]: url } : current));
       toast.success("Imagen subida correctamente.");
     } catch (error) {

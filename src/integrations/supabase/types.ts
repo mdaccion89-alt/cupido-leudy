@@ -153,6 +153,7 @@ export type Database = {
           looking_for: string;
           moderation_status: string;
           selfie_path: string;
+          verification_frames: string[];
           verification_status: string;
         };
         Insert: {
@@ -172,6 +173,7 @@ export type Database = {
           looking_for?: string;
           moderation_status?: string;
           selfie_path?: string;
+          verification_frames?: string[];
           verification_status?: string;
         };
         Update: {
@@ -191,6 +193,7 @@ export type Database = {
           looking_for?: string;
           moderation_status?: string;
           selfie_path?: string;
+          verification_frames?: string[];
           verification_status?: string;
         };
         Relationships: [
@@ -325,17 +328,29 @@ export type Database = {
       payment_settings: {
         Row: {
           id: number;
+          paypal_business_name: string;
+          paypal_client_id: string;
           paypal_email: string;
+          paypal_mode: string;
+          paypal_secret: string;
           updated_at: string;
         };
         Insert: {
           id?: number;
+          paypal_business_name?: string;
+          paypal_client_id?: string;
           paypal_email?: string;
+          paypal_mode?: string;
+          paypal_secret?: string;
           updated_at?: string;
         };
         Update: {
           id?: number;
+          paypal_business_name?: string;
+          paypal_client_id?: string;
           paypal_email?: string;
+          paypal_mode?: string;
+          paypal_secret?: string;
           updated_at?: string;
         };
         Relationships: [];
@@ -1000,7 +1015,11 @@ export type Database = {
       Args: { _account_details: string; _amount: number; _country_code: string; _method: string };
       Returns: string;
     };
-    cupido_review_verification: { Args: { _approve: boolean; _user_id: string }; Returns: undefined };
+    cupido_register_referral: { Args: { _referrer: string }; Returns: undefined };
+    cupido_review_verification: {
+      Args: { _approve: boolean; _frames?: string[]; _user_id: string };
+      Returns: undefined;
+    };
     cupido_review_withdrawal: { Args: { _approve: boolean; _id: string }; Returns: undefined };
     cupido_save_profile: {
       Args: {
@@ -1027,6 +1046,7 @@ export type Database = {
     cupido_start_live_room: { Args: { _title: string }; Returns: string };
     cupido_toggle_post_like: { Args: { _post: string }; Returns: boolean };
     cupido_start_call: { Args: { _callee: string; _mode: string }; Returns: string };
+    cupido_submit_live_verification: { Args: { _frames: string[] }; Returns: undefined };
     cupido_submit_selfie: { Args: { _path: string }; Returns: undefined };
     cupido_answer_call: { Args: { _accept: boolean; _id: string }; Returns: undefined };
     cupido_end_call: { Args: { _id: string; _status: string }; Returns: undefined };

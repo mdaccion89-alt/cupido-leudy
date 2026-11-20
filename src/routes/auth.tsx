@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Heart, KeyRound, Loader2, Mail, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (search: { ref?: string }) => ({ ref: typeof search.ref === "string" ? search.ref : "" }),
   head: () => ({
     meta: [
       { title: `Iniciar sesión — ${BRAND}` },
@@ -60,7 +61,9 @@ function normalizePhone(value: string): string {
 
 function AuthPage() {
   const { session } = useAuth();
+  const { ref } = Route.useSearch();
   const navigate = useNavigate();
+  const referralHandled = useRef(false);
   const [mode, setMode] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -70,6 +73,21 @@ function AuthPage() {
   const [recoverySent, setRecoverySent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [guestUsed, setGuestUsed] = useState(false);
+
+  useEffect(() => {
+    if (!ref || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ref)) return;
+    window.localStorage.setItem("cupido_referrer", ref);
+  }, [ref]);
+
+  useEffect(() => {
+    if (!session || referralHandled.current) return;
+    const referrer = window.localStorage.getItem("cupido_referrer");
+    if (!referrer) return;
+    referralHandled.current = true;
+    void supabase.rpc("cupido_register_referral", { _referrer: referrer }).finally(() => {
+      window.localStorage.removeItem("cupido_referrer");
+    });
+  }, [session]);
 
   useEffect(() => {
     if (session) navigate({ to: "/" });
@@ -107,7 +125,7 @@ function AuthPage() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin },
       });
       if (error) throw error;
       toast.success(
@@ -190,7 +208,7 @@ function AuthPage() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.origin },
+        options: { redirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin },
       });
       if (error) throw error;
     } catch (err) {

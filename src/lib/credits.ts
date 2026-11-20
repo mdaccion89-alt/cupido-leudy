@@ -32,7 +32,7 @@ export function findPlan(id: unknown): Plan | undefined {
 export type Product = { kind: "credits"; id: string; price: string; credits: number; label: string } | { kind: "plan"; id: string; price: string; plan: Plan; label: string };
 export function findProduct(id: unknown): Product | undefined {
   const pack = findPackage(id);
-  if (pack) return { kind: "credits", id: pack.id, price: pack.price, credits: pack.credits, label: `${pack.credits} créditos` };
+  if (pack) return { kind: "credits", id: pack.id, price: pack.price, credits: pack.credits, label: `${pack.credits.toLocaleString("es")} monedas brillantes` };
   const plan = findPlan(id);
   if (plan) return { kind: "plan", id: plan.id, price: plan.price, plan, label: `Plan ${plan.name} (${plan.days} días)` };
   return undefined;

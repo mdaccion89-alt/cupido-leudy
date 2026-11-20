@@ -49,6 +49,14 @@ export const escudoCupido = createServerFn({ method: "POST" })
   });
 
 type ModerationInput = { dataUrl: string };
+type LiveVerificationInput = { frames: string[] };
+
+export type LiveVerificationResult =
+  | { ok: true; passed: boolean; needsReview: boolean; reason: string }
+  | { ok: false; message: string };
+
+const LIVE_VERIFICATION_SYSTEM =
+  'Eres El Escudo de Cupido Leudy. Analizas 3 capturas de cámara en vivo en este orden: 1) mirando de frente, 2) girando el rostro hacia la derecha, 3) girando el rostro hacia la izquierda. Verifica que sea la misma persona real, un rostro humano vivo (no foto impresa, pantalla, máscara ni foto de perfil), que las 3 poses coincidan y que no haya desnudos, menores de edad, armas ni drogas. Devuelve SOLO JSON con la forma {"real_face":true,"poses":["frente","derecha","izquierda"],"reason":"breve motivo en español"}. Usa real_face=false si algo no cuadra.';
 
 export type ModerationResult =
   | { ok: true; safe: boolean; reason: string; needsReview: boolean }
@@ -146,6 +154,109 @@ export const moderateCupidoPhoto = createServerFn({ method: "POST" })
         safe: false,
         reason: "No se pudo analizar la imagen; queda pendiente de revisión.",
         needsReview: true,
+      };
+    }
+  });
+
+export const verifyCupidoLiveFace = createServerFn({ method: "POST" })
+  .middleware([])
+  .inputValidator((input: LiveVerificationInput) => ({
+    frames: Array.isArray(input?.frames)
+      ? input.frames.slice(0, 3).map((frame) => (typeof frame === "string" ? frame.slice(0, 3_000_000) : ""))
+      : [],
+  }))
+  .handler(async ({ data }): Promise<LiveVerificationResult> => {
+    if (data.frames.length !== 3 || data.frames.some((frame) => !frame))
+      return { ok: false, message: "Faltan capturas faciales." };
+    const images = data.frames.map((frame) => /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/s.exec(frame));
+    if (images.some((match) => !match?.[1])) return { ok: false, message: "Una captura no es válida." };
+    const apiKey = process.env["GEMINI_API_KEY"]?.trim();
+    if (!apiKey)
+      return {
+        ok: true,
+        passed: false,
+        needsReview: true,
+        reason: "Revisión automática no disponible; tus capturas quedan pendientes del Admin Supremo.",
+      };
+    const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.5-flash";
+    const labels = ["frente", "derecha", "izquierda"];
+    const parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> = [
+      { text: "Analiza estas 3 capturas en orden: frente, derecha, izquierda. Responde solo el JSON." },
+    ];
+    images.forEach((match, index) => {
+      const mime = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/s.exec(data.frames[index] ?? "")?.[1] ?? "image/jpeg";
+      parts.push({ text: `Captura ${index + 1}: ${labels[index]}` });
+      parts.push({ inline_data: { mime_type: mime, data: match![1] } });
+    });
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: LIVE_VERIFICATION_SYSTEM }] },
+            contents: [{ role: "user", parts }],
+          }),
+        },
+      );
+    } catch {
+      return {
+        ok: true,
+        passed: false,
+        needsReview: true,
+        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
+      };
+    }
+    if (!response.ok)
+      return {
+        ok: true,
+        passed: false,
+        needsReview: true,
+        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
+      };
+    let text = "";
+    try {
+      const json = (await response.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      };
+      text = (json.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+    } catch {
+      text = "";
+    }
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start)
+      return {
+        ok: true,
+        passed: false,
+        needsReview: true,
+        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
+      };
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1)) as {
+        real_face?: unknown;
+        reason?: unknown;
+      };
+      const passed = parsed.real_face === true;
+      return {
+        ok: true,
+        passed,
+        needsReview: true,
+        reason:
+          typeof parsed.reason === "string"
+            ? parsed.reason.slice(0, 200)
+            : passed
+              ? "Rostro real y 3 poses confirmadas. Pendiente de aprobación final."
+              : "No pudimos confirmar las 3 poses. El Admin Supremo revisará tus capturas.",
+      };
+    } catch {
+      return {
+        ok: true,
+        passed: false,
+        needsReview: true,
+        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
       };
     }
   });

@@ -244,13 +244,13 @@ function StorePage() {
               <p className="text-xs text-muted-foreground">monedas brillantes</p>
               <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
               <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
-                {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} Comprar con PayPal
+                {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} PayPal o tarjeta
               </Button>
             </article>
           ))}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Pago seguro con PayPal (saldo o tarjeta). Las monedas brillantes se acreditan al volver a la tienda.
+          Checkout Business real: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente al volver.
         </p>
       </section>
 

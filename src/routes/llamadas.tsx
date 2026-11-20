@@ -122,6 +122,19 @@ function CallsPage() {
     };
   }, [queryClient, viewerId]);
 
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase
+      .channel(`cupido-call-history-${viewerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_calls" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-call-history", viewerId] });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient, viewerId]);
+
   const startLive = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.rpc("cupido_start_live_room", { _title: liveTitle.trim() });

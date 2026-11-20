@@ -1,6 +1,6 @@
 # Cupido Leudy ❤️
 
-Citas reales, chat social, videos cortos, verificación azul, llamadas en vivo y regalos con saldo retirable. Ejecuta `supabase_cupido.sql` en el SQL Editor de Supabase para activar el esquema de Cupido.
+Citas reales, chat social, videos cortos, verificación facial azul, llamadas en vivo y regalos con saldo retirable. Ejecuta `supabase_cupido.sql` y después `drizzle/migrations/0008_cupido_launch_final.sql` en el SQL Editor de Supabase para activar la configuración final de Cupido.
 
 ## Desarrollo
 
