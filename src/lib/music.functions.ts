@@ -58,7 +58,8 @@ type GenerateInput = {
 
 const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
-const MUSICAPI_URL = "https://musicapi.ai";
+const MUSICAPI_CREATE_URL = "https://api.musicapi.ai/api/v1/sonic/create";
+const MUSICAPI_POLL_BASE = "https://musicapi.ai";
 const MUSICAPI_POLL_MS = 4_000;
 const MUSICAPI_TIMEOUT_MS = 90_000;
 
@@ -78,7 +79,24 @@ function sleep(ms: number): Promise<void> {
 }
 
 function musicApiTaskUrl(taskId: string): string {
-  return `${MUSICAPI_URL}${taskId.startsWith("/") ? "" : "/"}${taskId}`;
+  return `${MUSICAPI_POLL_BASE}${taskId}`;
+}
+
+async function readJsonResponse(response: Response, url: string): Promise<unknown> {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") ?? "";
+  const hasJsonShape = /^\s*[{[]/.test(text);
+  if (!/application\/(?:[\w.-]+\+)?json/i.test(contentType) && !hasJsonShape)
+    throw new Error(
+      `MUSICAPI_NON_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
+    );
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `MUSICAPI_INVALID_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
+    );
+  }
 }
 
 function apiDetail(body: string): string {
@@ -349,30 +367,33 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<MusicApiResult> => {
     const key = process.env.MUSICAPI_KEY;
     if (!key) return { ok: false, message: "MUSICAPI_KEY no está configurado en el servidor." };
-    const response = await fetch(MUSICAPI_URL, {
+    const response = await fetch(MUSICAPI_CREATE_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        task_type: "create_music",
         custom_mode: !data.instrumental,
         prompt: data.prompt,
         tags: data.tags,
         title: data.title,
         make_instrumental: data.instrumental,
-        mv: "sonic-v4",
+        mv: "sonic-v5",
       }),
     });
-    const body = await response.text();
-    if (!response.ok)
-      return { ok: false, message: `MUSICAPI_${response.status}: ${apiDetail(body)}` };
     let created: unknown;
     try {
-      created = JSON.parse(body);
-    } catch {
-      return { ok: false, message: `MUSICAPI_JSON: ${body.slice(0, 200)}` };
+      created = await readJsonResponse(response, MUSICAPI_CREATE_URL);
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
+    if (!response.ok)
+      return {
+        ok: false,
+        message: `MUSICAPI_${response.status}: ${apiDetail(JSON.stringify(created))}`,
+      };
     const taskId =
       pickString(created, "task_id") ||
       pickString(created, "id") ||
@@ -380,30 +401,33 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
       pickString(created, "data", "task_id") ||
       pickString(created, "data", "id") ||
       pickString(created, "data", "taskId");
-    if (!taskId) return { ok: false, message: `MUSICAPI_TASK_ID: ${body.slice(0, 200)}` };
+    if (!taskId)
+      return { ok: false, message: `MUSICAPI_TASK_ID: ${apiDetail(JSON.stringify(created))}` };
     const deadline = Date.now() + MUSICAPI_TIMEOUT_MS;
     while (Date.now() <= deadline) {
       await sleep(MUSICAPI_POLL_MS);
-      const pollResponse = await fetch(musicApiTaskUrl(taskId), {
+      const pollUrl = musicApiTaskUrl(taskId);
+      const pollResponse = await fetch(pollUrl, {
         headers: { Authorization: `Bearer ${key}` },
       });
-      const pollBody = await pollResponse.text();
+      let pollJson: unknown;
+      try {
+        pollJson = await readJsonResponse(pollResponse, pollUrl);
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
       if (!pollResponse.ok)
         return {
           ok: false,
-          message: `MUSICAPI_POLL_${pollResponse.status}: ${apiDetail(pollBody)}`,
+          message: `MUSICAPI_POLL_${pollResponse.status}: ${apiDetail(JSON.stringify(pollJson))}`,
         };
-      let pollJson: unknown;
-      try {
-        pollJson = JSON.parse(pollBody);
-      } catch {
-        return { ok: false, message: `MUSICAPI_POLL_JSON: ${pollBody.slice(0, 200)}` };
-      }
       const audioUrl =
         pickString(pollJson, "audio_url") ||
         pickString(pollJson, "audioUrl") ||
         pickString(pollJson, "data", "audio_url") ||
         pickString(pollJson, "data", "audioUrl") ||
+        pickString(pollJson, "data", "0", "audio_url") ||
+        pickString(pollJson, "data", "0", "audioUrl") ||
         pickString(pollJson, "result", "audio_url") ||
         pickString(pollJson, "result", "audioUrl") ||
         pickString(pollJson, "output", "audio_url");
@@ -413,7 +437,7 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
           pickString(pollJson, "data", "status") ||
           pickString(pollJson, "result", "status");
         if (/fail|error|cancel|reject/i.test(status))
-          return { ok: false, message: `MUSICAPI_${status}: ${apiDetail(pollBody)}` };
+          return { ok: false, message: `MUSICAPI_${status}: ${apiDetail(JSON.stringify(pollJson))}` };
         continue;
       }
       let audioResponse = await fetch(audioUrl);
@@ -429,7 +453,7 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
         audioUrl,
         mime: "audio/mpeg",
         extension: "mp3",
-        model: "sonic-v4",
+        model: "sonic-v5",
       };
     }
     return { ok: false, message: `MUSICAPI_TIMEOUT: tarea ${taskId} tardó más de 90 s.` };

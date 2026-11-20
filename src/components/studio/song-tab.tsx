@@ -329,7 +329,7 @@ export function SongTab({
         }
       } catch (error) {
         console.warn(
-          "Preparación con IA no disponible; enviando letra y estilos a MusicAPI Sonic v4",
+          "Preparación con IA no disponible; enviando letra y estilos a MusicAPI Sonic v5",
           error,
         );
       }
@@ -346,7 +346,7 @@ export function SongTab({
           .filter(Boolean)
           .join(", ")
           .slice(0, MAX_GENRE_LENGTH) || "Reguetón";
-      onPendingChange(true, "Generando canción real con MusicAPI Sonic v4…");
+      onPendingChange(true, "Generando canción real con MusicAPI Sonic v5…");
       const generated = await musicApiFn({
         data: {
           prompt: lyricsOrPrompt,
@@ -363,7 +363,7 @@ export function SongTab({
       previewUrlRef.current = url;
       const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const warning =
-        "Canción generada con MusicAPI Sonic v4. Reproduce o descarga el MP3 real cuando quieras.";
+        "Canción generada con MusicAPI Sonic v5. Reproduce o descarga el MP3 real cuando quieras.";
       const backupSaved = saveSongBackup({
         id: songId,
         title: songTitle,
@@ -493,7 +493,7 @@ export function SongTab({
 
       <OptionGroup
         label="Motor / Versión"
-        options={[{ value: "ace-step", label: "MusicAPI · Sonic v4" }]}
+        options={[{ value: "ace-step", label: "MusicAPI · Sonic v5" }]}
         value={engine}
         onChange={setEngine}
       />
