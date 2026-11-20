@@ -279,7 +279,7 @@ function StorePage() {
               <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
               <p className="text-xs text-muted-foreground">monedas brillantes</p>
               <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
-              {paypalConfig.data?.configured ? (
+              {paypalConfig.data?.configured && paypalConfig.data.clientId ? (
                 <PayPalCheckoutButtons
                   clientId={paypalConfig.data.clientId}
                   packageId={pack.id}
@@ -291,6 +291,10 @@ function StorePage() {
                   }}
                   onError={(message) => toast.error(message)}
                 />
+              ) : paypalConfig.data?.configured ? (
+                <Button className="mt-5" disabled>
+                  <CreditCard /> Client ID de PayPal pendiente en /admin
+                </Button>
               ) : (
                 <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
                   {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} PayPal o tarjeta
@@ -300,9 +304,11 @@ function StorePage() {
           ))}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          {paypalConfig.data?.configured
+          {paypalConfig.data?.configured && paypalConfig.data.clientId
             ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
-            : "El Admin Supremo debe conectar PayPal Business en /admin para habilitar el checkout real."}
+            : paypalConfig.data?.configured
+              ? "PayPal Business conectado. Agrega el Client ID en /admin para habilitar pagos con PayPal y tarjeta."
+              : "El Admin Supremo debe conectar PayPal Business en /admin para habilitar el checkout real."}
         </p>
       </section>
 

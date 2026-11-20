@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -8,10 +7,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
-import { savePaypalBusinessSettings, type PaypalBusinessInput } from "@/lib/admin.functions";
 import { countryFlag, countryName } from "@/lib/cupido";
 
 const LIVE_POSES = ["Frente", "Derecha", "Izquierda"];
+
+type PaypalBusinessInput = {
+  email: string;
+  businessName: string;
+  clientId: string;
+  secret: string;
+  mode: "sandbox" | "live";
+};
+
+type AppSettingsRow = {
+  paypal_email: string | null;
+  paypal_me_link: string | null;
+  config: Record<string, unknown> | null;
+};
 
 type VerificationRow = {
   id: string;
@@ -48,7 +60,6 @@ type GiftRow = {
 
 export function CupidoAdminPanel() {
   const queryClient = useQueryClient();
-  const savePaypal = useServerFn(savePaypalBusinessSettings);
   const [paypalConfig, setPaypalConfig] = useState<PaypalBusinessInput>({
     email: "",
     businessName: "",
@@ -56,6 +67,12 @@ export function CupidoAdminPanel() {
     secret: "",
     mode: "live",
   });
+  const [paypalSaved, setPaypalSaved] = useState(false);
+
+  const updatePaypal = (patch: Partial<PaypalBusinessInput>) => {
+    setPaypalSaved(false);
+    setPaypalConfig((current) => ({ ...current, ...patch }));
+  };
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["cupido-admin"] });
@@ -110,19 +127,42 @@ export function CupidoAdminPanel() {
   const paypal = useQuery({
     queryKey: ["cupido-admin", "paypal"],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("payment_settings")
         .select("paypal_email,paypal_business_name,paypal_client_id,paypal_secret,paypal_mode")
         .eq("id", 1)
         .maybeSingle();
+      if (error) throw error;
+      const db = supabase as unknown as { from: (table: string) => any };
+      const { data: appData } = await db
+        .from("app_settings")
+        .select("paypal_email,paypal_me_link,config")
+        .eq("id", 1)
+        .maybeSingle();
+      const app = appData as AppSettingsRow | null;
+      const config = app?.config ?? {};
+      const fromConfig = (...keys: string[]) => {
+        for (const key of keys) {
+          const value = config[key];
+          if (typeof value === "string" && value.trim()) return value.trim();
+        }
+        return "";
+      };
       const next = {
-        email: data?.paypal_email ?? "",
-        businessName: data?.paypal_business_name ?? "",
-        clientId: data?.paypal_client_id ?? "",
-        secret: data?.paypal_secret ?? "",
-        mode: data?.paypal_mode === "sandbox" ? ("sandbox" as const) : ("live" as const),
+        email: data?.paypal_email?.trim() || app?.paypal_email?.trim() || fromConfig("paypal_email") || "",
+        businessName:
+          data?.paypal_business_name?.trim() || fromConfig("paypal_business_name", "businessName") || "",
+        clientId:
+          data?.paypal_client_id?.trim() || fromConfig("paypal_client_id", "paypalClientId", "clientId") || "",
+        secret: data?.paypal_secret?.trim() || fromConfig("paypal_secret", "paypalSecret") || "",
+        mode:
+          data?.paypal_mode === "sandbox" ||
+          fromConfig("paypal_mode", "mode") === "sandbox"
+            ? ("sandbox" as const)
+            : ("live" as const),
       };
       setPaypalConfig(next);
+      setPaypalSaved(false);
       return next;
     },
   });
@@ -156,10 +196,46 @@ export function CupidoAdminPanel() {
 
   const savePaypalConfig = useMutation({
     mutationFn: async () => {
-      await savePaypal({ data: paypalConfig });
+      const business_name = paypalConfig.businessName.trim();
+      const paypal_email = paypalConfig.email.trim();
+      const paypal_client_id = paypalConfig.clientId.trim();
+      const paypal_secret = paypalConfig.secret.trim();
+      const paypal_mode = paypalConfig.mode;
+      const payload = {
+        id: 1,
+        paypal_business_name: business_name,
+        paypal_email,
+        paypal_client_id,
+        paypal_secret,
+        paypal_mode,
+      };
+      const { error } = await supabase.from("payment_settings").upsert(payload);
+      if (error) {
+        const { error: updateError } = await supabase
+          .from("payment_settings")
+          .update(payload)
+          .eq("id", 1);
+        if (updateError) throw updateError;
+      }
+      const db = supabase as unknown as { from: (table: string) => any };
+      const { error: appError } = await db
+        .from("app_settings")
+        .update({
+          paypal_email,
+          config: {
+            paypal_business_name: business_name,
+            paypal_email,
+            paypal_client_id,
+            paypal_secret,
+            paypal_mode,
+          },
+        })
+        .eq("id", 1);
+      if (appError) throw appError;
     },
     onSuccess: () => {
-      toast.success("Configuración PayPal Business actualizada.");
+      setPaypalSaved(true);
+      toast.success("PayPal Business guardado correctamente");
       invalidate();
     },
     onError: (error) =>
@@ -332,7 +408,7 @@ export function CupidoAdminPanel() {
             <Input
               id="cupido-paypal-business"
               value={paypalConfig.businessName}
-              onChange={(event) => setPaypalConfig((current) => ({ ...current, businessName: event.target.value }))}
+              onChange={(event) => updatePaypal({ businessName: event.target.value })}
               placeholder="Cupido Leudy"
             />
             <Label htmlFor="cupido-paypal-email">Correo Business</Label>
@@ -340,14 +416,14 @@ export function CupidoAdminPanel() {
               id="cupido-paypal-email"
               type="email"
               value={paypalConfig.email}
-              onChange={(event) => setPaypalConfig((current) => ({ ...current, email: event.target.value }))}
+              onChange={(event) => updatePaypal({ email: event.target.value })}
               placeholder="pagos@cupidoleudy.com"
             />
             <Label htmlFor="cupido-paypal-client">Client ID</Label>
             <Input
               id="cupido-paypal-client"
               value={paypalConfig.clientId}
-              onChange={(event) => setPaypalConfig((current) => ({ ...current, clientId: event.target.value }))}
+              onChange={(event) => updatePaypal({ clientId: event.target.value })}
               placeholder="Client ID de la app PayPal"
             />
             <Label htmlFor="cupido-paypal-secret">Secret</Label>
@@ -355,7 +431,7 @@ export function CupidoAdminPanel() {
               id="cupido-paypal-secret"
               type="password"
               value={paypalConfig.secret}
-              onChange={(event) => setPaypalConfig((current) => ({ ...current, secret: event.target.value }))}
+              onChange={(event) => updatePaypal({ secret: event.target.value })}
               placeholder="Secreto de la app PayPal"
             />
             <Label htmlFor="cupido-paypal-mode">Modo</Label>
@@ -363,10 +439,7 @@ export function CupidoAdminPanel() {
               id="cupido-paypal-mode"
               value={paypalConfig.mode}
               onChange={(event) =>
-                setPaypalConfig((current) => ({
-                  ...current,
-                  mode: event.target.value === "sandbox" ? "sandbox" : "live",
-                }))
+                updatePaypal({ mode: event.target.value === "sandbox" ? "sandbox" : "live" })
               }
               className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
             >
@@ -385,6 +458,11 @@ export function CupidoAdminPanel() {
             >
               Guardar PayPal Business
             </Button>
+            {paypalSaved && (
+              <p className="text-sm font-medium text-emerald-300">
+                PayPal Business guardado correctamente
+              </p>
+            )}
           </div>
         </div>
       </section>

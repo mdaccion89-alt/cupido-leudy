@@ -9,6 +9,7 @@ type PaypalConfig = {
   secret: string;
   email: string;
   businessName: string;
+  paypalMeLink: string;
   mode: "sandbox" | "live";
 };
 
@@ -21,16 +22,46 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
     .select("paypal_email,paypal_business_name,paypal_client_id,paypal_secret,paypal_mode")
     .eq("id", 1)
     .maybeSingle();
-  const mode: "sandbox" | "live" = data?.paypal_mode === "sandbox" ? "sandbox" : "live";
+  const db = admin as unknown as { from: (table: string) => any };
+  const { data: appData } = await db
+    .from("app_settings")
+    .select("paypal_email,paypal_me_link,config")
+    .eq("id", 1)
+    .maybeSingle();
+  const app = appData as
+    | { paypal_email?: string | null; paypal_me_link?: string | null; config?: Record<string, unknown> | null }
+    | null;
+  const config = app?.config ?? {};
+  const fromConfig = (...keys: string[]) => {
+    for (const key of keys) {
+      const value = config[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+    return "";
+  };
+  const mode: "sandbox" | "live" =
+    data?.paypal_mode === "sandbox" || fromConfig("paypal_mode", "mode") === "sandbox"
+      ? "sandbox"
+      : "live";
   const apiBase =
     process.env["PAYPAL_API_BASE"] ??
     (mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com");
   return {
     apiBase,
-    clientId: data?.paypal_client_id?.trim() || process.env["PAYPAL_CLIENT_ID"] || "",
-    secret: data?.paypal_secret?.trim() || process.env["PAYPAL_SECRET"] || "",
-    email: data?.paypal_email?.trim() || "",
-    businessName: data?.paypal_business_name?.trim() || "Cupido Leudy ❤️",
+    clientId:
+      data?.paypal_client_id?.trim() ||
+      fromConfig("paypal_client_id", "paypalClientId", "clientId") ||
+      process.env["PAYPAL_CLIENT_ID"] ||
+      "",
+    secret:
+      data?.paypal_secret?.trim() ||
+      fromConfig("paypal_secret", "paypalSecret") ||
+      process.env["PAYPAL_SECRET"] ||
+      "",
+    email: data?.paypal_email?.trim() || app?.paypal_email?.trim() || fromConfig("paypal_email") || "",
+    businessName:
+      data?.paypal_business_name?.trim() || fromConfig("paypal_business_name", "businessName") || "Cupido Leudy ❤️",
+    paypalMeLink: app?.paypal_me_link?.trim() || fromConfig("paypal_me_link", "paypalMeLink") || "",
     mode,
   };
 }
@@ -41,17 +72,19 @@ export type PublicPaypalConfig = {
   mode: "sandbox" | "live";
   businessName: string;
   email: string;
+  paypalMeLink: string;
 };
 
 export const getPaypalCheckoutConfig = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicPaypalConfig> => {
     const config = await getPaypalConfig();
     return {
-      configured: Boolean(config.clientId && config.secret),
+      configured: Boolean(config.clientId || config.email),
       clientId: config.clientId,
       mode: config.mode,
       businessName: config.businessName,
       email: config.email,
+      paypalMeLink: config.paypalMeLink,
     };
   },
 );
@@ -243,12 +276,22 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
         .select("id")
         .maybeSingle();
       if (claimed) {
-        await admin.rpc("grant_credits", {
+        const { data: granted } = await admin.rpc("grant_credits", {
           _user_id: context.userId,
           _amount: pack.credits,
           _reason: `Compra PayPal ${pack.credits} créditos`,
         });
-        await admin.from("profiles").update({ has_purchased: true }).eq("id", context.userId);
+        const { data: profile } = await admin
+          .from("profiles")
+          .select("credits")
+          .eq("id", context.userId)
+          .maybeSingle();
+        const nextCredits =
+          Number(granted) > 0 ? Number(granted) : Number(profile?.credits ?? 0) + pack.credits;
+        await admin
+          .from("profiles")
+          .update({ credits: nextCredits, has_purchased: true })
+          .eq("id", context.userId);
       }
       return { ok: true, credits: pack.credits, hasPurchased: true };
     } catch (err) {

@@ -91,7 +91,7 @@ export function PayPalCheckoutButtons({
     }
 
     const script = document.createElement("script");
-    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture&components=buttons`;
+    script.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&currency=USD&intent=capture&components=buttons,card-fields&enable-funding=card`;
     script.async = true;
     script.onload = render;
     script.onerror = () => callbacks.current.onError("No se pudo cargar PayPal. Revisa la conexión.");
