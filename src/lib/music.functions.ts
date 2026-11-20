@@ -59,7 +59,7 @@ type GenerateInput = {
 const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
 const POLLINATIONS_BASE = "https://gen.pollinations.ai";
-const POLLINATIONS_AUDIO_MODEL = "elevenmusic";
+const POLLINATIONS_CATALOG_URL = "https://pollinations.ai";
 
 type PollinationsAudioInput = {
   prompt: string;
@@ -116,39 +116,71 @@ function pickString(value: unknown, ...path: string[]): string {
   return typeof current === "string" && current.trim() ? current.trim() : "";
 }
 
-function modelEntries(json: unknown): Record<string, unknown>[] {
-  if (Array.isArray(json)) return json.filter(Boolean) as Record<string, unknown>[];
-  const record = json as Record<string, unknown> | null;
-  const list = record?.["data"] ?? record?.["models"] ?? record?.["results"];
-  return Array.isArray(list) ? (list.filter(Boolean) as Record<string, unknown>[]) : [];
+async function readCatalog(url: string, key: string): Promise<unknown> {
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+  if (!response.ok) return [];
+  return readJsonResponse(response, url).catch(() => []);
 }
 
-function isMusicModel(entry: Record<string, unknown>): boolean {
-  const name = pickString(entry, "name");
-  const title = pickString(entry, "title");
-  const description = pickString(entry, "description");
-  const aliases = entry["aliases"];
-  const haystack = [name, title, description, Array.isArray(aliases) ? aliases.join(" ") : ""]
-    .join(" ")
-    .toLowerCase();
-  if (!/music|song|compose|lyria|acestep|stable-audio|sonic/.test(haystack)) return false;
-  if (/transcrib|speech|tts|voice|sound effect|sfx|isolator/.test(haystack)) return false;
+function modelEntries(json: unknown): Record<string, unknown>[] {
+  const found: Record<string, unknown>[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (seen.has(value as object)) return;
+    seen.add(value as object);
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    if (
+      record["paid_only"] === false &&
+      (typeof record["name"] === "string" ||
+        typeof record["id"] === "string" ||
+        typeof record["model"] === "string")
+    )
+      found.push(record);
+    for (const item of Object.values(record)) visit(item);
+  };
+  visit(json);
+  return found;
+}
+
+function isQuestAudioModel(entry: Record<string, unknown>): boolean {
+  if (entry["paid_only"] !== false) return false;
   const endpoints = entry["supported_endpoints"];
   if (Array.isArray(endpoints) && !endpoints.some((item) => item === "/audio/{text}")) return false;
-  return entry["paid_only"] !== true;
+  const outputs = entry["output_modalities"];
+  if (Array.isArray(outputs) && !outputs.includes("audio")) return false;
+  return true;
 }
 
-async function resolveAudioModel(key: string): Promise<string | undefined> {
-  const url = `${POLLINATIONS_BASE}/audio/models`;
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
-  if (!response.ok) return undefined;
-  const catalog = await readJsonResponse(response, url).catch(() => []);
-  for (const entry of modelEntries(catalog)) {
-    if (!isMusicModel(entry)) continue;
-    const id = pickString(entry, "name") || pickString(entry, "id");
-    if (id && id !== POLLINATIONS_AUDIO_MODEL) return id;
+function modelId(entry: Record<string, unknown>): string {
+  return (
+    pickString(entry, "name") ||
+    pickString(entry, "id") ||
+    pickString(entry, "model") ||
+    pickString(entry, "slug")
+  );
+}
+
+async function resolveQuestAudioModels(key: string): Promise<string[]> {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const sources = [POLLINATIONS_CATALOG_URL, `${POLLINATIONS_BASE}/audio/models`];
+  for (const url of sources) {
+    const catalog = await readCatalog(url, key);
+    for (const entry of modelEntries(catalog)) {
+      if (!isQuestAudioModel(entry)) continue;
+      const id = modelId(entry);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+    }
+    if (ids.length) break;
   }
-  return undefined;
+  return ids;
 }
 
 function blockedTermLabel(match: unknown): string {
@@ -403,38 +435,41 @@ export const generatePollinationsSong = createServerFn({ method: "POST" })
     if (!key)
       return { ok: false, message: "POLLINATIONS_API_KEY no está configurado en el servidor." };
     const prompt = data.instrumental ? `${data.prompt}. instrumental, sin voz` : data.prompt;
-    let model = POLLINATIONS_AUDIO_MODEL;
-    let url = pollinationsMediaUrl("audio", prompt, { model });
-    let response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
-    if (response.status === 402 || response.status === 403) {
-      const fallback = await resolveAudioModel(key);
-      if (fallback) {
-        model = fallback;
-        url = pollinationsMediaUrl("audio", prompt, { model });
-        response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+    const models = await resolveQuestAudioModels(key);
+    if (!models.length)
+      return { ok: false, message: "POLLINATIONS_NO_QUEST_AUDIO_MODELS" };
+    const failures: string[] = [];
+    for (const model of models) {
+      const url = pollinationsMediaUrl("audio", prompt, { model });
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+      if (!response.ok) {
+        const detail = apiDetail(await response.text().catch(() => ""));
+        failures.push(`${model}:${response.status} ${detail}`.trim());
+        continue;
       }
-    }
-    if (!response.ok) {
-      const detail = apiDetail(await response.text().catch(() => ""));
+      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+      if (/text\/html|application\/json/i.test(contentType)) {
+        const detail = apiDetail(await response.text().catch(() => ""));
+        failures.push(`${model}:NO_BINARY ${detail}`.trim());
+        continue;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!bytes.length) {
+        failures.push(`${model}:EMPTY`);
+        continue;
+      }
       return {
-        ok: false,
-        message: `POLLINATIONS_AUDIO_${response.status}_${model}: ${detail || response.statusText}`,
+        ok: true,
+        audio: `data:audio/mpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+        url,
+        mime: "audio/mpeg",
+        extension: "mp3",
+        model,
       };
     }
-    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
-    if (/text\/html|application\/json/i.test(contentType)) {
-      const detail = apiDetail(await response.text().catch(() => ""));
-      return { ok: false, message: `POLLINATIONS_AUDIO_NO_BINARY_${model}: ${detail.slice(0, 200)}` };
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.length) return { ok: false, message: "POLLINATIONS_EMPTY_AUDIO" };
     return {
-      ok: true,
-      audio: `data:audio/mpeg;base64,${Buffer.from(bytes).toString("base64")}`,
-      url,
-      mime: "audio/mpeg",
-      extension: "mp3",
-      model,
+      ok: false,
+      message: `POLLINATIONS_AUDIO_ALL_FAILED: ${failures.join(" | ").slice(0, 500)}`,
     };
   });
 
