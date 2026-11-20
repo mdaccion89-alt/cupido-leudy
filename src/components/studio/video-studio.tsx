@@ -43,6 +43,7 @@ import {
   type FireflySceneClip,
 } from "@/lib/firefly.functions";
 import { uploadOwnFile } from "@/lib/uploads";
+import { generateCloudflareImage } from "@/lib/video.functions";
 import { VideoElementsEditor } from "./video-elements-editor";
 import { VideoFrameReference } from "./video-frame-reference";
 import { captureFrameFromVideoUrl, uploadCapturedFrame } from "./video-frame-capture";
@@ -101,6 +102,7 @@ export function VideoStudio({
   const uid = userId ?? session?.user.id ?? null;
   const voiceFn = useServerFn(generateFireflyVoice);
   const historyFn = useServerFn(saveFireflyImageHistory);
+  const imageFn = useServerFn(generateCloudflareImage);
 
   const [tab, setTab] = useState("image");
   const [imagePrompt, setImagePrompt] = useState("");
@@ -163,32 +165,54 @@ export function VideoStudio({
     setProgress((current) => ({ ...current, active: false, progress: 1 }));
 
   const imageMutation = useMutation({
-    mutationFn: async (): Promise<{ url: string; seed: number; extension: string }> => {
+    mutationFn: async (): Promise<{
+      url: string;
+      seed: number;
+      extension: string;
+      provider: string;
+    }> => {
       const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
       const prompt = imagePrompt.trim() || "Una escena cinematográfica original";
       const rawSeed = imageSeed.trim();
       const numericSeed = Number(rawSeed) || 0;
       const randomizeSeed = !rawSeed;
-      const file = await generateDirectFile({
-        space: HF_SPACES.flux,
-        kind: "image",
-        context: {
-          prompt,
-          width,
-          height,
+      try {
+        const result = await imageFn({ data: { prompt } });
+        if (!result.ok) throw new Error(result.message);
+        return {
+          url: result.image,
           seed: numericSeed,
-          randomizeSeed,
-          steps: 4,
-          seconds: 5,
-          bpm: 110,
-          instrumental: true,
-        },
-        endpoint: "/infer",
-        fallbackParams: [prompt, numericSeed, randomizeSeed, width, height, 4],
-      });
-      return { url: URL.createObjectURL(file.blob), seed: numericSeed, extension: file.extension };
+          extension: "png",
+          provider: "cloudflare-flux-1-schnell",
+        };
+      } catch (cloudflareError) {
+        console.warn("Cloudflare Workers AI no disponible; usando Hugging Face.", cloudflareError);
+        const file = await generateDirectFile({
+          space: HF_SPACES.flux,
+          kind: "image",
+          context: {
+            prompt,
+            width,
+            height,
+            seed: numericSeed,
+            randomizeSeed,
+            steps: 4,
+            seconds: 5,
+            bpm: 110,
+            instrumental: true,
+          },
+          endpoint: "/infer",
+          fallbackParams: [prompt, numericSeed, randomizeSeed, width, height, 4],
+        });
+        return {
+          url: URL.createObjectURL(file.blob),
+          seed: numericSeed,
+          extension: file.extension,
+          provider: "flux-1-schnell",
+        };
+      }
     },
-    onMutate: () => startProgress("Generando imagen con FLUX.1 en Hugging Face…", 60),
+    onMutate: () => startProgress("Generando imagen HD con Cloudflare Workers AI…", 60),
     onSuccess: (result) => {
       setImageUrl(result.url);
       setImageExtension(result.extension);
@@ -200,7 +224,7 @@ export function VideoStudio({
           prompt: imagePrompt,
           imageUrl: result.url,
           imageSize,
-          provider: "flux-1-schnell",
+          provider: result.provider,
           seed: result.seed,
         },
       }).catch(() => undefined);

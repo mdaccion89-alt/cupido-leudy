@@ -58,6 +58,47 @@ type GenerateInput = {
 
 const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
+const MUSICAPI_URL = "https://musicapi.ai";
+const MUSICAPI_POLL_MS = 4_000;
+const MUSICAPI_TIMEOUT_MS = 90_000;
+
+type MusicApiInput = {
+  prompt: string;
+  title?: string;
+  tags?: string;
+  instrumental?: boolean;
+};
+
+type MusicApiResult =
+  | { ok: true; audio: string; audioUrl: string; mime: string; extension: string; model: string }
+  | { ok: false; message: string };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function musicApiTaskUrl(taskId: string): string {
+  return `${MUSICAPI_URL}${taskId.startsWith("/") ? "" : "/"}${taskId}`;
+}
+
+function apiDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown; detail?: unknown };
+    const value = parsed.message ?? parsed.error ?? parsed.detail;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  } catch {}
+  return body.slice(0, 300);
+}
+
+function pickString(value: unknown, ...path: string[]): string {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== "object") return "";
+    current = (current as Record<string, unknown>)[key];
+  }
+  return typeof current === "string" && current.trim() ? current.trim() : "";
+}
+
 function blockedTermLabel(match: unknown): string {
   const record = match as Record<string, unknown> | null;
   const term =
@@ -285,6 +326,113 @@ export const prepareDirectSong = createServerFn({ method: "POST" })
       chords: parsed.chords || local.acordes,
       structure: parsed.structure || local.estructura,
     };
+  });
+
+export const generateMusicApiSong = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: MusicApiInput) => {
+    const prompt =
+      typeof input?.prompt === "string"
+        ? sanitizePrompt(input.prompt, MAX_LYRICS_LENGTH).trim()
+        : "";
+    if (!prompt) throw new Error("Escribe una letra o una descripción.");
+    return {
+      prompt,
+      title:
+        typeof input?.title === "string"
+          ? sanitizePrompt(input.title, MAX_TITLE_LENGTH).trim() || "Canción"
+          : "Canción",
+      tags: typeof input?.tags === "string" ? sanitizePrompt(input.tags, MAX_GENRE_LENGTH).trim() : "",
+      instrumental: Boolean(input?.instrumental),
+    };
+  })
+  .handler(async ({ data }): Promise<MusicApiResult> => {
+    const key = process.env.MUSICAPI_KEY;
+    if (!key) return { ok: false, message: "MUSICAPI_KEY no está configurado en el servidor." };
+    const response = await fetch(MUSICAPI_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        custom_mode: !data.instrumental,
+        prompt: data.prompt,
+        tags: data.tags,
+        title: data.title,
+        make_instrumental: data.instrumental,
+        mv: "sonic-v4",
+      }),
+    });
+    const body = await response.text();
+    if (!response.ok)
+      return { ok: false, message: `MUSICAPI_${response.status}: ${apiDetail(body)}` };
+    let created: unknown;
+    try {
+      created = JSON.parse(body);
+    } catch {
+      return { ok: false, message: `MUSICAPI_JSON: ${body.slice(0, 200)}` };
+    }
+    const taskId =
+      pickString(created, "task_id") ||
+      pickString(created, "id") ||
+      pickString(created, "taskId") ||
+      pickString(created, "data", "task_id") ||
+      pickString(created, "data", "id") ||
+      pickString(created, "data", "taskId");
+    if (!taskId) return { ok: false, message: `MUSICAPI_TASK_ID: ${body.slice(0, 200)}` };
+    const deadline = Date.now() + MUSICAPI_TIMEOUT_MS;
+    while (Date.now() <= deadline) {
+      await sleep(MUSICAPI_POLL_MS);
+      const pollResponse = await fetch(musicApiTaskUrl(taskId), {
+        headers: { Authorization: `Bearer ${key}` },
+      });
+      const pollBody = await pollResponse.text();
+      if (!pollResponse.ok)
+        return {
+          ok: false,
+          message: `MUSICAPI_POLL_${pollResponse.status}: ${apiDetail(pollBody)}`,
+        };
+      let pollJson: unknown;
+      try {
+        pollJson = JSON.parse(pollBody);
+      } catch {
+        return { ok: false, message: `MUSICAPI_POLL_JSON: ${pollBody.slice(0, 200)}` };
+      }
+      const audioUrl =
+        pickString(pollJson, "audio_url") ||
+        pickString(pollJson, "audioUrl") ||
+        pickString(pollJson, "data", "audio_url") ||
+        pickString(pollJson, "data", "audioUrl") ||
+        pickString(pollJson, "result", "audio_url") ||
+        pickString(pollJson, "result", "audioUrl") ||
+        pickString(pollJson, "output", "audio_url");
+      if (!audioUrl) {
+        const status =
+          pickString(pollJson, "status") ||
+          pickString(pollJson, "data", "status") ||
+          pickString(pollJson, "result", "status");
+        if (/fail|error|cancel|reject/i.test(status))
+          return { ok: false, message: `MUSICAPI_${status}: ${apiDetail(pollBody)}` };
+        continue;
+      }
+      let audioResponse = await fetch(audioUrl);
+      if (!audioResponse.ok)
+        audioResponse = await fetch(audioUrl, { headers: { Authorization: `Bearer ${key}` } });
+      if (!audioResponse.ok)
+        return { ok: false, message: `MUSICAPI_AUDIO_${audioResponse.status}` };
+      const bytes = new Uint8Array(await audioResponse.arrayBuffer());
+      if (!bytes.length) return { ok: false, message: "MUSICAPI_EMPTY_AUDIO" };
+      return {
+        ok: true,
+        audio: `data:audio/mpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+        audioUrl,
+        mime: "audio/mpeg",
+        extension: "mp3",
+        model: "sonic-v4",
+      };
+    }
+    return { ok: false, message: `MUSICAPI_TIMEOUT: tarea ${taskId} tardó más de 90 s.` };
   });
 
 export type ActionResult =
