@@ -630,7 +630,7 @@ function CallRoom({
     };
 
     channel.on("broadcast", { event: "ready" }, (message) => {
-      const payload = message.payload as { role?: string };
+      const payload = message["payload"] as { role?: string };
       if (role === "caller" && payload.role === "callee") void makeOffer();
       if (role === "callee" && payload.role === "caller") {
         void channel.send({ type: "broadcast", event: "ready", payload: { role: "callee" } });
@@ -638,7 +638,7 @@ function CallRoom({
     });
 
     channel.on("broadcast", { event: "signal" }, (message) => {
-      const payload = message.payload as SignalPayload;
+      const payload = message["payload"] as SignalPayload;
       void (async () => {
         if (payload.kind === "offer") {
           await pc.setRemoteDescription(payload.sdp);

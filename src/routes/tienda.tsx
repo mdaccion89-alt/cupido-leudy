@@ -240,10 +240,10 @@ function StorePage() {
             <article
               key={pack.id}
               className={`relative flex flex-col rounded-3xl border p-5 ${
-                pack.featured ? "border-pink-400/60 bg-pink-500/10" : "border-white/10 bg-white/[0.04]"
+                "featured" in pack && pack.featured ? "border-pink-400/60 bg-pink-500/10" : "border-white/10 bg-white/[0.04]"
               }`}
             >
-              {pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
+              {"featured" in pack && pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
               <p className="text-sm text-muted-foreground">{pack.label}</p>
               <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
               <p className="text-xs text-muted-foreground">créditos</p>
