@@ -41,7 +41,7 @@ import {
 } from "@/lib/music";
 import { directErrorMessage } from "@/lib/gradio-direct";
 import {
-  generateMusicApiSong,
+  generatePollinationsSong,
   prepareDirectSong,
   improvePrompt,
   writeLyrics,
@@ -139,7 +139,7 @@ function readSongBackup(): SongBackup | null {
 
 function dataUrlToBlob(dataUrl: string): { blob: Blob; base64: string; mime: string } {
   const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(dataUrl);
-  if (!match) throw new Error("MusicAPI devolvió un audio no válido.");
+  if (!match) throw new Error("Pollinations devolvió un audio no válido.");
   const mime = match[1] || "audio/mpeg";
   const base64 = match[2];
   const binary = atob(base64);
@@ -172,7 +172,7 @@ export function SongTab({
   const lyricsFn = useServerFn(writeLyrics);
   const improveFn = useServerFn(improvePrompt);
   const prepareFn = useServerFn(prepareDirectSong);
-  const musicApiFn = useServerFn(generateMusicApiSong);
+  const pollinationsSongFn = useServerFn(generatePollinationsSong);
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
@@ -329,7 +329,7 @@ export function SongTab({
         }
       } catch (error) {
         console.warn(
-          "Preparación con IA no disponible; enviando letra y estilos a MusicAPI Sonic v5",
+          "Preparación con IA no disponible; enviando letra y estilos a Pollinations",
           error,
         );
       }
@@ -346,8 +346,8 @@ export function SongTab({
           .filter(Boolean)
           .join(", ")
           .slice(0, MAX_GENRE_LENGTH) || "Reguetón";
-      onPendingChange(true, "Generando canción real con MusicAPI Sonic v5…");
-      const generated = await musicApiFn({
+      onPendingChange(true, "Generando canción real con Pollinations…");
+      const generated = await pollinationsSongFn({
         data: {
           prompt: lyricsOrPrompt,
           title: songTitle,
@@ -362,8 +362,7 @@ export function SongTab({
       const url = URL.createObjectURL(blob);
       previewUrlRef.current = url;
       const songId = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const warning =
-        "Canción generada con MusicAPI Sonic v5. Reproduce o descarga el MP3 real cuando quieras.";
+      const warning = `Canción generada con Pollinations · ${generated.model}. Reproduce o descarga el MP3 real cuando quieras.`;
       const backupSaved = saveSongBackup({
         id: songId,
         title: songTitle,
@@ -493,7 +492,7 @@ export function SongTab({
 
       <OptionGroup
         label="Motor / Versión"
-        options={[{ value: "ace-step", label: "MusicAPI · Sonic v5" }]}
+        options={[{ value: "ace-step", label: "Pollinations · ElevenMusic" }]}
         value={engine}
         onChange={setEngine}
       />

@@ -58,28 +58,27 @@ type GenerateInput = {
 
 const ACE_STEP_PUBLIC_SPACES = ["https://ace-step-ace-step.hf.space"] as const;
 
-const MUSICAPI_CREATE_URL = "https://api.musicapi.ai/api/v1/sonic/create";
-const MUSICAPI_POLL_BASE = "https://musicapi.ai";
-const MUSICAPI_POLL_MS = 4_000;
-const MUSICAPI_TIMEOUT_MS = 90_000;
+const POLLINATIONS_BASE = "https://gen.pollinations.ai";
+const POLLINATIONS_AUDIO_MODEL = "elevenmusic";
 
-type MusicApiInput = {
+type PollinationsAudioInput = {
   prompt: string;
   title?: string;
   tags?: string;
   instrumental?: boolean;
 };
 
-type MusicApiResult =
-  | { ok: true; audio: string; audioUrl: string; mime: string; extension: string; model: string }
+type PollinationsAudioResult =
+  | { ok: true; audio: string; url: string; mime: string; extension: string; model: string }
   | { ok: false; message: string };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function musicApiTaskUrl(taskId: string): string {
-  return `${MUSICAPI_POLL_BASE}${taskId}`;
+function pollinationsMediaUrl(
+  kind: "audio" | "video",
+  prompt: string,
+  params: Record<string, string>,
+): string {
+  const query = new URLSearchParams(params).toString();
+  return `${POLLINATIONS_BASE}/${kind}/${encodeURIComponent(prompt)}?${query}`;
 }
 
 async function readJsonResponse(response: Response, url: string): Promise<unknown> {
@@ -88,13 +87,13 @@ async function readJsonResponse(response: Response, url: string): Promise<unknow
   const hasJsonShape = /^\s*[{[]/.test(text);
   if (!/application\/(?:[\w.-]+\+)?json/i.test(contentType) && !hasJsonShape)
     throw new Error(
-      `MUSICAPI_NON_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
+      `POLLINATIONS_NON_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
     );
   try {
     return JSON.parse(text);
   } catch {
     throw new Error(
-      `MUSICAPI_INVALID_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
+      `POLLINATIONS_INVALID_JSON status=${response.status} url=${url} body=${text.slice(0, 150)}`,
     );
   }
 }
@@ -115,6 +114,41 @@ function pickString(value: unknown, ...path: string[]): string {
     current = (current as Record<string, unknown>)[key];
   }
   return typeof current === "string" && current.trim() ? current.trim() : "";
+}
+
+function modelEntries(json: unknown): Record<string, unknown>[] {
+  if (Array.isArray(json)) return json.filter(Boolean) as Record<string, unknown>[];
+  const record = json as Record<string, unknown> | null;
+  const list = record?.["data"] ?? record?.["models"] ?? record?.["results"];
+  return Array.isArray(list) ? (list.filter(Boolean) as Record<string, unknown>[]) : [];
+}
+
+function isMusicModel(entry: Record<string, unknown>): boolean {
+  const name = pickString(entry, "name");
+  const title = pickString(entry, "title");
+  const description = pickString(entry, "description");
+  const aliases = entry["aliases"];
+  const haystack = [name, title, description, Array.isArray(aliases) ? aliases.join(" ") : ""]
+    .join(" ")
+    .toLowerCase();
+  if (!/music|song|compose|lyria|acestep|stable-audio|sonic/.test(haystack)) return false;
+  if (/transcrib|speech|tts|voice|sound effect|sfx|isolator/.test(haystack)) return false;
+  const endpoints = entry["supported_endpoints"];
+  if (Array.isArray(endpoints) && !endpoints.some((item) => item === "/audio/{text}")) return false;
+  return entry["paid_only"] !== true;
+}
+
+async function resolveAudioModel(key: string): Promise<string | undefined> {
+  const url = `${POLLINATIONS_BASE}/audio/models`;
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+  if (!response.ok) return undefined;
+  const catalog = await readJsonResponse(response, url).catch(() => []);
+  for (const entry of modelEntries(catalog)) {
+    if (!isMusicModel(entry)) continue;
+    const id = pickString(entry, "name") || pickString(entry, "id");
+    if (id && id !== POLLINATIONS_AUDIO_MODEL) return id;
+  }
+  return undefined;
 }
 
 function blockedTermLabel(match: unknown): string {
@@ -346,9 +380,9 @@ export const prepareDirectSong = createServerFn({ method: "POST" })
     };
   });
 
-export const generateMusicApiSong = createServerFn({ method: "POST" })
+export const generatePollinationsSong = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: MusicApiInput) => {
+  .inputValidator((input: PollinationsAudioInput) => {
     const prompt =
       typeof input?.prompt === "string"
         ? sanitizePrompt(input.prompt, MAX_LYRICS_LENGTH).trim()
@@ -364,110 +398,44 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
       instrumental: Boolean(input?.instrumental),
     };
   })
-  .handler(async ({ data }): Promise<MusicApiResult> => {
-    const key = process.env.MUSICAPI_KEY;
-    if (!key) return { ok: false, message: "MUSICAPI_KEY no está configurado en el servidor." };
-    const customMode = !data.instrumental;
-    const gptDescriptionPrompt = data.prompt;
-    const payload = customMode
-      ? {
-          task_type: "create_music",
-          custom_mode: true,
-          prompt: data.prompt,
-          tags: data.tags,
-          title: data.title,
-          make_instrumental: false,
-          mv: "sonic-v5",
-        }
-      : {
-          task_type: "create_music",
-          custom_mode: false,
-          gpt_description_prompt: String(gptDescriptionPrompt).slice(0, 350),
-          make_instrumental: true,
-          mv: "sonic-v5",
-        };
-    const response = await fetch(MUSICAPI_CREATE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    let created: unknown;
-    try {
-      created = await readJsonResponse(response, MUSICAPI_CREATE_URL);
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  .handler(async ({ data }): Promise<PollinationsAudioResult> => {
+    const key = process.env.POLLINATIONS_API_KEY;
+    if (!key)
+      return { ok: false, message: "POLLINATIONS_API_KEY no está configurado en el servidor." };
+    const prompt = data.instrumental ? `${data.prompt}. instrumental, sin voz` : data.prompt;
+    let model = POLLINATIONS_AUDIO_MODEL;
+    let url = pollinationsMediaUrl("audio", prompt, { model });
+    let response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+    if (response.status === 402 || response.status === 403) {
+      const fallback = await resolveAudioModel(key);
+      if (fallback) {
+        model = fallback;
+        url = pollinationsMediaUrl("audio", prompt, { model });
+        response = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+      }
     }
-    if (!response.ok)
+    if (!response.ok) {
+      const detail = apiDetail(await response.text().catch(() => ""));
       return {
         ok: false,
-        message: `MUSICAPI_${response.status}: ${apiDetail(JSON.stringify(created))}`,
-      };
-    const taskId =
-      pickString(created, "task_id") ||
-      pickString(created, "id") ||
-      pickString(created, "taskId") ||
-      pickString(created, "data", "task_id") ||
-      pickString(created, "data", "id") ||
-      pickString(created, "data", "taskId");
-    if (!taskId)
-      return { ok: false, message: `MUSICAPI_TASK_ID: ${apiDetail(JSON.stringify(created))}` };
-    const deadline = Date.now() + MUSICAPI_TIMEOUT_MS;
-    while (Date.now() <= deadline) {
-      await sleep(MUSICAPI_POLL_MS);
-      const pollUrl = musicApiTaskUrl(taskId);
-      const pollResponse = await fetch(pollUrl, {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      let pollJson: unknown;
-      try {
-        pollJson = await readJsonResponse(pollResponse, pollUrl);
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) };
-      }
-      if (!pollResponse.ok)
-        return {
-          ok: false,
-          message: `MUSICAPI_POLL_${pollResponse.status}: ${apiDetail(JSON.stringify(pollJson))}`,
-        };
-      const audioUrl =
-        pickString(pollJson, "audio_url") ||
-        pickString(pollJson, "audioUrl") ||
-        pickString(pollJson, "data", "audio_url") ||
-        pickString(pollJson, "data", "audioUrl") ||
-        pickString(pollJson, "data", "0", "audio_url") ||
-        pickString(pollJson, "data", "0", "audioUrl") ||
-        pickString(pollJson, "result", "audio_url") ||
-        pickString(pollJson, "result", "audioUrl") ||
-        pickString(pollJson, "output", "audio_url");
-      if (!audioUrl) {
-        const status =
-          pickString(pollJson, "status") ||
-          pickString(pollJson, "data", "status") ||
-          pickString(pollJson, "result", "status");
-        if (/fail|error|cancel|reject/i.test(status))
-          return { ok: false, message: `MUSICAPI_${status}: ${apiDetail(JSON.stringify(pollJson))}` };
-        continue;
-      }
-      let audioResponse = await fetch(audioUrl);
-      if (!audioResponse.ok)
-        audioResponse = await fetch(audioUrl, { headers: { Authorization: `Bearer ${key}` } });
-      if (!audioResponse.ok)
-        return { ok: false, message: `MUSICAPI_AUDIO_${audioResponse.status}` };
-      const bytes = new Uint8Array(await audioResponse.arrayBuffer());
-      if (!bytes.length) return { ok: false, message: "MUSICAPI_EMPTY_AUDIO" };
-      return {
-        ok: true,
-        audio: `data:audio/mpeg;base64,${Buffer.from(bytes).toString("base64")}`,
-        audioUrl,
-        mime: "audio/mpeg",
-        extension: "mp3",
-        model: "sonic-v5",
+        message: `POLLINATIONS_AUDIO_${response.status}_${model}: ${detail || response.statusText}`,
       };
     }
-    return { ok: false, message: `MUSICAPI_TIMEOUT: tarea ${taskId} tardó más de 90 s.` };
+    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    if (/text\/html|application\/json/i.test(contentType)) {
+      const detail = apiDetail(await response.text().catch(() => ""));
+      return { ok: false, message: `POLLINATIONS_AUDIO_NO_BINARY_${model}: ${detail.slice(0, 200)}` };
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length) return { ok: false, message: "POLLINATIONS_EMPTY_AUDIO" };
+    return {
+      ok: true,
+      audio: `data:audio/mpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+      url,
+      mime: "audio/mpeg",
+      extension: "mp3",
+      model,
+    };
   });
 
 export type ActionResult =

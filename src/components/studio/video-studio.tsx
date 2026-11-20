@@ -43,7 +43,7 @@ import {
   type FireflySceneClip,
 } from "@/lib/firefly.functions";
 import { uploadOwnFile } from "@/lib/uploads";
-import { generateCloudflareImage } from "@/lib/video.functions";
+import { generateCloudflareImage, generatePollinationsVideo } from "@/lib/video.functions";
 import { VideoElementsEditor } from "./video-elements-editor";
 import { VideoFrameReference } from "./video-frame-reference";
 import { captureFrameFromVideoUrl, uploadCapturedFrame } from "./video-frame-capture";
@@ -103,6 +103,7 @@ export function VideoStudio({
   const voiceFn = useServerFn(generateFireflyVoice);
   const historyFn = useServerFn(saveFireflyImageHistory);
   const imageFn = useServerFn(generateCloudflareImage);
+  const videoFn = useServerFn(generatePollinationsVideo);
 
   const [tab, setTab] = useState("image");
   const [imagePrompt, setImagePrompt] = useState("");
@@ -236,7 +237,6 @@ export function VideoStudio({
 
   const videoMutation = useMutation({
     mutationFn: async (): Promise<SequenceView> => {
-      startProgress("Generando video real con Wan2.1 / LTX-Video en Hugging Face…", 180);
       const seed = parseSeed(videoSeed) ?? Math.floor(Math.random() * 999_999);
       const { width, height } = FIREFLY_IMAGE_PIXELS[imageSize];
       const prompt = [
@@ -246,39 +246,63 @@ export function VideoStudio({
       ]
         .filter(Boolean)
         .join("\n");
+      const finalPrompt = prompt || "Una escena cinematográfica original";
       const seconds = Math.min(5, Math.max(2, Math.round(totalSeconds) || 5));
-      const file = await generateDirectVideo({
-        prompt: prompt || "Una escena cinematográfica original",
-        width,
-        height,
-        seed,
-        seconds,
-        steps: 20,
-        bpm: 110,
-        instrumental: true,
-      });
-      advanceProgress("Descargando video MP4…", 95);
-      const provider = /wan/i.test(file.url)
-        ? "Wan2.1"
-        : /ltx/i.test(file.url)
-          ? "LTX-Video"
-          : "Hugging Face";
-      const clip: FireflySceneClip = {
-        songId: `video-${Date.now()}`,
-        url: URL.createObjectURL(file.blob),
-        storagePath: "",
-        sceneNumber: 1,
-        seconds,
-        mediaType: file.contentType,
-        model: provider === "Wan2.1" ? "wan2.1" : "ltx-video",
-      };
+      const videoKey = `video-${Date.now()}`;
+      let clip: FireflySceneClip;
+      let provider: string;
+      try {
+        advanceProgress("Generando video con Pollinations…", 70);
+        const generated = await videoFn({ data: { prompt: finalPrompt, width, height } });
+        if (!generated.ok) throw new Error(generated.message);
+        clip = {
+          songId: videoKey,
+          url: generated.video,
+          storagePath: "",
+          sceneNumber: 1,
+          seconds,
+          mediaType: generated.mime,
+          model: generated.model,
+        };
+        provider = `Pollinations · ${generated.model}`;
+      } catch (pollinationsError) {
+        console.warn("Pollinations no disponible; usando Hugging Face.", pollinationsError);
+        advanceProgress("Pollinations no disponible; usando Hugging Face…", 40);
+        const file = await generateDirectVideo({
+          prompt: finalPrompt,
+          width,
+          height,
+          seed,
+          seconds,
+          steps: 20,
+          bpm: 110,
+          instrumental: true,
+        });
+        const huggingFaceProvider = /wan/i.test(file.url)
+          ? "Wan2.1"
+          : /ltx/i.test(file.url)
+            ? "LTX-Video"
+            : "Hugging Face";
+        clip = {
+          songId: videoKey,
+          url: URL.createObjectURL(file.blob),
+          storagePath: "",
+          sceneNumber: 1,
+          seconds,
+          mediaType: file.contentType,
+          model: huggingFaceProvider === "Wan2.1" ? "wan2.1" : "ltx-video",
+        };
+        provider = huggingFaceProvider;
+      }
+      advanceProgress("Preparando reproductor MP4…", 95);
       return {
         label: `Video real generado con ${provider}`,
-        generationId: `video-${Date.now()}`,
+        generationId: videoKey,
         clips: [clip],
         stitched: true,
       };
     },
+    onMutate: () => startProgress("Generando video real con Pollinations…", 180),
     onSuccess: (result) => {
       setVideoResult(result);
       toast.success("Video MP4 real listo.");
