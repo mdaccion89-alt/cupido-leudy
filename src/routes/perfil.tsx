@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
+import { uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string }) => search,
@@ -145,15 +146,9 @@ function ProfilePage() {
       const verdict = await moderatePhoto({ data: { dataUrl } });
       if (!verdict.ok) throw new Error(verdict.message);
       if (!verdict.safe && !verdict.needsReview) throw new Error(verdict.reason);
-      const path = `${viewerId}/avatar-${Date.now()}.${extensionOf(file, "jpg")}`;
-      const { error } = await supabase.storage.from("cupido-media").upload(path, file, {
-        contentType: file.type,
-        upsert: false,
-      });
-      if (error) throw error;
-      const { data } = supabase.storage.from("cupido-media").getPublicUrl(path);
+      const { url } = await uploadPublicImage(viewerId, file, "avatars", extensionOf(file, "jpg"));
       const { error: rpcError } = await supabase.rpc("cupido_set_avatar", {
-        _url: data.publicUrl,
+        _url: url,
         _moderation: verdict.needsReview ? "pending" : "approved",
       });
       if (rpcError) throw rpcError;

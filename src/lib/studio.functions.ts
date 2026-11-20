@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { CREDIT_COSTS, creditErrorMessage } from "./credits";
+import { SLOGAN } from "./cupido";
 import {
   MAX_LYRICS_LENGTH,
   MAX_PROMPT_LENGTH,
@@ -440,7 +441,7 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
     }
     return {
       site_title: data?.site_title ?? "Cupido Leudy ❤️",
-      site_tagline: data?.site_tagline ?? "Citas reales, chat social y videos cortos",
+      site_tagline: data?.site_tagline ?? SLOGAN,
       banner_text: data?.banner_text ?? "Encuentra conexiones reales. Verificación azul, seguridad y diversión.",
       banner_image: banner,
       logo_url: logo,

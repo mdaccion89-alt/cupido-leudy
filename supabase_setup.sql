@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   birth_date DATE,
   plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'premium')),
   plan_expires_at TIMESTAMPTZ,
-  credits INTEGER NOT NULL DEFAULT 5 CHECK (credits >= -1),
+  credits INTEGER NOT NULL DEFAULT 500 CHECK (credits >= -1),
   is_admin BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -31,7 +31,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS birth_date DATE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 500;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
 
 CREATE TABLE IF NOT EXISTS public.user_credits (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  balance INTEGER NOT NULL DEFAULT 5 CHECK (balance >= -1),
+  balance INTEGER NOT NULL DEFAULT 500 CHECK (balance >= -1),
   daily_reset_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -176,8 +176,8 @@ CREATE TABLE IF NOT EXISTS public.manual_payments (
 
 CREATE TABLE IF NOT EXISTS public.app_settings (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  site_title TEXT NOT NULL DEFAULT 'Leudy IA Adobe',
-  site_tagline TEXT NOT NULL DEFAULT 'Convierte tus ideas en canciones',
+  site_title TEXT NOT NULL DEFAULT 'Cupido Leudy ❤️',
+  site_tagline TEXT NOT NULL DEFAULT 'Personas reales, conexiones reales',
   banner_text TEXT NOT NULL DEFAULT '',
   banner_image_url TEXT NOT NULL DEFAULT '',
   logo_url TEXT NOT NULL DEFAULT '',
@@ -197,8 +197,8 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
 
 CREATE TABLE IF NOT EXISTS public.site_settings (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  site_title TEXT NOT NULL DEFAULT 'Leudy IA Adobe',
-  site_tagline TEXT NOT NULL DEFAULT 'Convierte tus ideas en canciones',
+  site_title TEXT NOT NULL DEFAULT 'Cupido Leudy ❤️',
+  site_tagline TEXT NOT NULL DEFAULT 'Personas reales, conexiones reales',
   banner_text TEXT NOT NULL DEFAULT '',
   banner_image_url TEXT NOT NULL DEFAULT '',
   logo_url TEXT NOT NULL DEFAULT '',
@@ -433,14 +433,14 @@ BEGIN
   is_admin_email := lower(COALESCE(NEW.email, '')) = 'leudyfeliz81@gmail.com';
   dname := left(COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1), 'Artista'), 60);
   INSERT INTO public.profiles (id, email, display_name, full_name, birth_date, credits, is_admin)
-  VALUES (NEW.id, NEW.email, dname, NULLIF(left(NEW.raw_user_meta_data->>'full_name', 120), ''), public.try_date(NEW.raw_user_meta_data->>'birth_date'), 5, is_admin_email)
+  VALUES (NEW.id, NEW.email, dname, NULLIF(left(NEW.raw_user_meta_data->>'full_name', 120), ''), public.try_date(NEW.raw_user_meta_data->>'birth_date'), 500, is_admin_email)
   ON CONFLICT (id) DO NOTHING;
   INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
   VALUES (NEW.id, dname, is_admin_email, is_admin_email)
   ON CONFLICT (id) DO NOTHING;
-  INSERT INTO public.user_credits (user_id, balance, daily_reset_at) VALUES (NEW.id, 5, now())
+  INSERT INTO public.user_credits (user_id, balance, daily_reset_at) VALUES (NEW.id, 500, now())
   ON CONFLICT (user_id) DO NOTHING;
-  INSERT INTO public.credit_transactions (user_id, delta, reason) VALUES (NEW.id, 5, 'Créditos de bienvenida');
+  INSERT INTO public.credit_transactions (user_id, delta, reason) VALUES (NEW.id, 500, 'Créditos de bienvenida');
   INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user') ON CONFLICT DO NOTHING;
   IF is_admin_email THEN
     INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
@@ -481,7 +481,7 @@ BEGIN
   admin_email := user_email = 'leudyfeliz81@gmail.com';
 
   INSERT INTO public.profiles (id, email, display_name, full_name, credits, is_admin)
-  VALUES (uid, user_email, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), NULL, 5, admin_email)
+  VALUES (uid, user_email, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), NULL, 500, admin_email)
   ON CONFLICT (id) DO NOTHING;
 
   INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
@@ -489,7 +489,7 @@ BEGIN
   WHERE NOT EXISTS (SELECT 1 FROM public.creator_profiles WHERE id = uid);
 
   INSERT INTO public.user_credits (user_id, balance, daily_reset_at)
-  VALUES (uid, CASE WHEN admin_email THEN -1 ELSE 5 END, now())
+  VALUES (uid, CASE WHEN admin_email THEN -1 ELSE 500 END, now())
   ON CONFLICT (user_id) DO NOTHING;
 
   INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'user') ON CONFLICT DO NOTHING;
@@ -771,8 +771,23 @@ CREATE POLICY "Read own orders or admin" ON public.paypal_orders FOR SELECT TO a
 INSERT INTO storage.buckets (id, name, public) VALUES
   ('songs', 'songs', false),
   ('uploads', 'uploads', false),
-  ('site', 'site', true)
+  ('site', 'site', true),
+  ('media', 'media', true),
+  ('avatars', 'avatars', true)
 ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
+
+DROP POLICY IF EXISTS "Anyone reads public media" ON storage.objects;
+CREATE POLICY "Anyone reads public media" ON storage.objects FOR SELECT TO anon, authenticated
+  USING (bucket_id IN ('media', 'avatars'));
+DROP POLICY IF EXISTS "Users add own public media" ON storage.objects;
+CREATE POLICY "Users add own public media" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users update own public media" ON storage.objects;
+CREATE POLICY "Users update own public media" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users delete own public media" ON storage.objects;
+CREATE POLICY "Users delete own public media" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
 
 DROP POLICY IF EXISTS "Users read own released song files" ON storage.objects;
 CREATE POLICY "Users read own released song files" ON storage.objects FOR SELECT TO authenticated

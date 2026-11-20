@@ -8,20 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
-import { BRAND } from "@/lib/cupido";
+import { BRAND, SLOGAN } from "@/lib/cupido";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Iniciar sesión — Cupido Leudy ❤️" },
+      { title: `Iniciar sesión — ${BRAND}` },
       {
         name: "description",
-        content: "Entra en Cupido Leudy para conocer personas reales, chatear y recibir regalos.",
+        content: `Entra en ${BRAND} para ${SLOGAN.toLowerCase()}, chatear y recibir regalos.`,
       },
-      { property: "og:title", content: "Iniciar sesión — Cupido Leudy ❤️" },
+      { property: "og:title", content: `Iniciar sesión — ${BRAND}` },
       {
         property: "og:description",
-        content: "Citas reales, chat social, videos cortos y verificación azul.",
+        content: `${SLOGAN}. Chat, videos cortos y verificación azul.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

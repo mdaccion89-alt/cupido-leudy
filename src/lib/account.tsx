@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getSiteSettings, type PublicSettings } from "./studio.functions";
 import { useAuth } from "./auth-context";
+import { SLOGAN } from "./cupido";
 
 const IMMEDIATE_ADMIN_EMAIL = "leudyfeliz81@gmail.com";
 
@@ -50,7 +51,7 @@ export function useAccount() {
 
 export const DEFAULT_SETTINGS: PublicSettings = {
   site_title: "Cupido Leudy ❤️",
-  site_tagline: "Citas reales, chat social y videos cortos",
+  site_tagline: SLOGAN,
   banner_text: "Encuentra conexiones reales. Verificación azul, seguridad y diversión.",
   banner_image: "",
   logo_url: "",

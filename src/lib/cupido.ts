@@ -1,4 +1,5 @@
 export const BRAND = "Cupido Leudy ❤️";
+export const SLOGAN = "Personas reales, conexiones reales";
 export const TERMS_VERSION = "2026-01";
 export const FOOTER_COPYRIGHT = "© 2026 Cupido Leudy ❤️. Todos los derechos reservados.";
 

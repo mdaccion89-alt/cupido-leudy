@@ -17,7 +17,7 @@ import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth-context";
-import { BRAND } from "@/lib/cupido";
+import { BRAND, SLOGAN } from "@/lib/cupido";
 
 function NotFoundComponent() {
   return (
@@ -84,18 +84,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: `${BRAND} — Citas reales, chat social y videos cortos` },
+      { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
-        content:
-          "Conoce personas reales, chatea, comparte videos cortos y verifica tu perfil con la insignia azul de Cupido Leudy.",
+        content: `${SLOGAN}. Chatea, comparte videos cortos y verifica tu perfil con la insignia azul de ${BRAND}.`,
       },
       { name: "author", content: BRAND },
-      { property: "og:title", content: BRAND },
+      { property: "og:title", content: `${BRAND} — ${SLOGAN}` },
       {
         property: "og:description",
-        content:
-          "Citas reales, chat social, llamadas en vivo y videos cortos con seguridad verificada.",
+        content: `${SLOGAN}. Chat, llamadas en vivo y videos cortos con seguridad verificada.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

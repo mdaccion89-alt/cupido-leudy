@@ -144,8 +144,8 @@ GRANT EXECUTE ON FUNCTION public.admin_adjust_credits(UUID, INTEGER) TO authenti
 
 CREATE TABLE public.site_settings (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  site_title TEXT NOT NULL DEFAULT 'Leudy IA Adobe',
-  site_tagline TEXT NOT NULL DEFAULT 'Convierte tus ideas en canciones',
+  site_title TEXT NOT NULL DEFAULT 'Cupido Leudy ❤️',
+  site_tagline TEXT NOT NULL DEFAULT 'Personas reales, conexiones reales',
   banner_text TEXT NOT NULL DEFAULT '',
   banner_image_url TEXT NOT NULL DEFAULT '',
   songs_enabled BOOLEAN NOT NULL DEFAULT true,

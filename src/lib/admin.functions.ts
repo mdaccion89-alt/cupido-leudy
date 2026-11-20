@@ -3,7 +3,6 @@ import { Buffer } from "node:buffer";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { getAdminClient } from "./server-helpers";
 import { ADMIN_EMAIL } from "./credits";
 
 type AdminContext = {
@@ -91,17 +90,15 @@ export const uploadSiteAsset = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const admin = await getAdminClient();
-    const { error: bucketError } = await admin.storage.createBucket("site", { public: true });
-    if (bucketError && !/already exists|ya existe/i.test(bucketError.message)) throw bucketError;
     const base64 = data.base64.includes(",") ? (data.base64.split(",").pop() ?? "") : data.base64;
     const bytes = Buffer.from(base64, "base64");
-    const { error } = await admin.storage.from("site").upload(data.path, bytes, {
+    const path = `${context.userId}/${data.path}`;
+    const { error } = await context.supabase.storage.from("media").upload(path, bytes, {
       contentType: data.contentType,
       upsert: true,
     });
     if (error) throw error;
-    const { data: publicData } = admin.storage.from("site").getPublicUrl(data.path);
+    const { data: publicData } = context.supabase.storage.from("media").getPublicUrl(path);
     return { ok: true, url: publicData.publicUrl };
   });
 

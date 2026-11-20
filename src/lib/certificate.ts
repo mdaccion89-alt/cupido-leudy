@@ -23,7 +23,7 @@ export async function downloadCertificate(songId: string) {
   pdf.setTextColor(236, 232, 255);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(24);
-  pdf.text("Leudy IA Adobe", 20, 28);
+  pdf.text("Cupido Leudy ❤️", 20, 28);
   pdf.setFontSize(11);
   pdf.setFont("helvetica", "normal");
   pdf.setTextColor(170, 162, 210);
@@ -48,7 +48,7 @@ export async function downloadCertificate(songId: string) {
     `Elegible para Content ID: ${license.content_id_eligible ? "Si" : "No"}`,
     "",
     "Este documento certifica que la obra fue creada originalmente",
-    "por el usuario indicado mediante Leudy IA Adobe.",
+    "por el usuario indicado mediante Cupido Leudy ❤️.",
     "Verificacion online: /verify?song=" + license.id,
   ];
   let y = 78;
@@ -58,6 +58,6 @@ export async function downloadCertificate(songId: string) {
   }
   pdf.setTextColor(170, 162, 210);
   pdf.setFontSize(9);
-  pdf.text("Documento generado electronicamente por Leudy IA Adobe", 20, 275);
+  pdf.text("Documento generado electronicamente por Cupido Leudy ❤️", 20, 275);
   pdf.save(`certificado-${license.id.slice(0, 8)}.pdf`);
 }

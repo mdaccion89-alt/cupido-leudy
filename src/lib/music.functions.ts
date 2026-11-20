@@ -688,7 +688,7 @@ export const generateSong = createServerFn({ method: "POST" })
         chords: text.acordes,
         instrumental,
       });
-      audioProvider = "Leudy IA Karplus-Strong (respaldo local)";
+      audioProvider = "Cupido Leudy ❤️ (respaldo local)";
       fallbackWarning = "Los servidores ACE-Step están llenos; se generó una versión local.";
     }
 

@@ -68,7 +68,7 @@ export const createDistributionOrder = createServerFn({ method: "POST" })
             purchase_units: [
               {
                 reference_id: "distribution",
-                description: `Distribución de "${data.title}" · Leudy IA Adobe`,
+                description: `Distribución de "${data.title}" · Cupido Leudy ❤️`,
                 amount: { currency_code: "USD", value: DISTRIBUTION_PRICE },
               },
             ],

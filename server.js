@@ -670,5 +670,5 @@ server.headersTimeout = 0;
 server.timeout = 0;
 
 server.listen(port, () => {
-  console.log(`Leudy IA sirviendo dist y API en http://localhost:${port}`);
+  console.log(`Cupido Leudy ❤️ sirviendo dist y API en http://localhost:${port}`);
 });

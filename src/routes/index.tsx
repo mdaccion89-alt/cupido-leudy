@@ -9,21 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
-import { BRAND } from "@/lib/cupido";
+import { BRAND, SLOGAN } from "@/lib/cupido";
+import { safeExtension, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: `${BRAND} — Citas reales, chat social y videos cortos` },
+      { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
-        content:
-          "Descubre personas reales, marca Me interesa, sigue perfiles, agrega amigos y comparte videos cortos en Cupido Leudy.",
+        content: `${SLOGAN}. Marca Me interesa, sigue perfiles, agrega amigos y comparte videos cortos en ${BRAND}.`,
       },
-      { property: "og:title", content: `${BRAND} — Encuentra conexiones reales` },
+      { property: "og:title", content: `${BRAND} — ${SLOGAN}` },
       {
         property: "og:description",
-        content: "Citas, chat, videos cortos y verificación azul en una sola app.",
+        content: `${SLOGAN}. Chat, videos cortos y verificación azul en una sola app.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -241,23 +241,21 @@ function CupidoHome() {
       return;
     }
     setUploading(true);
-    const extension = file.name.split(".").pop()?.toLowerCase() || "mp4";
-    const path = `${userId}/videos/${Date.now()}.${extension}`;
-    const { error } = await supabase.storage.from("cupido-media").upload(path, file, {
-      contentType: file.type,
-      upsert: false,
-    });
-    if (error) {
-      toast.error(error.message);
+    const extension = safeExtension(file.name, "mp4");
+    let url: string;
+    try {
+      const result = await uploadPublicImage(userId!, file, "videos", extension);
+      url = result.url;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo subir el video.");
       setUploading(false);
       return;
     }
-    const { data } = supabase.storage.from("cupido-media").getPublicUrl(path);
     const { error: insertError } = await supabase.from("cupido_posts").insert({
       user_id: userId!,
       kind: "video",
       caption: caption.trim(),
-      media_path: data.publicUrl,
+      media_path: url,
       moderation_status: "approved",
     });
     if (insertError) toast.error(insertError.message);

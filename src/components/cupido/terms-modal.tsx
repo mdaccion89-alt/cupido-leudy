@@ -36,7 +36,8 @@ export function TermsModal() {
     },
   });
 
-  const shouldShow = Boolean(userId) && !accepted && terms.isSuccess && !terms.data;
+  const shouldShow =
+    Boolean(userId) && !accepted && (terms.isError || (terms.isSuccess && !terms.data));
 
   const handleAccept = async () => {
     setBusy(true);
@@ -57,6 +58,7 @@ export function TermsModal() {
     <Dialog open={shouldShow}>
       <DialogContent
         className="max-w-2xl"
+        hideCloseButton
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => event.preventDefault()}
       >

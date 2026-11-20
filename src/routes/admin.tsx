@@ -18,9 +18,9 @@ import {
   adminSetPlan,
   getAdminSnapshot,
   saveAdminSettings,
-  uploadSiteAsset,
   type AdminSettings,
 } from "@/lib/admin.functions";
+import { safeExtension, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Panel Admin Supremo — Cupido Leudy ❤️" }] }),
@@ -55,7 +55,6 @@ function AdminDashboard() {
   const queryClient = useQueryClient();
   const getSnapshot = useServerFn(getAdminSnapshot);
   const saveSettingsFn = useServerFn(saveAdminSettings);
-  const uploadAssetFn = useServerFn(uploadSiteAsset);
   const adjustCreditsFn = useServerFn(adminAdjustCredits);
   const setPlanFn = useServerFn(adminSetPlan);
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: () => getSnapshot() });
@@ -128,25 +127,18 @@ function AdminDashboard() {
     }
     setUploadingAsset(true);
     try {
-      const base64 = await readFileAsBase64(file);
-      const extension =
-        file.name
-          .split(".")
-          .pop()
-          ?.toLowerCase()
-          .replace(/[^a-z0-9]/g, "") || "png";
-      const kind = field === "logo_url" ? "logo" : "banner";
-      const result = await uploadAssetFn({
-        data: {
-          path: `identity/${kind}-${Date.now()}.${extension}`,
-          contentType: file.type,
-          base64,
-        },
-      });
-      setSettings((current) => (current ? { ...current, [field]: result.url } : current));
-      toast.success("Imagen subida al bucket site.");
-    } catch {
-      toast.error("No se pudo subir la imagen.");
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) throw new Error("Inicia sesión para subir la imagen.");
+      const extension = safeExtension(file.name, "png");
+      const { url } = await uploadPublicImage(authData.user.id, file, "identity", extension);
+      setSettings((current) => (current ? { ...current, [field]: url } : current));
+      toast.success("Imagen subida correctamente.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "No se pudo subir la imagen.",
+      );
     } finally {
       setUploadingAsset(false);
     }
@@ -454,15 +446,6 @@ function AdminDashboard() {
       </Tabs>
     </main>
   );
-}
-
-function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("READ_FAILED"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

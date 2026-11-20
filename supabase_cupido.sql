@@ -468,8 +468,23 @@ CREATE POLICY "cupido withdrawals read" ON public.cupido_withdrawals FOR SELECT 
 INSERT INTO storage.buckets (id, name, public) VALUES
   ('cupido-media', 'cupido-media', true),
   ('cupido-voice', 'cupido-voice', false),
-  ('cupido-private', 'cupido-private', false)
+  ('cupido-private', 'cupido-private', false),
+  ('media', 'media', true),
+  ('avatars', 'avatars', true)
 ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
+
+DROP POLICY IF EXISTS "Anyone reads public media" ON storage.objects;
+CREATE POLICY "Anyone reads public media" ON storage.objects FOR SELECT TO anon, authenticated
+  USING (bucket_id IN ('media', 'avatars'));
+DROP POLICY IF EXISTS "Users add own public media" ON storage.objects;
+CREATE POLICY "Users add own public media" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users update own public media" ON storage.objects;
+CREATE POLICY "Users update own public media" ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users delete own public media" ON storage.objects;
+CREATE POLICY "Users delete own public media" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id IN ('media', 'avatars') AND (storage.foldername(name))[1] = auth.uid()::text);
 
 CREATE POLICY "cupido media public read" ON storage.objects FOR SELECT TO anon, authenticated
   USING (bucket_id = 'cupido-media');
@@ -513,13 +528,81 @@ END $$;
 -- 7. Identidad de marca y Administrador Supremo
 -- ---------------------------------------------------------------------------
 UPDATE public.app_settings SET site_title = 'Cupido Leudy ❤️',
-  site_tagline = 'Citas reales, chat social y videos cortos',
+  site_tagline = 'Personas reales, conexiones reales',
   banner_text = 'Encuentra conexiones reales. Verificación azul, seguridad y diversión.'
 WHERE id = 1;
 UPDATE public.site_settings SET site_title = 'Cupido Leudy ❤️',
-  site_tagline = 'Citas reales, chat social y videos cortos',
+  site_tagline = 'Personas reales, conexiones reales',
   banner_text = 'Encuentra conexiones reales. Verificación azul, seguridad y diversión.'
 WHERE id = 1;
+
+-- Créditos de bienvenida: 500 para correo, Google y teléfono.
+ALTER TABLE public.profiles ALTER COLUMN credits SET DEFAULT 500;
+ALTER TABLE public.user_credits ALTER COLUMN balance SET DEFAULT 500;
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE dname TEXT;
+DECLARE is_admin_email BOOLEAN;
+BEGIN
+  is_admin_email := lower(COALESCE(NEW.email, '')) = 'leudyfeliz81@gmail.com';
+  dname := left(COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), NULLIF(NEW.raw_user_meta_data->>'name', ''), split_part(NEW.email, '@', 1), 'Artista'), 60);
+  INSERT INTO public.profiles (id, email, display_name, full_name, birth_date, credits, is_admin)
+  VALUES (NEW.id, NEW.email, dname, NULLIF(left(NEW.raw_user_meta_data->>'full_name', 120), ''), public.try_date(NEW.raw_user_meta_data->>'birth_date'), 500, is_admin_email)
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
+  VALUES (NEW.id, dname, is_admin_email, is_admin_email)
+  ON CONFLICT (id) DO NOTHING;
+  INSERT INTO public.user_credits (user_id, balance, daily_reset_at) VALUES (NEW.id, 500, now())
+  ON CONFLICT (user_id) DO NOTHING;
+  INSERT INTO public.credit_transactions (user_id, delta, reason) VALUES (NEW.id, 500, 'Créditos de bienvenida');
+  INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'user') ON CONFLICT DO NOTHING;
+  IF is_admin_email THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin') ON CONFLICT DO NOTHING;
+    INSERT INTO public.user_roles (user_id, role) VALUES (NEW.id, 'admin_supremo') ON CONFLICT DO NOTHING;
+    UPDATE public.user_credits SET balance = -1, updated_at = now() WHERE user_id = NEW.id;
+    UPDATE public.profiles SET credits = -1, plan = 'premium', plan_expires_at = NULL, is_admin = true WHERE id = NEW.id;
+    UPDATE public.creator_profiles SET is_official = true, is_premium = true WHERE id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.ensure_my_profile()
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  uid UUID := auth.uid();
+  user_email TEXT;
+  user_name TEXT;
+  admin_email BOOLEAN;
+BEGIN
+  IF uid IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  SELECT lower(COALESCE(u.email, '')), u.email INTO user_email, user_name FROM auth.users u WHERE u.id = uid;
+  IF user_email IS NULL THEN RAISE EXCEPTION 'USER_NOT_FOUND'; END IF;
+  admin_email := user_email = 'leudyfeliz81@gmail.com';
+
+  INSERT INTO public.profiles (id, email, display_name, full_name, credits, is_admin)
+  VALUES (uid, user_email, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), NULL, 500, admin_email)
+  ON CONFLICT (id) DO NOTHING;
+
+  INSERT INTO public.creator_profiles (id, display_name, is_official, is_premium)
+  SELECT uid, left(split_part(COALESCE(user_name, user_email), '@', 1), 60), admin_email, admin_email
+  WHERE NOT EXISTS (SELECT 1 FROM public.creator_profiles WHERE id = uid);
+
+  INSERT INTO public.user_credits (user_id, balance, daily_reset_at)
+  VALUES (uid, CASE WHEN admin_email THEN -1 ELSE 500 END, now())
+  ON CONFLICT (user_id) DO NOTHING;
+
+  INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'user') ON CONFLICT DO NOTHING;
+  IF admin_email THEN
+    INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'admin') ON CONFLICT DO NOTHING;
+    INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'admin_supremo') ON CONFLICT DO NOTHING;
+    UPDATE public.user_credits SET balance = -1, updated_at = now() WHERE user_id = uid;
+    UPDATE public.profiles SET credits = -1, plan = 'premium', plan_expires_at = NULL, is_admin = true WHERE id = uid;
+    UPDATE public.creator_profiles SET is_official = true, is_premium = true WHERE id = uid;
+  END IF;
+END;
+$$;
 
 DO $$
 DECLARE admin_id UUID;
