@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS cupido_gift_sends_receiver_idx ON public.cupido_gift_
 CREATE OR REPLACE FUNCTION public.cupido_accept_terms(_version TEXT)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
+  IF auth.uid() IS NULL THEN RETURN; END IF;
   INSERT INTO public.cupido_terms_acceptance (user_id, version, accepted_at)
   VALUES (auth.uid(), _version, now())
   ON CONFLICT (user_id) DO UPDATE SET version = EXCLUDED.version, accepted_at = now();
