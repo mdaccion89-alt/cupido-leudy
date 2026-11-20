@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
 import { toast } from "sonner";
-import { AiEnginesManager } from "@/components/admin/ai-engines-manager";
 import { CupidoAdminPanel } from "@/components/cupido/cupido-admin-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,16 +11,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import {
   adminAdjustCredits,
   adminSetPlan,
   getAdminSnapshot,
-  reviewDistribution,
-  reviewSong,
   saveAdminSettings,
-  saveIntegrationSecrets,
-  savePaypalEmail,
   uploadSiteAsset,
   type AdminSettings,
 } from "@/lib/admin.functions";
@@ -59,38 +55,44 @@ function AdminDashboard() {
   const queryClient = useQueryClient();
   const getSnapshot = useServerFn(getAdminSnapshot);
   const saveSettingsFn = useServerFn(saveAdminSettings);
-  const savePaypalFn = useServerFn(savePaypalEmail);
-  const saveSecretsFn = useServerFn(saveIntegrationSecrets);
   const uploadAssetFn = useServerFn(uploadSiteAsset);
   const adjustCreditsFn = useServerFn(adminAdjustCredits);
   const setPlanFn = useServerFn(adminSetPlan);
-  const reviewSongFn = useServerFn(reviewSong);
-  const reviewDistributionFn = useServerFn(reviewDistribution);
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: () => getSnapshot() });
   const [settings, setSettings] = useState<AdminSettings | null>(null);
-  const [paypalEmail, setPaypalEmail] = useState("");
-  const [paypalClientId, setPaypalClientId] = useState("");
-  const [paypalSecret, setPaypalSecret] = useState("");
-  const [falKey, setFalKey] = useState("");
-  const [huggingFaceToken, setHuggingFaceToken] = useState("");
-  const [huggingFaceTokens, setHuggingFaceTokens] = useState("");
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [geminiModel, setGeminiModel] = useState("");
-  const [hfEndpoint, setHfEndpoint] = useState("");
-  const [hfMusicModel, setHfMusicModel] = useState("");
-  const [falImageModel, setFalImageModel] = useState("");
-  const [falVideoModel, setFalVideoModel] = useState("");
-  const [falVoiceModel, setFalVoiceModel] = useState("");
-  const [falInstrumentalModel, setFalInstrumentalModel] = useState("");
-  const [falVocalModel, setFalVocalModel] = useState("");
-  const [falDubbingModel, setFalDubbingModel] = useState("");
-  const [falDemucsModel, setFalDemucsModel] = useState("");
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
   const bannerInput = useRef<HTMLInputElement>(null);
   const [creditDrafts, setCreditDrafts] = useState<Record<string, number>>({});
   const [planDrafts, setPlanDrafts] = useState<Record<string, "free" | "pro" | "premium">>({});
+
+  const reports = useQuery({
+    queryKey: ["cupido-admin", "reports"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cupido_reports")
+        .select("id,reason,reported_id,reporter_id,status,created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const reviewReport = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "reviewed" | "dismissed" }) => {
+      const { error } = await supabase
+        .from("cupido_reports")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Reporte actualizado.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
+    },
+    onError: () => toast.error("No se pudo actualizar el reporte."),
+  });
 
   useEffect(() => {
     if (snapshot.data?.settings?.site_title) {
@@ -102,26 +104,7 @@ function AdminDashboard() {
         logo_url: snapshot.data.settings.logo_url ?? "",
         primary_color: snapshot.data.settings.primary_color ?? "",
         accent_color: snapshot.data.settings.accent_color ?? "",
-        songs_enabled: snapshot.data.settings.songs_enabled ?? true,
-        covers_enabled: snapshot.data.settings.covers_enabled ?? true,
-        videos_enabled: snapshot.data.settings.videos_enabled ?? true,
-        purchases_enabled: snapshot.data.settings.purchases_enabled ?? true,
-        gallery_enabled: snapshot.data.settings.gallery_enabled ?? true,
       });
-    }
-    setPaypalEmail(snapshot.data?.paypalEmail ?? "");
-    const models = (snapshot.data as { models?: Record<string, string> })?.models;
-    if (models) {
-      setGeminiModel(models["GEMINI_MODEL"] ?? "");
-      setHfEndpoint(models["HF_ENDPOINT"] ?? "");
-      setHfMusicModel(models["HF_MUSIC_MODEL"] ?? "");
-      setFalImageModel(models["FAL_IMAGE_MODEL"] ?? "");
-      setFalVideoModel(models["FAL_VIDEO_MODEL"] ?? "");
-      setFalVoiceModel(models["FAL_VOICE_MODEL"] ?? "");
-      setFalInstrumentalModel(models["FAL_INSTRUMENTAL_MODEL"] ?? "");
-      setFalVocalModel(models["FAL_VOCAL_MODEL"] ?? "");
-      setFalDubbingModel(models["FAL_DUBBING_MODEL"] ?? "");
-      setFalDemucsModel(models["FAL_DEMUCS_MODEL"] ?? "");
     }
   }, [snapshot.data]);
 
@@ -193,14 +176,6 @@ function AdminDashboard() {
   }
 
   const users = snapshot.data.users;
-  const pending = snapshot.data.pending;
-  const distributions = snapshot.data.distributions as {
-    id?: unknown;
-    title?: unknown;
-    status?: unknown;
-    createdAt?: unknown;
-    voiceUrl?: unknown;
-  }[];
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8">
@@ -216,15 +191,12 @@ function AdminDashboard() {
         </div>
       </div>
 
-      <Tabs defaultValue="identidad">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-7">
+      <Tabs defaultValue="cupido">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
           <TabsTrigger value="cupido">Cupido</TabsTrigger>
           <TabsTrigger value="identidad">Identidad</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
           <TabsTrigger value="revisiones">Revisiones</TabsTrigger>
-          <TabsTrigger value="integraciones">Integraciones</TabsTrigger>
-          <TabsTrigger value="motores">Motores IA</TabsTrigger>
-          <TabsTrigger value="distribuciones">Distribuciones</TabsTrigger>
         </TabsList>
 
         <TabsContent value="cupido" className="mt-6">
@@ -323,33 +295,6 @@ function AdminDashboard() {
                 onChange={(e) => setSettings({ ...settings, banner_text: e.target.value })}
               />
             </Field>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <Toggle
-                label="Canciones"
-                checked={settings.songs_enabled}
-                onChange={(v) => setSettings({ ...settings, songs_enabled: v })}
-              />
-              <Toggle
-                label="Covers"
-                checked={settings.covers_enabled}
-                onChange={(v) => setSettings({ ...settings, covers_enabled: v })}
-              />
-              <Toggle
-                label="Videos"
-                checked={settings.videos_enabled}
-                onChange={(v) => setSettings({ ...settings, videos_enabled: v })}
-              />
-              <Toggle
-                label="Compras"
-                checked={settings.purchases_enabled}
-                onChange={(v) => setSettings({ ...settings, purchases_enabled: v })}
-              />
-              <Toggle
-                label="Galería"
-                checked={settings.gallery_enabled}
-                onChange={(v) => setSettings({ ...settings, gallery_enabled: v })}
-              />
-            </div>
             <Button
               variant="hero"
               disabled={saveSettings.isPending}
@@ -466,46 +411,38 @@ function AdminDashboard() {
 
         <TabsContent value="revisiones" className="mt-6">
           <section className="panel grain p-6">
-            <h2 className="mb-4 font-semibold">Covers y distribuciones pendientes</h2>
+            <h2 className="mb-4 font-semibold">Reportes de la comunidad</h2>
             <div className="space-y-3">
-              {pending.length === 0 && (
-                <p className="text-sm text-muted-foreground">No hay revisiones pendientes.</p>
+              {reports.data?.length === 0 && (
+                <p className="text-sm text-muted-foreground">No hay reportes pendientes.</p>
               )}
-              {pending.map((song) => (
+              {(reports.data ?? []).map((report) => (
                 <div
-                  key={song.id}
+                  key={report.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 p-4"
                 >
                   <div>
-                    <p className="font-medium">{song.title}</p>
+                    <p className="font-medium">{report.reason || "Reporte sin motivo"}</p>
                     <p className="text-xs text-muted-foreground">
-                      {song.kind} · {song.user_id.slice(0, 8)}
+                      {`${report.reporter_id.slice(0, 8)} → ${report.reported_id.slice(0, 8)} · ${new Date(report.created_at).toLocaleString("es")}`}
                     </p>
                   </div>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="hero"
-                      onClick={() =>
-                        mutate(
-                          reviewSongFn({ data: { songId: song.id, approve: true } }),
-                          "Aprobado.",
-                        )
-                      }
+                      disabled={reviewReport.isPending}
+                      onClick={() => reviewReport.mutate({ id: report.id, status: "reviewed" })}
                     >
-                      <Check /> Aprobar
+                      <Check /> Revisado
                     </Button>
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() =>
-                        mutate(
-                          reviewSongFn({ data: { songId: song.id, approve: false } }),
-                          "Rechazado.",
-                        )
-                      }
+                      disabled={reviewReport.isPending}
+                      onClick={() => reviewReport.mutate({ id: report.id, status: "dismissed" })}
                     >
-                      <X /> Rechazar
+                      <X /> Descartar
                     </Button>
                   </div>
                 </div>
@@ -514,262 +451,6 @@ function AdminDashboard() {
           </section>
         </TabsContent>
 
-        <TabsContent value="integraciones" className="mt-6">
-          <section className="panel grain space-y-5 p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Correo PayPal del negocio">
-                <Input value={paypalEmail} onChange={(e) => setPaypalEmail(e.target.value)} />
-              </Field>
-              <Field label="PayPal Client ID">
-                <Input
-                  type="password"
-                  value={paypalClientId}
-                  placeholder={snapshot.data.secrets.paypalClient ? "Configurado" : "Pendiente"}
-                  onChange={(e) => setPaypalClientId(e.target.value)}
-                />
-              </Field>
-              <Field label="PayPal Secret">
-                <Input
-                  type="password"
-                  value={paypalSecret}
-                  placeholder="Pendiente"
-                  onChange={(e) => setPaypalSecret(e.target.value)}
-                />
-              </Field>
-              <Field label="Fal.ai API Key">
-                <Input
-                  type="password"
-                  value={falKey}
-                  placeholder={snapshot.data.secrets.fal ? "Configurada" : "Pendiente"}
-                  onChange={(e) => setFalKey(e.target.value)}
-                />
-              </Field>
-              <Field label="Hugging Face Token (token individual)">
-                <Input
-                  type="password"
-                  value={huggingFaceToken}
-                  placeholder={snapshot.data.secrets.huggingFace ? "Configurada" : "Pendiente"}
-                  onChange={(e) => setHuggingFaceToken(e.target.value)}
-                />
-              </Field>
-              <Field label="HF_TOKENS (varias tokens, separadas por coma o salto de línea)">
-                <Textarea
-                  value={huggingFaceTokens}
-                  placeholder={
-                    snapshot.data.secrets.huggingFaceCount
-                      ? `Configuradas: ${snapshot.data.secrets.huggingFaceCount}`
-                      : "hf_primera, hf_segunda, hf_tercera"
-                  }
-                  className="min-h-20 resize-y"
-                  onChange={(e) => setHuggingFaceTokens(e.target.value)}
-                />
-              </Field>
-              <Field label="Gemini API Key (asistente y mejoras IA)">
-                <Input
-                  type="password"
-                  value={geminiApiKey}
-                  placeholder={snapshot.data.secrets.gemini ? "Configurada" : "Pendiente"}
-                  onChange={(e) => setGeminiApiKey(e.target.value)}
-                />
-              </Field>
-              <Field label="OpenAI API Key">
-                <Input
-                  type="password"
-                  value={openaiKey}
-                  placeholder={snapshot.data.secrets.openai ? "Configurada" : "Pendiente"}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="GEMINI_MODEL">
-                <Input value={geminiModel} onChange={(e) => setGeminiModel(e.target.value)} />
-              </Field>
-              <Field label="HF_ENDPOINT">
-                <Input value={hfEndpoint} onChange={(e) => setHfEndpoint(e.target.value)} />
-              </Field>
-              <Field label="HF_MUSIC_MODEL">
-                <Input value={hfMusicModel} onChange={(e) => setHfMusicModel(e.target.value)} />
-              </Field>
-              <Field label="FAL_IMAGE_MODEL">
-                <Input value={falImageModel} onChange={(e) => setFalImageModel(e.target.value)} />
-              </Field>
-              <Field label="FAL_VIDEO_MODEL">
-                <Input value={falVideoModel} onChange={(e) => setFalVideoModel(e.target.value)} />
-              </Field>
-              <Field label="FAL_VOICE_MODEL">
-                <Input value={falVoiceModel} onChange={(e) => setFalVoiceModel(e.target.value)} />
-              </Field>
-              <Field label="FAL_INSTRUMENTAL_MODEL">
-                <Input
-                  value={falInstrumentalModel}
-                  onChange={(e) => setFalInstrumentalModel(e.target.value)}
-                />
-              </Field>
-              <Field label="FAL_VOCAL_MODEL">
-                <Input value={falVocalModel} onChange={(e) => setFalVocalModel(e.target.value)} />
-              </Field>
-              <Field label="FAL_DUBBING_MODEL">
-                <Input
-                  value={falDubbingModel}
-                  onChange={(e) => setFalDubbingModel(e.target.value)}
-                />
-              </Field>
-              <Field label="FAL_DEMUCS_MODEL">
-                <Input value={falDemucsModel} onChange={(e) => setFalDemucsModel(e.target.value)} />
-              </Field>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Las claves y modelos se guardan en `.env.local` del servidor, nunca en la base de
-              datos ni en el navegador. Deja un campo vacío para no cambiarlo; usa Limpiar modelos
-              para borrar valores explícitamente.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="hero"
-                onClick={() =>
-                  mutate(savePaypalFn({ data: { email: paypalEmail } }), "Correo PayPal guardado.")
-                }
-              >
-                <Save /> Guardar correo
-              </Button>
-              <Button
-                variant="glass"
-                onClick={() =>
-                  mutate(
-                    saveSecretsFn({
-                      data: {
-                        paypalClientId,
-                        paypalSecret,
-                        falKey,
-                        huggingFaceToken,
-                        huggingFaceTokens,
-                        geminiApiKey,
-                        openaiKey,
-                        GEMINI_MODEL: geminiModel,
-                        HF_ENDPOINT: hfEndpoint,
-                        HF_MUSIC_MODEL: hfMusicModel,
-                        FAL_IMAGE_MODEL: falImageModel,
-                        FAL_VIDEO_MODEL: falVideoModel,
-                        FAL_VOICE_MODEL: falVoiceModel,
-                        FAL_INSTRUMENTAL_MODEL: falInstrumentalModel,
-                        FAL_VOCAL_MODEL: falVocalModel,
-                        FAL_DUBBING_MODEL: falDubbingModel,
-                        FAL_DEMUCS_MODEL: falDemucsModel,
-                      },
-                    }),
-                    "Claves y modelos guardados en el servidor.",
-                  )
-                }
-              >
-                <Save /> Guardar claves y modelos
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() =>
-                  mutate(
-                    saveSecretsFn({
-                      data: {
-                        clear: [
-                          "GEMINI_MODEL",
-                          "HF_ENDPOINT",
-                          "HF_MUSIC_MODEL",
-                          "FAL_IMAGE_MODEL",
-                          "FAL_VIDEO_MODEL",
-                          "FAL_VOICE_MODEL",
-                          "FAL_INSTRUMENTAL_MODEL",
-                          "FAL_VOCAL_MODEL",
-                          "FAL_DUBBING_MODEL",
-                          "FAL_DEMUCS_MODEL",
-                        ],
-                      },
-                    }).then(() => {
-                      setGeminiModel("");
-                      setHfEndpoint("");
-                      setHfMusicModel("");
-                      setFalImageModel("");
-                      setFalVideoModel("");
-                      setFalVoiceModel("");
-                      setFalInstrumentalModel("");
-                      setFalVocalModel("");
-                      setFalDubbingModel("");
-                      setFalDemucsModel("");
-                    }),
-                    "Modelos limpiados en el servidor.",
-                  )
-                }
-              >
-                <X /> Limpiar modelos
-              </Button>
-            </div>
-          </section>
-        </TabsContent>
-
-        <TabsContent value="motores" className="mt-6">
-          <AiEnginesManager />
-        </TabsContent>
-
-        <TabsContent value="distribuciones" className="mt-6">
-          <section className="panel grain p-6">
-            <h2 className="mb-4 font-semibold">Solicitudes de distribución ($2)</h2>
-            <div className="space-y-3">
-              {distributions.length === 0 && (
-                <p className="text-sm text-muted-foreground">Aún no hay solicitudes.</p>
-              )}
-              {distributions.map((item) => (
-                <div
-                  key={String(item.id)}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 p-4"
-                >
-                  <div>
-                    <p className="font-medium">{String(item.title ?? "Canción")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {String(item.status ?? "pending")} · {String(item.createdAt ?? "")}
-                    </p>
-                    {item.voiceUrl ? (
-                      <a
-                        className="text-xs text-primary hover:underline"
-                        href={String(item.voiceUrl)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Escuchar voz grabada
-                      </a>
-                    ) : null}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="hero"
-                      disabled={item.status === "approved"}
-                      onClick={() =>
-                        mutate(
-                          reviewDistributionFn({ data: { id: String(item.id), approve: true } }),
-                          "Distribución aprobada.",
-                        )
-                      }
-                    >
-                      <Check /> Aprobar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      disabled={item.status === "rejected"}
-                      onClick={() =>
-                        mutate(
-                          reviewDistributionFn({ data: { id: String(item.id), approve: false } }),
-                          "Distribución rechazada.",
-                        )
-                      }
-                    >
-                      <X /> Rechazar
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </TabsContent>
       </Tabs>
     </main>
   );
@@ -790,27 +471,5 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <Label>{label}</Label>
       {children}
     </div>
-  );
-}
-
-function Toggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 rounded-xl border border-border/60 p-3 text-sm">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 accent-primary"
-      />
-      {label}
-    </label>
   );
 }

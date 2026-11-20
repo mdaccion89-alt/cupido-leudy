@@ -1,11 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { Buffer } from "node:buffer";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Json } from "@/integrations/supabase/types";
-import { getAdminClient, hfTokens } from "./server-helpers";
+import type { Database } from "@/integrations/supabase/types";
+import { getAdminClient } from "./server-helpers";
 import { ADMIN_EMAIL } from "./credits";
 
 type AdminContext = {
@@ -20,45 +18,6 @@ async function assertAdmin({ supabase, userId, claims }: AdminContext) {
   if (!data) throw new Error("Forbidden");
 }
 
-function sectionsObject(value: Json | null | undefined): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, unknown>;
-}
-
-async function persistEnv(
-  updates: Record<string, string | null | undefined>,
-  options?: { clear?: string[] },
-) {
-  const file = path.resolve(process.cwd(), ".env.local");
-  let text = "";
-  try {
-    text = await readFile(file, "utf8");
-  } catch {
-    text = "";
-  }
-  const clearSet = new Set(options?.clear ?? []);
-  for (const [key, raw] of Object.entries(updates)) {
-    const shouldClear = raw === null || clearSet.has(key);
-    const value = typeof raw === "string" ? raw : "";
-    if (shouldClear) {
-      delete process.env[key];
-      const pattern = new RegExp(`^${key}=.*(?:\r?\n)?`, "m");
-      text = text.replace(pattern, "");
-      continue;
-    }
-    if (!value.trim()) continue;
-    process.env[key] = value;
-    const safe = value.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n");
-    const pattern = new RegExp(`^${key}=.*$`, "m");
-    text = pattern.test(text)
-      ? text.replace(pattern, `${key}=${safe}`)
-      : `${text.trimEnd()}\n${key}=${safe}`;
-  }
-  await mkdir(path.dirname(file), { recursive: true });
-  const normalized = text.replace(/\n{3,}/g, "\n\n").trim();
-  await writeFile(file, normalized ? `${normalized}\n` : "", { encoding: "utf8", mode: 0o600 });
-}
-
 export type AdminSettings = {
   site_title: string;
   site_tagline: string;
@@ -67,11 +26,6 @@ export type AdminSettings = {
   logo_url: string;
   primary_color: string;
   accent_color: string;
-  songs_enabled: boolean;
-  covers_enabled: boolean;
-  videos_enabled: boolean;
-  purchases_enabled: boolean;
-  gallery_enabled: boolean;
 };
 
 export const getAdminSnapshot = createServerFn({ method: "GET" })
@@ -79,7 +33,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertAdmin(context);
     const { supabase } = context;
-    const [settings, profiles, credits, roles, creators, pending, payments] = await Promise.all([
+    const [settings, profiles, credits, roles, creators] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
       supabase
         .from("profiles")
@@ -91,28 +45,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       supabase
         .from("creator_profiles")
         .select("id,display_name,is_official,is_premium,follower_count"),
-      supabase
-        .from("songs")
-        .select("id,title,kind,user_id,status,review_status,created_at,prompt")
-        .eq("review_status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(100),
-      supabase.from("payment_settings").select("paypal_email").eq("id", 1).maybeSingle(),
     ]);
-    const sections = sectionsObject(settings.data?.custom_sections as Json | undefined);
-    const distributions = Array.isArray(sections["distributions"]) ? sections["distributions"] : [];
-    const distributionsWithVoice = await Promise.all(
-      distributions.map(async (item) => {
-        if (!item || typeof item !== "object") return item;
-        const record = item as Record<string, unknown>;
-        const voicePath = typeof record["voicePath"] === "string" ? record["voicePath"] : "";
-        if (!voicePath) return item;
-        const { data: signed } = await supabase.storage
-          .from("uploads")
-          .createSignedUrl(voicePath, 3600);
-        return { ...record, voiceUrl: signed?.signedUrl ?? "" };
-      }),
-    );
     return {
       settings: (settings.data ?? {}) as Partial<AdminSettings>,
       users: (profiles.data ?? []).map((p) => ({
@@ -122,29 +55,6 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
         isOfficial: creators.data?.find((c) => c.id === p.id)?.is_official ?? false,
         followers: creators.data?.find((c) => c.id === p.id)?.follower_count ?? 0,
       })),
-      pending: pending.data ?? [],
-      paypalEmail: payments.data?.paypal_email ?? "",
-      distributions: distributionsWithVoice,
-      secrets: {
-        fal: Boolean(process.env["FAL_KEY"]),
-        huggingFace: hfTokens().length > 0,
-        huggingFaceCount: hfTokens().length,
-        gemini: Boolean(process.env["GEMINI_API_KEY"]),
-        openai: Boolean(process.env["OPENAI_API_KEY"]),
-        paypalClient: Boolean(process.env["PAYPAL_CLIENT_ID"] && process.env["PAYPAL_SECRET"]),
-      },
-      models: {
-        GEMINI_MODEL: process.env["GEMINI_MODEL"] ?? "",
-        HF_ENDPOINT: process.env["HF_ENDPOINT"] ?? "",
-        HF_MUSIC_MODEL: process.env["HF_MUSIC_MODEL"] ?? "",
-        FAL_IMAGE_MODEL: process.env["FAL_IMAGE_MODEL"] ?? "",
-        FAL_VIDEO_MODEL: process.env["FAL_VIDEO_MODEL"] ?? "",
-        FAL_VOICE_MODEL: process.env["FAL_VOICE_MODEL"] ?? "",
-        FAL_INSTRUMENTAL_MODEL: process.env["FAL_INSTRUMENTAL_MODEL"] ?? "",
-        FAL_VOCAL_MODEL: process.env["FAL_VOCAL_MODEL"] ?? "",
-        FAL_DUBBING_MODEL: process.env["FAL_DUBBING_MODEL"] ?? "",
-        FAL_DEMUCS_MODEL: process.env["FAL_DEMUCS_MODEL"] ?? "",
-      },
     };
   });
 
@@ -163,11 +73,6 @@ export const saveAdminSettings = createServerFn({ method: "POST" })
         logo_url: data.settings.logo_url,
         primary_color: data.settings.primary_color,
         accent_color: data.settings.accent_color,
-        songs_enabled: data.settings.songs_enabled,
-        covers_enabled: data.settings.covers_enabled,
-        videos_enabled: data.settings.videos_enabled,
-        purchases_enabled: data.settings.purchases_enabled,
-        gallery_enabled: data.settings.gallery_enabled,
       })
       .eq("id", 1);
     if (error) throw error;
@@ -213,62 +118,6 @@ export const savePaypalEmail = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const saveIntegrationSecrets = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator(
-    (input: {
-      paypalClientId?: string | null;
-      paypalSecret?: string | null;
-      falKey?: string | null;
-      huggingFaceToken?: string | null;
-      huggingFaceTokens?: string | null;
-      geminiApiKey?: string | null;
-      openaiKey?: string | null;
-      GEMINI_MODEL?: string | null;
-      HF_ENDPOINT?: string | null;
-      HF_MUSIC_MODEL?: string | null;
-      FAL_IMAGE_MODEL?: string | null;
-      FAL_VIDEO_MODEL?: string | null;
-      FAL_VOICE_MODEL?: string | null;
-      FAL_INSTRUMENTAL_MODEL?: string | null;
-      FAL_VOCAL_MODEL?: string | null;
-      FAL_DUBBING_MODEL?: string | null;
-      FAL_DEMUCS_MODEL?: string | null;
-      clear?: string[];
-    }) => input,
-  )
-  .handler(async ({ data, context }) => {
-    await assertAdmin(context);
-    const normalize = (value: string | null | undefined) => {
-      if (value === null) return null;
-      if (typeof value === "string" && value.trim().length > 0) return value;
-      return undefined;
-    };
-    await persistEnv(
-      {
-        PAYPAL_CLIENT_ID: normalize(data.paypalClientId),
-        PAYPAL_SECRET: normalize(data.paypalSecret),
-        FAL_KEY: normalize(data.falKey),
-        HF_TOKEN: normalize(data.huggingFaceToken),
-        HF_TOKENS: normalize(data.huggingFaceTokens),
-        GEMINI_API_KEY: normalize(data.geminiApiKey),
-        OPENAI_API_KEY: normalize(data.openaiKey),
-        GEMINI_MODEL: normalize(data.GEMINI_MODEL),
-        HF_ENDPOINT: normalize(data.HF_ENDPOINT),
-        HF_MUSIC_MODEL: normalize(data.HF_MUSIC_MODEL),
-        FAL_IMAGE_MODEL: normalize(data.FAL_IMAGE_MODEL),
-        FAL_VIDEO_MODEL: normalize(data.FAL_VIDEO_MODEL),
-        FAL_VOICE_MODEL: normalize(data.FAL_VOICE_MODEL),
-        FAL_INSTRUMENTAL_MODEL: normalize(data.FAL_INSTRUMENTAL_MODEL),
-        FAL_VOCAL_MODEL: normalize(data.FAL_VOCAL_MODEL),
-        FAL_DUBBING_MODEL: normalize(data.FAL_DUBBING_MODEL),
-        FAL_DEMUCS_MODEL: normalize(data.FAL_DEMUCS_MODEL),
-      },
-      { clear: Array.isArray(data.clear) ? data.clear : [] },
-    );
-    return { ok: true };
-  });
-
 export const adminAdjustCredits = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: { userId: string; delta: number }) => input)
@@ -292,48 +141,6 @@ export const adminSetPlan = createServerFn({ method: "POST" })
       _plan: data.plan,
       _days: data.days,
     });
-    if (error) throw error;
-    return { ok: true };
-  });
-
-export const reviewSong = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((input: { songId: string; approve: boolean }) => input)
-  .handler(async ({ data, context }) => {
-    await assertAdmin(context);
-    const { error } = await context.supabase.rpc("admin_review_cover", {
-      _song_id: data.songId,
-      _approve: data.approve,
-    });
-    if (error) throw error;
-    return { ok: true };
-  });
-
-export const reviewDistribution = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((input: { id: string; approve: boolean }) => input)
-  .handler(async ({ data, context }) => {
-    await assertAdmin(context);
-    const { data: settings } = await context.supabase
-      .from("site_settings")
-      .select("custom_sections")
-      .eq("id", 1)
-      .maybeSingle();
-    const sections = sectionsObject(settings?.custom_sections as Json | undefined);
-    const items = Array.isArray(sections["distributions"]) ? sections["distributions"] : [];
-    const updated = items.map((item) => {
-      if (!item || typeof item !== "object" || (item as Record<string, unknown>)["id"] !== data.id)
-        return item;
-      return {
-        ...(item as Record<string, unknown>),
-        status: data.approve ? "approved" : "rejected",
-        reviewed_at: new Date().toISOString(),
-      };
-    });
-    const { error } = await context.supabase
-      .from("site_settings")
-      .update({ custom_sections: { ...sections, distributions: updated } })
-      .eq("id", 1);
     if (error) throw error;
     return { ok: true };
   });
