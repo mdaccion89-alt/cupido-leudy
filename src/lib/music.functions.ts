@@ -367,21 +367,31 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<MusicApiResult> => {
     const key = process.env.MUSICAPI_KEY;
     if (!key) return { ok: false, message: "MUSICAPI_KEY no está configurado en el servidor." };
+    const customMode = !data.instrumental;
+    const payload = customMode
+      ? {
+          task_type: "create_music",
+          custom_mode: true,
+          prompt: data.prompt,
+          tags: data.tags,
+          title: data.title,
+          make_instrumental: false,
+          mv: "sonic-v5",
+        }
+      : {
+          task_type: "create_music",
+          custom_mode: false,
+          gpt_description_prompt: data.prompt,
+          make_instrumental: true,
+          mv: "sonic-v5",
+        };
     const response = await fetch(MUSICAPI_CREATE_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        task_type: "create_music",
-        custom_mode: !data.instrumental,
-        prompt: data.prompt,
-        tags: data.tags,
-        title: data.title,
-        make_instrumental: data.instrumental,
-        mv: "sonic-v5",
-      }),
+      body: JSON.stringify(payload),
     });
     let created: unknown;
     try {
