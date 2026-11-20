@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Coffee,
   Flame,
+  Gift,
   Loader2,
   Mic,
   MicOff,
@@ -14,14 +15,17 @@ import {
   Square,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CoinIcon } from "@/components/cupido/coin-icon";
+import { GiftGrid } from "@/components/cupido/gift-grid";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { CALL_COSTS } from "@/lib/cupido";
+import { CALL_COSTS, type Gift as GiftItem } from "@/lib/cupido";
 
 export const Route = createFileRoute("/chat")({
   validateSearch: (search: { userId?: string }) => search,
@@ -68,9 +72,11 @@ type SignalPayload =
 
 function ChatPage() {
   const { session, loading: authLoading } = useAuth();
+  const account = useAccount();
   const viewerId = session?.user.id ?? null;
   const { userId: searchUserId } = Route.useSearch();
   const queryClient = useQueryClient();
+  const [giftOpen, setGiftOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
@@ -306,8 +312,34 @@ function ChatPage() {
     onError: (error) =>
       toast.error(
         error instanceof Error && error.message.includes("INSUFFICIENT")
-          ? "No tienes créditos suficientes."
+          ? "No tienes monedas brillantes suficientes."
           : "No se pudo iniciar la llamada.",
+      ),
+  });
+
+  const sendGift = useMutation({
+    mutationFn: async (gift: GiftItem) => {
+      if (!activeConversation?.other) throw new Error("Elige una conversación.");
+      const { error } = await supabase.rpc("cupido_send_gift", {
+        _receiver: activeConversation.other.id,
+        _gift_id: gift.id,
+        _credits: gift.credits,
+        _cash_value: gift.cash,
+      });
+      if (error) throw error;
+      return activeConversation.other.id;
+    },
+    onSuccess: (receiverId) => {
+      account.refresh();
+      setGiftOpen(false);
+      toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error && error.message.includes("INSUFFICIENT")
+          ? "No tienes monedas brillantes suficientes."
+          : "No se pudo enviar el regalo.",
       ),
   });
 
@@ -414,12 +446,19 @@ function ChatPage() {
                   </p>
                   <p className="text-xs text-muted-foreground">Chat privado de Cupido Leudy</p>
                 </div>
+                <span className="flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-100" title="Tus monedas brillantes">
+                  <CoinIcon className="size-4" />
+                  {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+                </span>
+                <Button size="sm" variant="outline" onClick={() => setGiftOpen(true)} className="gap-1">
+                  <Gift className="h-4 w-4" /> Regalar
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => startCall.mutate("cafe")}
                   disabled={startCall.isPending}
-                  title={`${CALL_COSTS.cafe} créditos`}
+                  title={`${CALL_COSTS.cafe} monedas brillantes`}
                 >
                   <Coffee /> Café
                 </Button>
@@ -427,7 +466,7 @@ function ChatPage() {
                   size="sm"
                   onClick={() => startCall.mutate("hot")}
                   disabled={startCall.isPending}
-                  title={`${CALL_COSTS.hot} créditos`}
+                  title={`${CALL_COSTS.hot} monedas brillantes`}
                 >
                   <Flame /> Hot
                 </Button>
@@ -536,6 +575,24 @@ function ChatPage() {
               <PhoneOff /> Rechazar
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={giftOpen} onOpenChange={setGiftOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}
+            </DialogTitle>
+            <DialogDescription className="flex items-center gap-1.5">
+              <CoinIcon className="size-4" /> Tienes {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
+            </DialogDescription>
+          </DialogHeader>
+          <GiftGrid
+            onSelect={(gift) => sendGift.mutate(gift)}
+            disabled={sendGift.isPending || !activeConversation?.other}
+            compact
+          />
         </DialogContent>
       </Dialog>
 

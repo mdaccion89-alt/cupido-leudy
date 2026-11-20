@@ -288,26 +288,35 @@ export type Database = {
       };
       notifications: {
         Row: {
+          actor_id: string | null;
           body: string;
           created_at: string;
           id: string;
+          kind: string | null;
           read: boolean;
+          target_id: string | null;
           title: string;
           user_id: string;
         };
         Insert: {
+          actor_id?: string | null;
           body?: string;
           created_at?: string;
           id?: string;
+          kind?: string | null;
           read?: boolean;
+          target_id?: string | null;
           title: string;
           user_id: string;
         };
         Update: {
+          actor_id?: string | null;
           body?: string;
           created_at?: string;
           id?: string;
+          kind?: string | null;
           read?: boolean;
+          target_id?: string | null;
           title?: string;
           user_id?: string;
         };
@@ -727,6 +736,68 @@ export type Database = {
       };
       Relationships: [];
     };
+    cupido_gifts: {
+      Row: { cash: number; credits: number; emoji: string; id: string; name: string; sort_order: number };
+      Insert: { cash: number; credits: number; emoji: string; id: string; name: string; sort_order: number };
+      Update: { cash?: number; credits?: number; emoji?: string; id?: string; name?: string; sort_order?: number };
+      Relationships: [];
+    };
+    cupido_live_rooms: {
+      Row: {
+        created_at: string;
+        ended_at: string | null;
+        host_id: string;
+        id: string;
+        is_live: boolean;
+        title: string;
+        viewer_count: number;
+      };
+      Insert: {
+        created_at?: string;
+        ended_at?: string | null;
+        host_id: string;
+        id?: string;
+        is_live?: boolean;
+        title: string;
+        viewer_count?: number;
+      };
+      Update: {
+        created_at?: string;
+        ended_at?: string | null;
+        host_id?: string;
+        id?: string;
+        is_live?: boolean;
+        title?: string;
+        viewer_count?: number;
+      };
+      Relationships: [];
+    };
+    cupido_live_signals: {
+      Row: { created_at: string; id: string; payload: Json; receiver_id: string | null; room_id: string; sender_id: string };
+      Insert: {
+        created_at?: string;
+        id?: string;
+        payload: Json;
+        receiver_id?: string | null;
+        room_id: string;
+        sender_id: string;
+      };
+      Update: {
+        created_at?: string;
+        id?: string;
+        payload?: Json;
+        receiver_id?: string | null;
+        room_id?: string;
+        sender_id?: string;
+      };
+      Relationships: [];
+    };
+    cupido_live_viewers: {
+      Row: { joined_at: string; room_id: string; user_id: string };
+      Insert: { joined_at?: string; room_id: string; user_id: string };
+      Update: { joined_at?: string; room_id?: string; user_id?: string };
+      Relationships: [];
+    };
     cupido_likes: {
       Row: { actor_id: string; created_at: string; kind: string; target_id: string };
       Insert: { actor_id: string; created_at?: string; kind: string; target_id: string };
@@ -942,11 +1013,19 @@ export type Database = {
       };
       Returns: undefined;
     };
+    cupido_end_live_room: { Args: { _id: string }; Returns: undefined };
     cupido_send_gift: {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string };
       Returns: string;
     };
+    cupido_send_live_gift: {
+      Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string; _room: string };
+      Returns: string;
+    };
     cupido_set_avatar: { Args: { _moderation: string; _url: string }; Returns: undefined };
+    cupido_set_like: { Args: { _kind: string; _remove: boolean; _target: string }; Returns: undefined };
+    cupido_start_live_room: { Args: { _title: string }; Returns: string };
+    cupido_toggle_post_like: { Args: { _post: string }; Returns: boolean };
     cupido_start_call: { Args: { _callee: string; _mode: string }; Returns: string };
     cupido_submit_selfie: { Args: { _path: string }; Returns: undefined };
     cupido_answer_call: { Args: { _accept: boolean; _id: string }; Returns: undefined };

@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import { CoinIcon } from "@/components/cupido/coin-icon";
+import { GiftGrid } from "@/components/cupido/gift-grid";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +16,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount } from "@/lib/account";
 import { CREDIT_PACKAGES } from "@/lib/credits";
-import { COUNTRIES, GIFTS, MIN_WITHDRAWAL, countryFlag, countryName, withdrawalMethods } from "@/lib/cupido";
+import { COUNTRIES, MIN_WITHDRAWAL, countryFlag, countryName, withdrawalMethods, type Gift as GiftItem } from "@/lib/cupido";
 import { capturePaypalOrder, createPaypalOrder } from "@/lib/payments.functions";
 
 export const Route = createFileRoute("/tienda")({
@@ -88,7 +90,7 @@ function StorePage() {
     void (async () => {
       const result = await captureOrder({ data: { orderId: token } });
       if (result.ok) {
-        toast.success(`Se acreditaron ${result.credits.toLocaleString("es")} créditos ❤️`);
+        toast.success(`Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
         account.refresh();
         void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
       } else {
@@ -109,7 +111,7 @@ function StorePage() {
   });
 
   const sendGift = useMutation({
-    mutationFn: async (gift: (typeof GIFTS)[number]) => {
+    mutationFn: async (gift: GiftItem) => {
       if (!giftTo) throw new Error("Elige a quién regalar.");
       const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
@@ -126,7 +128,7 @@ function StorePage() {
     onError: (error) =>
       toast.error(
         error instanceof Error && error.message.includes("INSUFFICIENT")
-          ? "No tienes créditos suficientes para ese regalo."
+          ? "No tienes monedas brillantes suficientes para ese regalo."
           : "No se pudo enviar el regalo.",
       ),
   });
@@ -164,7 +166,7 @@ function StorePage() {
         <div className="max-w-md rounded-3xl border border-white/10 bg-white/[0.04] p-8 text-center">
           <h1 className="font-display text-2xl text-white">Inicia sesión para comprar o regalar</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Los créditos se usan en llamadas Hot/Café y en regalos virtuales.
+            Las monedas brillantes se usan en llamadas Hot/Café y en regalos virtuales.
           </p>
           <Button asChild className="mt-5">
             <Link to="/auth">Iniciar sesión</Link>
@@ -179,10 +181,12 @@ function StorePage() {
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl text-white">Tienda</h1>
-          <p className="text-sm text-muted-foreground">Créditos, regalos y retiros de Cupido Leudy.</p>
+          <p className="text-sm text-muted-foreground">Monedas brillantes, 99 regalos y retiros de Cupido Leudy.</p>
         </div>
-        <div className="rounded-2xl border border-pink-400/30 bg-pink-500/10 px-5 py-3 text-right">
-          <p className="text-xs uppercase tracking-wide text-pink-200/70">Créditos disponibles</p>
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 px-5 py-3 text-right">
+          <p className="flex items-center justify-end gap-1.5 text-xs uppercase tracking-wide text-amber-200/80">
+            <CoinIcon className="size-4" /> Monedas brillantes disponibles
+          </p>
           <p className="font-display text-2xl text-white">
             {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
           </p>
@@ -208,24 +212,15 @@ function StorePage() {
               </div>
             </div>
             <Button asChild variant="outline">
-              <Link to="/tienda">Ver paquetes de créditos</Link>
+              <Link to="/tienda">Ver paquetes de monedas</Link>
             </Button>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {GIFTS.map((gift) => (
-              <button
-                key={gift.id}
-                type="button"
-                onClick={() => sendGift.mutate(gift)}
-                disabled={sendGift.isPending}
-                className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center transition hover:border-pink-400/50 hover:bg-black/30 disabled:opacity-60"
-              >
-                <span className="block text-2xl">{gift.emoji}</span>
-                <span className="mt-1 block text-sm font-medium text-white">{gift.name}</span>
-                <span className="block text-xs text-pink-200">{gift.credits.toLocaleString("es")} créditos</span>
-                <span className="block text-[11px] text-muted-foreground">US${gift.cash.toFixed(2)} retirables</span>
-              </button>
-            ))}
+          <div className="mt-5 flex items-center gap-2">
+            <Gift className="h-4 w-4 text-pink-300" />
+            <h2 className="font-display text-lg text-white">99 regalos para enamorar</h2>
+          </div>
+          <div className="mt-3">
+            <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending} />
           </div>
         </section>
       )}
@@ -233,7 +228,7 @@ function StorePage() {
       <section className="mb-8">
         <div className="mb-3 flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-pink-300" />
-          <h2 className="font-display text-xl text-white">Paquetes de créditos</h2>
+          <h2 className="font-display text-xl text-white">Paquetes de monedas brillantes</h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {CREDIT_PACKAGES.map((pack) => (
@@ -246,7 +241,7 @@ function StorePage() {
               {"featured" in pack && pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
               <p className="text-sm text-muted-foreground">{pack.label}</p>
               <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
-              <p className="text-xs text-muted-foreground">créditos</p>
+              <p className="text-xs text-muted-foreground">monedas brillantes</p>
               <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
               <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
                 {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} Comprar con PayPal
@@ -255,7 +250,7 @@ function StorePage() {
           ))}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Pago seguro con PayPal (saldo o tarjeta). Los créditos se acreditan al volver a la tienda.
+          Pago seguro con PayPal (saldo o tarjeta). Las monedas brillantes se acreditan al volver a la tienda.
         </p>
       </section>
 

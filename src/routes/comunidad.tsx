@@ -52,17 +52,26 @@ function CommunityPage() {
     queryKey: ["cupido-relations", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
-      const [likes, follows, friends] = await Promise.all([
+      const [likes, follows, friends, posts, postLikes] = await Promise.all([
         supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", viewerId!),
         supabase.from("follows").select("following_id").eq("follower_id", viewerId!),
         supabase
           .from("cupido_friends")
           .select("requester_id,addressee_id,status")
           .or(`requester_id.eq.${viewerId},addressee_id.eq.${viewerId}`),
+        supabase
+          .from("cupido_posts")
+          .select("id,user_id")
+          .eq("moderation_status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(48),
+        supabase.from("cupido_post_likes").select("post_id").eq("user_id", viewerId!),
       ]);
       if (likes.error) throw likes.error;
       if (follows.error) throw follows.error;
       if (friends.error) throw friends.error;
+      if (posts.error) throw posts.error;
+      if (postLikes.error) throw postLikes.error;
       const liked = new Set((likes.data ?? []).filter((row) => row.kind === "interested").map((row) => row.target_id));
       const following = new Set((follows.data ?? []).map((row) => row.following_id));
       const friendMap: FriendMap = new Map(
@@ -71,7 +80,12 @@ function CommunityPage() {
           row.status,
         ]),
       );
-      return { liked, following, friendMap };
+      const latestPostByUser = new Map<string, string>();
+      for (const post of posts.data ?? []) {
+        if (!latestPostByUser.has(post.user_id)) latestPostByUser.set(post.user_id, post.id);
+      }
+      const likedPosts = new Set((postLikes.data ?? []).map((row) => row.post_id));
+      return { liked, following, friendMap, latestPostByUser, likedPosts };
     },
   });
 
@@ -101,16 +115,51 @@ function CommunityPage() {
   const like = useMutation({
     mutationFn: async ({ targetId, kind }: { targetId: string; kind: "interested" | "pass" }) => {
       if (!viewerId) return requireLogin();
-      const { error } = await supabase
-        .from("cupido_likes")
-        .upsert({ actor_id: viewerId, target_id: targetId, kind }, { onConflict: "actor_id,target_id" });
+      const { error } = await supabase.rpc("cupido_set_like", {
+        _target: targetId,
+        _kind: kind,
+        _remove: false,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
+      toast.success("Preferencia guardada ❤️");
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
     },
     onError: () => toast.error("No se pudo guardar tu interés."),
   });
+
+  const mediaLike = useMutation({
+    mutationFn: async ({ postId, remove }: { postId: string; remove: boolean }) => {
+      if (!viewerId) return requireLogin();
+      if (remove && !relations.data?.likedPosts.has(postId)) {
+        toast.info("Aún no marcaste que te gusta esta publicación.");
+        return;
+      }
+      const { error } = await supabase.rpc("cupido_toggle_post_like", { _post: postId });
+      if (error) throw error;
+      toast.success(remove ? "Te gusta eliminado" : "❤️ Te gusta");
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-media", viewerId] });
+    },
+    onError: () => toast.error("No se pudo actualizar el me gusta."),
+  });
+
+  const isPersonLiked = (profileId: string) => {
+    const postId = relations.data?.latestPostByUser.get(profileId);
+    return Boolean(postId && relations.data?.likedPosts.has(postId));
+  };
+
+  const likeLatestMedia = (profileId: string, remove: boolean) => {
+    const postId = relations.data?.latestPostByUser.get(profileId);
+    if (!postId) {
+      toast.info("Esta persona aún no tiene fotos o videos para calificar.");
+      return;
+    }
+    mediaLike.mutate({ postId, remove });
+  };
 
   const follow = useMutation({
     mutationFn: async (targetId: string) => {
@@ -235,8 +284,11 @@ function CommunityPage() {
               myId={viewerId}
               interested={relations.data?.liked.has(person.id)}
               following={relations.data?.following.has(person.id)}
+              liked={isPersonLiked(person.id)}
               friendStatus={relations.data?.friendMap.get(person.id)}
               onInterested={(kind) => like.mutate({ targetId: person.id, kind })}
+              onLike={() => likeLatestMedia(person.id, false)}
+              onUnlike={() => likeLatestMedia(person.id, true)}
               onFollow={() => follow.mutate(person.id)}
               onFriend={() => friend.mutate(person.id)}
               onGift={() => void navigate({ to: "/tienda", search: { userId: person.id } })}

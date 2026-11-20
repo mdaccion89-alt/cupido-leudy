@@ -1,6 +1,10 @@
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Coffee, Flame, Phone, ShoppingBag } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { BadgeCheck, Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
+import { toast } from "sonner";
+import { CoinIcon } from "@/components/cupido/coin-icon";
+import { LiveRoom } from "@/components/cupido/live-room";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
@@ -22,10 +26,30 @@ type CallRow = {
   created_at: string;
 };
 
+type LiveRow = {
+  id: string;
+  host_id: string;
+  title: string;
+  viewer_count: number;
+  host_name: string;
+  host_avatar: string;
+  is_verified_blue: boolean;
+};
+
+type ActiveLive = {
+  roomId: string;
+  hostId: string;
+  hostName: string;
+  role: "host" | "viewer";
+};
+
 function CallsPage() {
   const { session } = useAuth();
-  const { balance } = useAccount();
+  const account = useAccount();
+  const queryClient = useQueryClient();
   const viewerId = session?.user.id ?? null;
+  const [liveTitle, setLiveTitle] = useState("");
+  const [activeLive, setActiveLive] = useState<ActiveLive | null>(null);
 
   const calls = useQuery({
     queryKey: ["cupido-call-history", viewerId],
@@ -42,6 +66,93 @@ function CallsPage() {
     },
   });
 
+  const myProfile = useQuery({
+    queryKey: ["cupido-my-verification", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("creator_profiles")
+        .select("display_name,is_verified_blue")
+        .eq("id", viewerId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const liveRooms = useQuery({
+    queryKey: ["cupido-live-rooms", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data: rooms, error } = await supabase
+        .from("cupido_live_rooms")
+        .select("id,host_id,title,viewer_count")
+        .eq("is_live", true)
+        .order("created_at", { ascending: false })
+        .limit(12);
+      if (error) throw error;
+      const ids = [...new Set((rooms ?? []).map((room) => room.host_id))];
+      const profiles = ids.length
+        ? (await supabase.from("creator_profiles").select("id,display_name,avatar_url,is_verified_blue").in("id", ids)).data ?? []
+        : [];
+      return (rooms ?? []).map<LiveRow>((room) => {
+        const profile = profiles.find((row) => row.id === room.host_id);
+        return {
+          id: room.id,
+          host_id: room.host_id,
+          title: room.title,
+          viewer_count: room.viewer_count,
+          host_name: profile?.display_name ?? "Miembro de Cupido",
+          host_avatar: profile?.avatar_url ?? "",
+          is_verified_blue: profile?.is_verified_blue ?? false,
+        };
+      });
+    },
+  });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("cupido-live-list")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient, viewerId]);
+
+  const startLive = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_start_live_room", { _title: liveTitle.trim() });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (roomId) => {
+      setActiveLive({
+        roomId,
+        hostId: viewerId!,
+        hostName: myProfile.data?.display_name ?? "Tú",
+        role: "host",
+      });
+      setLiveTitle("");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
+    },
+    onError: (error) =>
+      toast.error(
+        error instanceof Error && error.message.includes("NOT_VERIFIED")
+          ? "Necesitas Insignia Azul para iniciar un Live."
+          : "No se pudo iniciar el Live.",
+      ),
+  });
+
+  const refreshAfterLive = () => {
+    setActiveLive(null);
+    void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
+  };
+
+  const canHostLive = Boolean(account.isAdmin || myProfile.data?.is_verified_blue);
+
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
       <header className="rounded-3xl border border-pink-400/25 bg-gradient-to-br from-pink-500/15 via-fuchsia-500/10 to-transparent p-7">
@@ -49,11 +160,11 @@ function CallsPage() {
           <Phone className="size-3.5" /> Llamadas en vivo
         </p>
         <h1 className="mt-4 font-display text-3xl text-white sm:text-4xl">
-          Conexiones reales, voz real ❤️
+          Conexiones reales, voz real y Lives ❤️
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Inicia una llamada desde el chat con la persona que te interesa. Las notas de voz son gratis;
-          las llamadas usan créditos y se conectan por WebRTC con señalización Supabase Realtime.
+          las llamadas usan monedas brillantes y se conectan por WebRTC con señalización Supabase Realtime.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Button asChild>
@@ -63,34 +174,95 @@ function CallsPage() {
           </Button>
           <Button asChild variant="glass">
             <Link to="/tienda">
-              <ShoppingBag className="size-4" /> Comprar créditos
+              <ShoppingBag className="size-4" /> Comprar monedas brillantes
             </Link>
           </Button>
         </div>
       </header>
+
+      <section className="mt-6 rounded-3xl border border-pink-400/25 bg-pink-500/[0.07] p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-2 font-display text-xl text-white">
+              <Radio className="size-5 animate-pulse text-pink-400" /> Lives de Cupido
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Solo perfiles con Insignia Azul pueden transmitir. Todos pueden mirar y regalar.
+            </p>
+          </div>
+          {canHostLive ? (
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              <input
+                value={liveTitle}
+                onChange={(event) => setLiveTitle(event.target.value)}
+                placeholder="Título de tu Live…"
+                className="h-9 min-w-48 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+              />
+              <Button onClick={() => startLive.mutate()} disabled={startLive.isPending} className="gap-2">
+                {startLive.isPending ? "Iniciando…" : <><Radio className="size-4" /> Iniciar Live</>}
+              </Button>
+            </div>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-200">
+              <BadgeCheck className="size-3.5" /> Insignia Azul requerida para transmitir
+            </span>
+          )}
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {(liveRooms.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay Lives activos en este momento.</p>
+          ) : (
+            liveRooms.data!.map((room) => (
+              <div key={room.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-pink-500/20 text-lg">
+                  {room.host_name.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1 truncate text-sm font-medium text-white">
+                    {room.title}
+                    {room.is_verified_blue && <BadgeCheck className="size-4 shrink-0 fill-sky-400 text-white" />}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {room.host_name} · <Users className="inline size-3" /> {room.viewer_count} viendo
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    setActiveLive({ roomId: room.id, hostId: room.host_id, hostName: room.host_name, role: "viewer" })
+                  }
+                >
+                  Ver Live
+                </Button>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       <section className="mt-6 grid gap-4 sm:grid-cols-2">
         <div className="rounded-2xl border border-orange-400/25 bg-orange-500/10 p-5">
           <Flame className="size-6 text-orange-300" />
           <h2 className="mt-3 font-display text-xl text-white">Sala Hot</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {CALL_COSTS.hot} créditos por llamada. Conversación apasionada y directa con consentimiento.
+            {CALL_COSTS.hot} monedas brillantes por llamada. Conversación apasionada y directa con consentimiento.
           </p>
         </div>
         <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-5">
           <Coffee className="size-6 text-sky-300" />
           <h2 className="mt-3 font-display text-xl text-white">Sala Café</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {CALL_COSTS.cafe} créditos por llamada. Para conocerse tranquilo y tomar un café virtual.
+            {CALL_COSTS.cafe} monedas brillantes por llamada. Para conocerse tranquilo y tomar un café virtual.
           </p>
         </div>
       </section>
 
       <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl text-white">Tus créditos</h2>
-          <p className="font-display text-2xl text-pink-200">
-            {balance === Infinity ? "∞" : balance.toLocaleString("es")}
+          <h2 className="font-display text-xl text-white">Tus monedas brillantes</h2>
+          <p className="flex items-center gap-1.5 font-display text-2xl text-amber-200">
+            <CoinIcon className="size-6" />
+            {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
           </p>
         </div>
         <h3 className="mt-6 font-display text-lg text-white">Historial reciente</h3>
@@ -111,12 +283,26 @@ function CallsPage() {
                 <span className="text-xs text-muted-foreground">
                   {new Date(call.created_at).toLocaleString("es")}
                 </span>
-                <span className="text-pink-200">{call.credits_spent} créditos</span>
+                <span className="flex items-center gap-1 text-amber-200">
+                  <CoinIcon className="size-3.5" /> {call.credits_spent}
+                </span>
               </div>
             ))
           )}
         </div>
       </section>
+
+      {activeLive && viewerId && (
+        <LiveRoom
+          roomId={activeLive.roomId}
+          hostId={activeLive.hostId}
+          hostName={activeLive.hostName}
+          viewerId={viewerId}
+          role={activeLive.role}
+          onClose={refreshAfterLive}
+          onEnded={refreshAfterLive}
+        />
+      )}
     </main>
   );
 }

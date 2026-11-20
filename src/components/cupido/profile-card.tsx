@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { BadgeCheck, Beer, Baby, Heart, MessageCircle, UserMinus, UserPlus, Gift } from "lucide-react";
+import { BadgeCheck, Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Gift, X } from "lucide-react";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,11 @@ type ProfileCardProps = {
   myId?: string | null;
   interested?: boolean | undefined;
   following?: boolean | undefined;
+  liked?: boolean | undefined;
   friendStatus?: string | undefined;
   onInterested: (kind: "interested" | "pass") => void;
+  onLike: () => void;
+  onUnlike: () => void;
   onFollow: () => void;
   onFriend: () => void;
   onGift: () => void;
@@ -35,8 +38,11 @@ export function ProfileCard({
   myId,
   interested,
   following,
+  liked,
   friendStatus,
   onInterested,
+  onLike,
+  onUnlike,
   onFollow,
   onFriend,
   onGift,
@@ -102,11 +108,17 @@ export function ProfileCard({
               onClick={() => onInterested("interested")}
               className="gap-1"
             >
-              <Heart className={`h-4 w-4 ${interested ? "fill-white" : ""}`} />
+              <span aria-hidden="true">💘</span>
               {interested ? "Te interesa" : "Me interesa"}
             </Button>
-            <Button variant="outline" onClick={() => onInterested("pass")}>
-              No me interesa
+            <Button variant="outline" onClick={() => onInterested("pass")} className="gap-1">
+              <X className="h-4 w-4" /> No me interesa
+            </Button>
+            <Button variant={liked ? "default" : "outline"} onClick={onLike} className="gap-1">
+              <Heart className={`h-4 w-4 ${liked ? "fill-white" : ""}`} /> ❤️ {liked ? "Te gusta" : "Me gusta"}
+            </Button>
+            <Button variant="outline" onClick={onUnlike} className="gap-1">
+              <ThumbsDown className="h-4 w-4" /> 👎 No me gusta
             </Button>
             <Button variant="outline" onClick={onFollow} className="gap-1">
               {following ? <UserMinus className="h-4 w-4" /> : <UserPlus className="h-4 w-4" />}

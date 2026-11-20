@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   BadgeCheck,
-  Crown,
   Heart,
   Infinity as InfinityIcon,
   LogOut,
@@ -12,6 +11,8 @@ import {
   ShoppingBag,
   UserRound,
 } from "lucide-react";
+import { CoinIcon } from "@/components/cupido/coin-icon";
+import { NotificationBell } from "@/components/cupido/notification-bell";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
@@ -45,7 +46,7 @@ export function SiteHeader() {
 
   const resetLabel = nextReset
     ? `Se renueva el ${new Date(nextReset).toLocaleDateString("es", { day: "numeric", month: "short" })}`
-    : "5 créditos gratis cada 24 h";
+    : "5 monedas brillantes gratis cada 24 h";
 
   return (
     <header className="relative z-20 mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-5 sm:px-8">
@@ -106,12 +107,14 @@ export function SiteHeader() {
         (session ? (
           <div className="flex items-center gap-2">
             <span
-              className="hidden items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary sm:inline-flex"
+              className="hidden items-center gap-1.5 rounded-full border border-amber-300/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-100 sm:inline-flex"
               title={resetLabel}
             >
-              {isAdmin ? <InfinityIcon className="size-3.5" /> : <Crown className="size-3.5" />}
-              {isAdmin ? "ILIMITADO" : `${balance} créditos`}
+              <CoinIcon className="size-4" />
+              {isAdmin ? "ILIMITADO" : `${balance.toLocaleString("es")} monedas brillantes`}
+              {isAdmin && <InfinityIcon className="size-3.5" />}
             </span>
+            <NotificationBell />
             {(isOfficial || plan === "premium") && (
               <BadgeCheck className="size-5 text-primary" aria-label="Perfil oficial verificado" />
             )}
