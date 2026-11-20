@@ -8,7 +8,8 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { useServerFn } from "@tanstack/react-start";
 
 import appCss from "../styles.css?url";
 import { BottomNav } from "@/components/cupido/bottom-nav";
@@ -17,8 +18,10 @@ import { SiteFooter } from "@/components/cupido/site-footer";
 import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { Toaster } from "@/components/ui/sonner";
-import { AuthProvider } from "@/lib/auth-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
+import { registerCupidoReferral } from "@/lib/referral.functions";
+import { captureReferralFromUrl, clearStoredReferral, getStoredReferral } from "@/lib/referral";
 
 function NotFoundComponent() {
   return (
@@ -137,6 +140,30 @@ function RootShell({ children }: { children: ReactNode }) {
   );
 }
 
+function ReferralTracker() {
+  const { session } = useAuth();
+  const register = useServerFn(registerCupidoReferral);
+  const handled = useRef(false);
+
+  useEffect(() => {
+    captureReferralFromUrl();
+  }, []);
+
+  useEffect(() => {
+    if (!session || handled.current) return;
+    const ref = getStoredReferral();
+    if (!ref) return;
+    handled.current = true;
+    void register({ data: { ref } })
+      .then(() => clearStoredReferral())
+      .catch(() => {
+        handled.current = false;
+      });
+  }, [session, register]);
+
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
@@ -144,6 +171,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
+        <ReferralTracker />
         <div className="flex min-h-screen flex-col pb-20 lg:pb-0">
           <SiteHeader />
           <div className="flex-1">

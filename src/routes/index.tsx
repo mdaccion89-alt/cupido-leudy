@@ -3,6 +3,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Heart, Play, ShieldCheck, Sparkles, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
+import { InviteButton } from "@/components/cupido/invite-button";
 import { MediaCard, type CupidoMedia } from "@/components/cupido/media-card";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
 import { Button } from "@/components/ui/button";
@@ -374,9 +375,12 @@ function CupidoHome() {
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {session ? (
-              <Button asChild size="lg">
-                <Link to="/chat">Ir a mis chats</Link>
-              </Button>
+              <>
+                <Button asChild size="lg">
+                  <Link to="/chat">Ir a mis chats</Link>
+                </Button>
+                <InviteButton userId={session.user.id} compact />
+              </>
             ) : (
               <Button asChild size="lg">
                 <Link to="/auth" search={{ ref: "" }}>Crear mi cuenta gratis</Link>

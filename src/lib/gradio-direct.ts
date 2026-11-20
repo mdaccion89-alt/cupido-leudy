@@ -356,7 +356,7 @@ export async function generateDirectFile(options: {
 export async function generateDirectSongAudio(context: DirectContext): Promise<DirectFile> {
   const prompt = context.instrumental ? `${context.prompt} [inst]` : context.prompt;
   const client = await Client.connect("facebook/MusicGen", {
-    hf_token: import.meta.env.VITE_HF_TOKEN as string,
+    hf_token: import.meta.env["VITE_HF_TOKEN"] as `hf_${string}`,
   });
   try {
     const prediction = await client.predict("/predict_batched", [[prompt], [null]]);

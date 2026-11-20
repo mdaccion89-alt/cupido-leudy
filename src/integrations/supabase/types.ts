@@ -435,6 +435,8 @@ export type Database = {
           bio: string | null;
           country_code: string | null;
           created_at: string;
+          credits: number;
+          daily_streak: number;
           display_name: string | null;
           drinks: boolean;
           email: string | null;
@@ -443,10 +445,13 @@ export type Database = {
           has_kids: boolean;
           has_purchased: boolean;
           id: string;
+          last_daily_claim: string | null;
+          last_wheel_spin: string | null;
           looking_for: string | null;
           phone: string | null;
           plan: string;
           plan_expires_at: string | null;
+          referred_by: string | null;
           terms_accepted_at: string | null;
         };
         Insert: {
@@ -456,6 +461,8 @@ export type Database = {
           bio?: string | null;
           country_code?: string | null;
           created_at?: string;
+          credits?: number;
+          daily_streak?: number;
           display_name?: string | null;
           drinks?: boolean;
           email?: string | null;
@@ -464,10 +471,13 @@ export type Database = {
           has_kids?: boolean;
           has_purchased?: boolean;
           id: string;
+          last_daily_claim?: string | null;
+          last_wheel_spin?: string | null;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;
+          referred_by?: string | null;
           terms_accepted_at?: string | null;
         };
         Update: {
@@ -477,6 +487,8 @@ export type Database = {
           bio?: string | null;
           country_code?: string | null;
           created_at?: string;
+          credits?: number;
+          daily_streak?: number;
           display_name?: string | null;
           drinks?: boolean;
           email?: string | null;
@@ -485,10 +497,13 @@ export type Database = {
           has_kids?: boolean;
           has_purchased?: boolean;
           id?: string;
+          last_daily_claim?: string | null;
+          last_wheel_spin?: string | null;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;
+          referred_by?: string | null;
           terms_accepted_at?: string | null;
         };
         Relationships: [];
@@ -970,6 +985,33 @@ export type Database = {
       Row: { accepted_at: string; user_id: string; version: string };
       Insert: { accepted_at?: string; user_id: string; version: string };
       Update: { accepted_at?: string; user_id?: string; version?: string };
+      Relationships: [];
+    };
+    cupido_referrals: {
+      Row: {
+        created_at: string;
+        referee_id: string;
+        referrer_id: string;
+        rewarded_at: string | null;
+        status: string;
+        verified_at: string | null;
+      };
+      Insert: {
+        created_at?: string;
+        referee_id: string;
+        referrer_id: string;
+        rewarded_at?: string | null;
+        status?: string;
+        verified_at?: string | null;
+      };
+      Update: {
+        created_at?: string;
+        referee_id?: string;
+        referrer_id?: string;
+        rewarded_at?: string | null;
+        status?: string;
+        verified_at?: string | null;
+      };
       Relationships: [];
     };
     cupido_withdrawals: {

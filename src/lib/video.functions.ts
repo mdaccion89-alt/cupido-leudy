@@ -61,8 +61,8 @@ export const generateCloudflareImage = createServerFn({ method: "POST" })
     return { prompt };
   })
   .handler(async ({ data }): Promise<CloudflareImageResult> => {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const token = process.env.CLOUDFLARE_API_TOKEN;
+    const accountId = process.env["CLOUDFLARE_ACCOUNT_ID"];
+    const token = process.env["CLOUDFLARE_API_TOKEN"];
     if (!accountId || !token)
       return {
         ok: false,
@@ -223,7 +223,7 @@ export const generatePollinationsVideo = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<PollinationsVideoResult> => {
-    const key = process.env.POLLINATIONS_API_KEY;
+    const key = process.env["POLLINATIONS_API_KEY"];
     if (!key)
       return { ok: false, message: "POLLINATIONS_API_KEY no está configurado en el servidor." };
     const models = await resolveQuestVideoModels(key);

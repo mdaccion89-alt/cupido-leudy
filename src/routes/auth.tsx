@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, Heart, KeyRound, Loader2, Mail, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
+import { captureReferralFromUrl } from "@/lib/referral";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: (search: { ref?: string }) => ({ ref: typeof search.ref === "string" ? search.ref : "" }),
@@ -63,7 +64,6 @@ function AuthPage() {
   const { session } = useAuth();
   const { ref } = Route.useSearch();
   const navigate = useNavigate();
-  const referralHandled = useRef(false);
   const [mode, setMode] = useState<"email" | "phone">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -75,19 +75,8 @@ function AuthPage() {
   const [guestUsed, setGuestUsed] = useState(false);
 
   useEffect(() => {
-    if (!ref || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ref)) return;
-    window.localStorage.setItem("cupido_referrer", ref);
+    captureReferralFromUrl();
   }, [ref]);
-
-  useEffect(() => {
-    if (!session || referralHandled.current) return;
-    const referrer = window.localStorage.getItem("cupido_referrer");
-    if (!referrer) return;
-    referralHandled.current = true;
-    void supabase.rpc("cupido_register_referral", { _referrer: referrer }).finally(() => {
-      window.localStorage.removeItem("cupido_referrer");
-    });
-  }, [session]);
 
   useEffect(() => {
     if (session) navigate({ to: "/" });

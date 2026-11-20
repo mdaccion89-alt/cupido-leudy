@@ -368,7 +368,7 @@ function CallsPage() {
           hostName={activeLive.hostName}
           viewerId={viewerId}
           role={activeLive.role}
-          initialStream={activeLive.stream}
+          initialStream={activeLive.stream ?? null}
           onClose={refreshAfterLive}
           onEnded={refreshAfterLive}
         />

@@ -431,7 +431,7 @@ export const generatePollinationsSong = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }): Promise<PollinationsAudioResult> => {
-    const key = process.env.POLLINATIONS_API_KEY;
+    const key = process.env["POLLINATIONS_API_KEY"];
     if (!key)
       return { ok: false, message: "POLLINATIONS_API_KEY no está configurado en el servidor." };
     const prompt = data.instrumental ? `${data.prompt}. instrumental, sin voz` : data.prompt;

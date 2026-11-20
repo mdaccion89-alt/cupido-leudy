@@ -1,36 +1,45 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Coins, Play, Sparkles } from "lucide-react";
+import { Play, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
-import { ROULETTE_PRIZES, claimAdReward, spinCafeRoulette } from "@/lib/rewards.functions";
+import { HOUR_MS, ROULETTE_PRIZES, formatCountdown } from "@/lib/rewards";
+import { spinCafeRoulette } from "@/lib/rewards.functions";
 
 const SEGMENT_COLORS = ["bg-pink-500/20", "bg-violet-500/20", "bg-amber-500/20", "bg-rose-500/20"];
+const SEGMENT_SIZE = 360 / ROULETTE_PRIZES.length;
 
 export function CafeRoulette() {
   const account = useAccount();
   const spinFn = useServerFn(spinCafeRoulette);
-  const adFn = useServerFn(claimAdReward);
   const queryClient = useQueryClient();
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
+  const [adOpen, setAdOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
-  const spin = useMutation({
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const mutation = useMutation({
     mutationFn: () => spinFn(),
     onMutate: () => setSpinning(true),
     onSuccess: (result) => {
-      const target = ((360 - result.index * (360 / ROULETTE_PRIZES.length)) % 360 + 360) % 360;
-      setRotation((current) => current + 360 * 5 + (((target - (current % 360)) % 360) + 360) % 360);
+      const target = (((360 - (result.index + 0.5) * SEGMENT_SIZE) % 360) + 360) % 360;
+      setRotation((current) => current + 360 * 5 + ((((target - (current % 360)) % 360) + 360) % 360));
       window.setTimeout(() => {
         setSpinning(false);
         toast[result.awarded ? "success" : "info"](
-          result.awarded ? `La ruleta Café te dio +${result.awarded} monedas ✨` : "Hoy no hubo premio, vuelve en una hora ❤️",
+          result.awarded ? `La ruleta Café te dio +${result.awarded} monedas ✨` : "Suerte esta vez, vuelve en una hora ❤️",
         );
-        account.refresh();
         void queryClient.invalidateQueries({ queryKey: ["account"] });
-      }, 2600);
+        account.refresh();
+      }, 3000);
     },
     onError: (error) => {
       setSpinning(false);
@@ -38,14 +47,10 @@ export function CafeRoulette() {
     },
   });
 
-  const ad = useMutation({
-    mutationFn: () => adFn(),
-    onSuccess: (result) => {
-      toast.success(`Anuncio completado: +${result.awarded} monedas 🎬`);
-      account.refresh();
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo completar el anuncio."),
-  });
+  const lastSpin = account.lastWheelSpin ? Date.parse(account.lastWheelSpin) : 0;
+  const waitingMs = Math.max(0, lastSpin + HOUR_MS - now);
+  const onCooldown = waitingMs > 0;
+  const busy = spinning || mutation.isPending;
 
   return (
     <section className="rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
@@ -57,8 +62,12 @@ export function CafeRoulette() {
 
       <div className="relative mx-auto mt-4 size-44">
         <div
-          className="size-full rounded-full border-4 border-amber-200/70 shadow-[0_0_30px_rgba(236,72,153,0.35)] transition-transform duration-[2500ms] ease-out"
-          style={{ transform: `rotate(${rotation}deg)`, background: "conic-gradient(#ec4899 0 45deg,#8b5cf6 45deg 90deg,#f59e0b 90deg 135deg,#f43f5e 135deg 180deg,#ec4899 180deg 225deg,#8b5cf6 225deg 270deg,#f59e0b 270deg 315deg,#f43f5e 315deg 360deg)" }}
+          className="size-full rounded-full border-4 border-amber-200/70 shadow-[0_0_30px_rgba(236,72,153,0.35)] transition-transform duration-[3000ms] ease-out"
+          style={{
+            transform: `rotate(${rotation}deg)`,
+            background:
+              "conic-gradient(#ec4899 0 45deg,#8b5cf6 45deg 90deg,#f59e0b 90deg 135deg,#f43f5e 135deg 180deg,#ec4899 180deg 225deg,#8b5cf6 225deg 270deg,#f59e0b 270deg 315deg,#f43f5e 315deg 360deg)",
+          }}
         />
         <div className="absolute inset-0 grid place-items-center">
           <div className="grid size-16 place-items-center rounded-full border-4 border-background bg-background/95 font-display text-lg text-white">☕</div>
@@ -67,11 +76,12 @@ export function CafeRoulette() {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button className="flex-1 gap-2" disabled={spinning || spin.isPending} onClick={() => spin.mutate()}>
-          <Sparkles className="size-4" /> {spinning ? "Girando…" : "Girar ruleta gratis"}
+        <Button className="flex-1 gap-2" disabled={busy || onCooldown} onClick={() => mutation.mutate()}>
+          <Sparkles className="size-4" />
+          {busy ? "Girando…" : onCooldown ? `Gira de nuevo en ${formatCountdown(waitingMs)}` : "Girar ruleta gratis"}
         </Button>
-        <Button variant="secondary" className="gap-2" disabled={ad.isPending} onClick={() => ad.mutate()}>
-          {ad.isPending ? <Coins className="size-4 animate-pulse" /> : <Play className="size-4" />} Ver anuncio +25
+        <Button variant="secondary" className="gap-2" onClick={() => setAdOpen(true)}>
+          <Play className="size-4" /> Ver anuncio +25
         </Button>
       </div>
       <div className="mt-3 flex flex-wrap gap-1 text-[11px] text-muted-foreground">
@@ -84,6 +94,7 @@ export function CafeRoulette() {
       <p className="mt-2 text-[11px] text-amber-100/70">
         Con tus monedas desbloqueas 1 vídeo gratis y el regalo especial de la dueña ☕❤️
       </p>
+      <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
     </section>
   );
 }

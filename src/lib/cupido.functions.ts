@@ -186,7 +186,7 @@ export const verifyCupidoLiveFace = createServerFn({ method: "POST" })
     images.forEach((match, index) => {
       const mime = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/s.exec(data.frames[index] ?? "")?.[1] ?? "image/jpeg";
       parts.push({ text: `Captura ${index + 1}: ${labels[index]}` });
-      parts.push({ inline_data: { mime_type: mime, data: match![1] } });
+      parts.push({ inline_data: { mime_type: mime, data: match![1] ?? "" } });
     });
     let response: Response;
     try {

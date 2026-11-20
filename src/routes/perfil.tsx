@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { InviteButton } from "@/components/cupido/invite-button";
 import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -457,16 +458,7 @@ function ProfilePage() {
                   Comparte tu enlace. Recibirás la recompensa cuando tu invitado apruebe su verificación facial.
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                className="gap-2"
-                onClick={() => {
-                  void navigator.clipboard.writeText(`${window.location.origin}/auth?ref=${viewerId}`);
-                  toast.success("Enlace de referido copiado ❤️");
-                }}
-              >
-                <UserPlus className="size-4" /> Copiar mi enlace
-              </Button>
+              <InviteButton userId={viewerId} />
             </div>
           )}
 
