@@ -368,6 +368,7 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
     const key = process.env.MUSICAPI_KEY;
     if (!key) return { ok: false, message: "MUSICAPI_KEY no está configurado en el servidor." };
     const customMode = !data.instrumental;
+    const gptDescriptionPrompt = data.prompt;
     const payload = customMode
       ? {
           task_type: "create_music",
@@ -381,7 +382,7 @@ export const generateMusicApiSong = createServerFn({ method: "POST" })
       : {
           task_type: "create_music",
           custom_mode: false,
-          gpt_description_prompt: data.prompt,
+          gpt_description_prompt: String(gptDescriptionPrompt).slice(0, 350),
           make_instrumental: true,
           mv: "sonic-v5",
         };
