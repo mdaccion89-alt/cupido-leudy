@@ -67,6 +67,7 @@ function AuthPage() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
+  const [recoverySent, setRecoverySent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [guestUsed, setGuestUsed] = useState(false);
 
@@ -114,6 +115,27 @@ function AuthPage() {
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo crear la cuenta.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendPasswordReset = async () => {
+    const address = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      toast.error("Escribe tu correo para recibir el enlace de recuperación.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(address, {
+        redirectTo: `${window.location.origin}/auth`,
+      });
+      if (error) throw error;
+      setRecoverySent(true);
+      toast.success(`Te enviamos el enlace de recuperación a ${address}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo enviar el enlace de recuperación.");
     } finally {
       setBusy(false);
     }
@@ -258,7 +280,10 @@ function AuthPage() {
                 required
                 autoComplete="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setRecoverySent(false);
+                }}
                 className="h-11 rounded-xl bg-surface/80"
               />
             </div>
@@ -339,12 +364,19 @@ function AuthPage() {
         )}
 
         <div className="mt-3 text-center">
-          <a
-            href="mailto:leudyfeliz81@gmail.com?subject=Recuperar%20contrase%C3%B1a%20Cupido%20Leudy"
-            className="text-xs text-muted-foreground underline hover:text-foreground"
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void sendPasswordReset()}
+            className="text-xs text-muted-foreground underline hover:text-foreground disabled:opacity-50"
           >
-            ¿Olvidé mi contraseña? Escribe a leudyfeliz81@gmail.com
-          </a>
+            ¿Olvidé mi contraseña?
+          </button>
+          {recoverySent && (
+            <p className="mt-2 text-xs text-emerald-300">
+              Te enviamos el enlace de recuperación a {email.trim()}. Revisa tu correo.
+            </p>
+          )}
         </div>
 
         <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wider text-muted-foreground">
