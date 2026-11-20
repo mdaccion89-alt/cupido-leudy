@@ -18,9 +18,12 @@ type NotificationRow = {
 };
 
 function notificationIcon(kind: string | null): string {
-  if (kind === "interest") return "💘";
+  if (kind === "interest" || kind === "interested") return "💘";
   if (kind === "like") return "❤️";
+  if (kind === "comment") return "💬";
+  if (kind === "message") return "💌";
   if (kind === "follow") return "👤";
+  if (kind === "friend") return "🤝";
   if (kind === "gift" || kind === "live_gift") return "🎁";
   return "🔔";
 }
@@ -34,6 +37,7 @@ export function NotificationBell() {
   const notifications = useQuery({
     queryKey: ["cupido-notifications", viewerId],
     enabled: Boolean(viewerId),
+    staleTime: 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("notifications")
@@ -46,6 +50,21 @@ export function NotificationBell() {
     },
   });
 
+  const unreadCount = useQuery({
+    queryKey: ["cupido-notifications-count", viewerId],
+    enabled: Boolean(viewerId),
+    staleTime: 0,
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", viewerId!)
+        .eq("read", false);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
@@ -55,6 +74,7 @@ export function NotificationBell() {
         { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${viewerId}` },
         () => {
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
+          void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
         },
       )
       .subscribe();
@@ -63,7 +83,7 @@ export function NotificationBell() {
     };
   }, [viewerId, queryClient]);
 
-  const unread = (notifications.data ?? []).filter((row) => !row.read).length;
+  const unread = unreadCount.data ?? (notifications.data ?? []).filter((row) => !row.read).length;
 
   const markRead = async (row: NotificationRow) => {
     if (!viewerId || row.read) return;
@@ -74,6 +94,7 @@ export function NotificationBell() {
       .eq("user_id", viewerId);
     if (error) return;
     void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
   };
 
   return (

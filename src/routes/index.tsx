@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Heart, Play, ShieldCheck, Sparkles, Upload, Users } from "lucide-react";
+import { Heart, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { InviteButton } from "@/components/cupido/invite-button";
-import { MediaCard, type CupidoMedia } from "@/components/cupido/media-card";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
+import { WallFeed } from "@/components/cupido/wall-feed";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
-import { compressImageFile, readVideoDuration, safeExtension, uploadPublicImage } from "@/lib/storage";
+import { fetchFeed, notifyUser, togglePostLike } from "@/lib/posts";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,12 +19,12 @@ export const Route = createFileRoute("/")({
       { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
-        content: `${SLOGAN}. Marca Me interesa, sigue perfiles, agrega amigos y comparte fotos y Lives en ${BRAND}.`,
+        content: `${SLOGAN}. Marca Me interesa, sigue perfiles, agrega amigos y comparte fotos y videos en ${BRAND}.`,
       },
       { property: "og:title", content: `${BRAND} — ${SLOGAN}` },
       {
         property: "og:description",
-        content: `${SLOGAN}. Chat, fotos, Lives y verificación azul en una sola app.`,
+        content: `${SLOGAN}. Chat, fotos, videos y verificación azul en una sola app.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -37,9 +37,6 @@ function CupidoHome() {
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
   const queryClient = useQueryClient();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [caption, setCaption] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [passed, setPassed] = useState<string[]>([]);
 
   const profilesQuery = useQuery({
@@ -54,10 +51,7 @@ function CupidoHome() {
         .limit(48);
       if (error) throw error;
       if (!data?.length) return [] as CupidoProfile[];
-      const { data: emails } = await supabase
-        .from("profiles")
-        .select("id,email")
-        .in("id", data.map((row) => row.id));
+      const { data: emails } = await supabase.from("profiles").select("id,email").in("id", data.map((row) => row.id));
       const emailMap = new Map((emails ?? []).map((row) => [row.id, row.email]));
       return data.map((row) => ({ ...row, email: emailMap.get(row.id) ?? null })) as CupidoProfile[];
     },
@@ -67,10 +61,7 @@ function CupidoHome() {
     queryKey: ["cupido-likes", userId],
     enabled: Boolean(userId),
     queryFn: async () => {
-      const { data } = await supabase
-        .from("cupido_likes")
-        .select("target_id,kind")
-        .eq("actor_id", userId!);
+      const { data } = await supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", userId!);
       return data ?? [];
     },
   });
@@ -98,61 +89,7 @@ function CupidoHome() {
 
   const mediaQuery = useQuery({
     queryKey: ["cupido-media", userId],
-    queryFn: async () => {
-      const db = supabase as unknown as { from: (table: string) => any };
-      let { data: posts, error } = await db
-        .from("cupido_posts")
-        .select("id,user_id,media_url,media_type,media_path,kind,caption,likes_count")
-        .eq("moderation_status", "approved")
-        .order("created_at", { ascending: false })
-        .limit(24);
-      if (error) {
-        ({ data: posts, error } = await db
-          .from("cupido_posts")
-          .select("id,user_id,media_path,kind,caption,likes_count")
-          .eq("moderation_status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(24));
-      }
-      if (error) throw error;
-      const ids = [...new Set((posts ?? []).map((post) => post.user_id))];
-      const profileRows = ids.length
-        ? (
-            await supabase
-              .from("creator_profiles")
-              .select("id,display_name,avatar_url,is_verified_blue")
-              .in("id", ids)
-          ).data ?? []
-        : [];
-      const emailRows = ids.length
-        ? (await supabase.from("profiles").select("id,email").in("id", ids)).data ?? []
-        : [];
-      const emailMap = new Map(emailRows.map((row) => [row.id, row.email]));
-      return (posts ?? []).map((post): CupidoMedia => {
-        const profile = profileRows.find((row) => row.id === post.user_id);
-        return {
-          id: post.id,
-          user_id: post.user_id,
-          media_url: post.media_url ?? post.media_path,
-          kind: post.kind === "video" ? "video" : "photo",
-          caption: post.caption,
-          likes_count: post.likes_count,
-          display_name: profile?.display_name ?? "Miembro de Cupido",
-          avatar_url: profile?.avatar_url ?? "",
-          is_verified_blue: profile?.is_verified_blue ?? false,
-          email: emailMap.get(post.user_id) ?? null,
-        };
-      });
-    },
-  });
-
-  const mediaLikesQuery = useQuery({
-    queryKey: ["cupido-media-likes", userId],
-    enabled: Boolean(userId),
-    queryFn: async () => {
-      const { data } = await supabase.from("cupido_post_likes").select("post_id").eq("user_id", userId!);
-      return (data ?? []).map((row) => row.post_id);
-    },
+    queryFn: () => fetchFeed({ viewerId: userId, limit: 24 }),
   });
 
   const interestedIds = useMemo(
@@ -168,31 +105,25 @@ function CupidoHome() {
     }
     return map;
   }, [friendsQuery.data, userId]);
-  const likedMediaIds = useMemo(() => new Set(mediaLikesQuery.data ?? []), [mediaLikesQuery.data]);
   const latestMediaByUser = useMemo(() => {
-    const map = new Map<string, CupidoMedia>();
-    for (const media of mediaQuery.data ?? []) {
-      if (!map.has(media.user_id)) map.set(media.user_id, media);
+    const map = new Map<string, { id: string; user_id: string }>();
+    for (const post of mediaQuery.data?.posts ?? []) {
+      if (!map.has(post.user_id)) map.set(post.user_id, post);
     }
     return map;
   }, [mediaQuery.data]);
 
-  const isProfileLiked = (profileId: string) => {
-    const media = latestMediaByUser.get(profileId);
-    return Boolean(media && likedMediaIds.has(media.id));
-  };
-
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-feed")
+      .channel("cupido-home-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
-        void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [queryClient, userId]);
+  }, [queryClient]);
 
   const profiles = (profilesQuery.data ?? []).filter(
     (profile) => profile.id !== userId && !passed.includes(profile.id),
@@ -216,9 +147,18 @@ function CupidoHome() {
       return;
     }
     if (kind === "pass") setPassed((current) => [...current, targetId]);
-    else toast.success("Me interesa guardado ❤️");
+    else {
+      toast.success("Me interesa guardado ❤️");
+      void notifyUser({
+        userId: targetId,
+        title: "❤️ Alguien está interesado",
+        body: "Una persona real marcó que le interesa tu perfil.",
+        kind: "interested",
+        actorId: userId,
+        targetId,
+      });
+    }
     void queryClient.invalidateQueries({ queryKey: ["cupido-likes", userId] });
-    void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", targetId] });
   };
 
   const handleFollow = async (targetId: string) => {
@@ -232,11 +172,19 @@ function CupidoHome() {
       if (error) toast.error(error.message);
       else toast.success("Dejaste de seguir este perfil");
     } else {
-      const { error } = await supabase
-        .from("follows")
-        .insert({ follower_id: userId!, following_id: targetId });
+      const { error } = await supabase.from("follows").insert({ follower_id: userId!, following_id: targetId });
       if (error) toast.error(error.message);
-      else toast.success("Ahora sigues este perfil");
+      else {
+        toast.success("Ahora sigues este perfil");
+        void notifyUser({
+          userId: targetId,
+          title: "👀 Nueva persona que te sigue",
+          body: "Alguien acaba de seguir tu perfil.",
+          kind: "follow",
+          actorId: userId,
+          targetId,
+        });
+      }
     }
     void queryClient.invalidateQueries({ queryKey: ["cupido-follows", userId] });
     void queryClient.invalidateQueries({ queryKey: ["cupido-profiles", userId] });
@@ -254,131 +202,45 @@ function CupidoHome() {
       status: "pending",
     });
     if (error) toast.error(error.message);
-    else toast.success("Solicitud de amistad enviada ❤️");
+    else {
+      toast.success("Solicitud de amistad enviada ❤️");
+      void notifyUser({
+        userId: targetId,
+        title: "🤝 Solicitud de amistad",
+        body: "Una persona real quiere ser tu amiga.",
+        kind: "friend",
+        actorId: userId,
+        targetId,
+      });
+    }
     void queryClient.invalidateQueries({ queryKey: ["cupido-friends", userId] });
   };
 
-  const handleMediaLike = async (postId: string, ownerId: string) => {
-    if (!requireSession()) return;
-    const wasLiked = likedMediaIds.has(postId);
-    const { data, error } = await supabase.rpc("cupido_toggle_post_like", { _post: postId });
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    const isLiked = typeof data === "boolean" ? data : !wasLiked;
-    toast.success(isLiked ? "❤️ Te gusta" : "Te gusta eliminado");
-    void queryClient.invalidateQueries({ queryKey: ["cupido-media-likes", userId] });
-    void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
-    void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", ownerId] });
-  };
-
-  const handleMediaUnlike = async (postId: string, ownerId: string) => {
-    if (!requireSession()) return;
-    if (!likedMediaIds.has(postId)) {
-      toast.info("Aún no marcaste que te gusta esta publicación.");
-      return;
-    }
-    const { error } = await supabase.rpc("cupido_toggle_post_like", { _post: postId });
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Te gusta eliminado");
-    void queryClient.invalidateQueries({ queryKey: ["cupido-media-likes", userId] });
-    void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
-    void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", ownerId] });
-  };
-
   const handleProfileLike = async (profileId: string) => {
-    const media = latestMediaByUser.get(profileId);
-    if (!media) {
-      toast.info("Esta persona aún no tiene fotos o videos para calificar.");
-      return;
-    }
-    await handleMediaLike(media.id, profileId);
-  };
-
-  const handleProfileUnlike = async (profileId: string) => {
-    const media = latestMediaByUser.get(profileId);
-    if (!media) {
-      toast.info("Esta persona aún no tiene fotos o videos para calificar.");
-      return;
-    }
-    await handleMediaUnlike(media.id, profileId);
-  };
-
-  const handleUpload = async (file: File | null) => {
-    if (!file) return;
     if (!requireSession()) return;
-    const isVideo = file.type.startsWith("video/");
-    const isImage = file.type.startsWith("image/");
-    if (!isVideo && !isImage) {
-      toast.error("Elige una foto o un video corto.");
+    const post = latestMediaByUser.get(profileId);
+    if (!post) {
+      toast.info("Esta persona aún no tiene fotos o videos para calificar.");
       return;
     }
-    if (isVideo && file.size > 20 * 1024 * 1024) {
-      toast.error("El video debe pesar menos de 20 MB para ahorrar espacio.");
-      return;
-    }
-    if (!isVideo && file.size > 25 * 1024 * 1024) {
-      toast.error("La foto es demasiado grande. Elige una imagen de menos de 25 MB.");
-      return;
-    }
-    let uploadFile = file;
+    const wasLiked = mediaQuery.data?.liked.has(post.id) ?? false;
     try {
-      if (isVideo) {
-        const duration = await readVideoDuration(file);
-        if (duration > 20) {
-          toast.error("Los videos deben durar máximo 20 segundos.");
-          return;
-        }
-      } else {
-        uploadFile = await compressImageFile(file);
+      const next = await togglePostLike(post.id, wasLiked);
+      if (next && profileId !== userId) {
+        void notifyUser({
+          userId: profileId,
+          title: "❤️ Te gusta en tu publicación",
+          body: "A alguien le gustó tu foto o video.",
+          kind: "like",
+          actorId: userId,
+          targetId: post.id,
+        });
       }
+      toast.success(next ? "❤️ Te gusta" : "Te gusta eliminado");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo preparar el archivo.");
-      return;
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar el me gusta.");
     }
-    setUploading(true);
-    const extension = safeExtension(uploadFile.name, isVideo ? "mp4" : "jpg");
-    let url: string;
-    try {
-      const result = await uploadPublicImage(userId!, uploadFile, "posts", extension);
-      url = result.url;
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo subir el archivo.");
-      setUploading(false);
-      return;
-    }
-    const payload = {
-      user_id: userId!,
-      caption: caption.trim(),
-      media_url: url,
-      media_type: isVideo ? "video" : "image",
-      kind: isVideo ? "video" : "photo",
-    };
-    const db = supabase as unknown as { from: (table: string) => any };
-    const { error: insertError } = await db.from("cupido_posts").insert(payload);
-    if (insertError) {
-      const { error: fallbackError } = await db.from("cupido_posts").insert({
-        user_id: userId!,
-        caption: caption.trim(),
-        media_url: url,
-      });
-      if (fallbackError) toast.error(fallbackError.message);
-      else {
-        toast.success(isVideo ? "Video publicado en Cupido Leudy ❤️" : "Foto publicada en Cupido Leudy ❤️");
-        setCaption("");
-        void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
-      }
-    } else {
-      toast.success(isVideo ? "Video publicado en Cupido Leudy ❤️" : "Foto publicada en Cupido Leudy ❤️");
-      setCaption("");
-      void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
-    }
-    if (fileRef.current) fileRef.current.value = "";
-    setUploading(false);
   };
 
   return (
@@ -393,7 +255,7 @@ function CupidoHome() {
           </h1>
           <p className="mt-4 max-w-xl text-sm text-slate-300 sm:text-base">
             Descubre perfiles verificados, marca <strong>Me interesa</strong>, sigue a quien te guste,
-            agrega amigos y comparte fotos y Lives. El Escudo Cupido cuida cada conexión.
+            agrega amigos y comparte fotos y videos. El Escudo Cupido cuida cada conexión.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {session ? (
@@ -449,11 +311,11 @@ function CupidoHome() {
                   myId={userId}
                   interested={interestedIds.has(profile.id)}
                   following={followingIds.has(profile.id)}
-                  liked={isProfileLiked(profile.id)}
+                  liked={Boolean(latestMediaByUser.has(profile.id) && mediaQuery.data?.liked.has(latestMediaByUser.get(profile.id)!.id))}
                   friendStatus={friendMap.get(profile.id)}
                   onInterested={(kind) => void handleInterested(profile.id, kind)}
                   onLike={() => void handleProfileLike(profile.id)}
-                  onUnlike={() => void handleProfileUnlike(profile.id)}
+                  onUnlike={() => void handleProfileLike(profile.id)}
                   onFollow={() => void handleFollow(profile.id)}
                   onFriend={() => void handleFriend(profile.id)}
                   onGift={() => {
@@ -472,56 +334,7 @@ function CupidoHome() {
         </TabsContent>
 
         <TabsContent value="videos" className="mt-5">
-          <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:flex-row sm:items-center">
-            <div className="flex-1">
-              <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Play className="h-4 w-4 text-pink-300" /> Sube tus fotos y momentos
-              </p>
-              <p className="text-xs text-muted-foreground">Fotos hasta 12 MB y videos hasta 60 MB. Se publican al instante.</p>
-            </div>
-            <input
-              value={caption}
-              onChange={(event) => setCaption(event.target.value)}
-              placeholder="Describe tu foto o video…"
-              className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
-            />
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,video/*"
-              className="hidden"
-              onChange={(event) => void handleUpload(event.target.files?.[0] ?? null)}
-            />
-            <Button onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-2">
-              <Upload className="h-4 w-4" />
-              {uploading ? "Subiendo…" : "Subir foto o video"}
-            </Button>
-          </div>
-          {mediaQuery.isLoading ? (
-            <p className="text-sm text-muted-foreground">Cargando publicaciones…</p>
-          ) : (mediaQuery.data ?? []).length ? (
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {(mediaQuery.data ?? []).map((media) => (
-                <MediaCard
-                  key={media.id}
-                  media={media}
-                  myId={userId}
-                  interested={interestedIds.has(media.user_id)}
-                  liked={likedMediaIds.has(media.id)}
-                  onInterested={() => void handleInterested(media.user_id, "interested")}
-                  onPass={() => void handleInterested(media.user_id, "pass")}
-                  onLike={() => void handleMediaLike(media.id, media.user_id)}
-                  onUnlike={() => void handleMediaUnlike(media.id, media.user_id)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                Sé el primero en publicar una foto o video en Cupido Leudy ❤️
-              </p>
-            </div>
-          )}
+          <WallFeed />
         </TabsContent>
       </Tabs>
     </main>

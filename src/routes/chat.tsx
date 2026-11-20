@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
+import { notifyUser } from "@/lib/posts";
 import {
   CALL_COSTS,
   callErrorMessage,
@@ -250,6 +251,16 @@ function ChatPage() {
         .from("cupido_messages")
         .insert({ conversation_id: activeId, sender_id: viewerId, body });
       if (error) throw error;
+      if (activeConversation?.other?.id) {
+        void notifyUser({
+          userId: activeConversation.other.id,
+          title: "💌 Nuevo mensaje",
+          body: body.slice(0, 120),
+          kind: "message",
+          actorId: viewerId,
+          targetId: activeId,
+        });
+      }
     },
     onSuccess: () => {
       setText("");
@@ -360,6 +371,14 @@ function ChatPage() {
       account.refresh();
       setGiftOpen(false);
       toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
+      void notifyUser({
+        userId: receiverId,
+        title: "🎁 Recibiste un regalo",
+        body: "Alguien te envió un regalo en Cupido Leudy ❤️",
+        kind: "gift",
+        actorId: viewerId,
+        targetId: activeConversation?.id ?? null,
+      });
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) =>

@@ -1,6 +1,6 @@
 # Cupido Leudy ❤️
 
-Citas reales, chat social, videos cortos, verificación facial azul, llamadas en vivo y regalos con saldo retirable. Ejecuta `supabase_cupido.sql` y después `drizzle/migrations/0008_cupido_launch_final.sql` en el SQL Editor de Supabase para activar la configuración final de Cupido.
+Citas reales, chat social, videos cortos, verificación facial azul, llamadas en vivo y regalos con saldo retirable. Ejecuta `supabase_setup.sql`, `supabase_cupido.sql` y las migraciones de `drizzle/migrations/` en orden numérico en el SQL Editor de Supabase. La migración `0012_real_posts_social_notifications.sql` activa el muro real, favoritos, comentarios, vistas, notificaciones y las columnas PayPal Business.
 
 ## Desarrollo
 

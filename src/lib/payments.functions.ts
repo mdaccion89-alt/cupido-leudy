@@ -17,19 +17,44 @@ let cachedToken: { key: string; value: string; expiresAt: number } | undefined;
 
 async function getPaypalConfig(): Promise<PaypalConfig> {
   const admin = await getAdminClient();
-  const { data } = await admin
-    .from("payment_settings")
-    .select("paypal_email,paypal_business_name,paypal_client_id,paypal_secret,paypal_mode")
-    .eq("id", 1)
-    .maybeSingle();
   const db = admin as unknown as { from: (table: string) => any };
-  const { data: appData } = await db
-    .from("app_settings")
-    .select("paypal_email,paypal_me_link,config")
+  let payment = await db
+    .from("payment_settings")
+    .select(
+      "id,business_name,paypal_business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode",
+    )
     .eq("id", 1)
     .maybeSingle();
+  if (payment.error) {
+    payment = await db
+      .from("payment_settings")
+      .select("id,paypal_business_name,paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+      .eq("id", 1)
+      .maybeSingle();
+  }
+  const data = payment.data;
+  let appQuery = await db
+    .from("app_settings")
+    .select(
+      "id,business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode,paypal_me_link,config",
+    )
+    .eq("id", 1)
+    .maybeSingle();
+  if (appQuery.error) {
+    appQuery = await db.from("app_settings").select("id,paypal_email,paypal_me_link,config").eq("id", 1).maybeSingle();
+  }
+  const appData = appQuery.data;
   const app = appData as
-    | { paypal_email?: string | null; paypal_me_link?: string | null; config?: Record<string, unknown> | null }
+    | {
+        business_name?: string | null;
+        paypal_email?: string | null;
+        admin_paypal_email?: string | null;
+        paypal_client_id?: string | null;
+        paypal_secret?: string | null;
+        paypal_mode?: string | null;
+        paypal_me_link?: string | null;
+        config?: Record<string, unknown> | null;
+      }
     | null;
   const config = app?.config ?? {};
   const fromConfig = (...keys: string[]) => {
@@ -40,7 +65,9 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
     return "";
   };
   const mode: "sandbox" | "live" =
-    data?.paypal_mode === "sandbox" || fromConfig("paypal_mode", "mode") === "sandbox"
+    data?.paypal_mode === "sandbox" ||
+    app?.paypal_mode === "sandbox" ||
+    fromConfig("paypal_mode", "mode") === "sandbox"
       ? "sandbox"
       : "live";
   const apiBase =
@@ -50,17 +77,29 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
     apiBase,
     clientId:
       data?.paypal_client_id?.trim() ||
+      app?.paypal_client_id?.trim() ||
       fromConfig("paypal_client_id", "paypalClientId", "clientId") ||
       process.env["PAYPAL_CLIENT_ID"] ||
       "",
     secret:
       data?.paypal_secret?.trim() ||
+      app?.paypal_secret?.trim() ||
       fromConfig("paypal_secret", "paypalSecret") ||
       process.env["PAYPAL_SECRET"] ||
       "",
-    email: data?.paypal_email?.trim() || app?.paypal_email?.trim() || fromConfig("paypal_email") || "",
+    email:
+      data?.paypal_email?.trim() ||
+      data?.admin_paypal_email?.trim() ||
+      app?.paypal_email?.trim() ||
+      app?.admin_paypal_email?.trim() ||
+      fromConfig("paypal_email", "admin_paypal_email") ||
+      "",
     businessName:
-      data?.paypal_business_name?.trim() || fromConfig("paypal_business_name", "businessName") || "Cupido Leudy ❤️",
+      data?.business_name?.trim() ||
+      data?.paypal_business_name?.trim() ||
+      app?.business_name?.trim() ||
+      fromConfig("business_name", "paypal_business_name", "businessName") ||
+      "Cupido Leudy ❤️",
     paypalMeLink: app?.paypal_me_link?.trim() || fromConfig("paypal_me_link", "paypalMeLink") || "",
     mode,
   };
@@ -79,7 +118,7 @@ export const getPaypalCheckoutConfig = createServerFn({ method: "GET" }).handler
   async (): Promise<PublicPaypalConfig> => {
     const config = await getPaypalConfig();
     return {
-      configured: Boolean(config.clientId || config.email),
+      configured: Boolean(config.clientId && config.secret),
       clientId: config.clientId,
       mode: config.mode,
       businessName: config.businessName,

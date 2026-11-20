@@ -34,6 +34,7 @@ import {
   createPaypalOrder,
   getPaypalCheckoutConfig,
 } from "@/lib/payments.functions";
+import { notifyUser } from "@/lib/posts";
 
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
@@ -109,9 +110,25 @@ function StorePage() {
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     queryFn: () => getPaypalCheckoutConfig(),
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("cupido-paypal-config")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "payment_settings" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+      })
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     if (!token || !viewerId || capturedRef.current === token) return;
@@ -160,6 +177,16 @@ function StorePage() {
     onSuccess: () => {
       account.refresh();
       toast.success("Regalo enviado ❤️");
+      if (giftTo) {
+        void notifyUser({
+          userId: giftTo,
+          title: "🎁 Recibiste un regalo",
+          body: "Alguien te envió un regalo en Cupido Leudy ❤️",
+          kind: "gift",
+          actorId: viewerId,
+          targetId: giftTo,
+        });
+      }
     },
     onError: (error) =>
       toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo enviar el regalo.")),
@@ -291,13 +318,9 @@ function StorePage() {
                   }}
                   onError={(message) => toast.error(message)}
                 />
-              ) : paypalConfig.data?.configured ? (
-                <Button className="mt-5" disabled>
-                  <CreditCard /> Client ID de PayPal pendiente en /admin
-                </Button>
               ) : (
-                <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
-                  {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} PayPal o tarjeta
+                <Button className="mt-5" disabled>
+                  <CreditCard /> Configura PayPal Business en /admin
                 </Button>
               )}
             </article>
@@ -306,9 +329,7 @@ function StorePage() {
         <p className="mt-3 text-xs text-muted-foreground">
           {paypalConfig.data?.configured && paypalConfig.data.clientId
             ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
-            : paypalConfig.data?.configured
-              ? "PayPal Business conectado. Agrega el Client ID en /admin para habilitar pagos con PayPal y tarjeta."
-              : "El Admin Supremo debe conectar PayPal Business en /admin para habilitar el checkout real."}
+            : "El Admin Supremo debe guardar correo, Client ID y Secret de PayPal Business en /admin para habilitar el checkout real."}
         </p>
       </section>
 

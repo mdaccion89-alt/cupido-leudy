@@ -14,12 +14,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { InviteButton } from "@/components/cupido/invite-button";
 import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
+import { WallFeed } from "@/components/cupido/wall-feed";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, isSupremeAdminEmail } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
+import { notifyUser } from "@/lib/posts";
 import { extraField, saveAvatarDirect, saveProfileDirect } from "@/lib/profile-write";
 import { compressImageFile, uploadPublicImage } from "@/lib/storage";
 
@@ -220,7 +222,19 @@ function ProfilePage() {
         if (error) throw error;
       }
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] }),
+    onSuccess: () => {
+      if (profileId && viewerId && !profile.data?.following) {
+        void notifyUser({
+          userId: profileId,
+          title: "👀 Nueva persona que te sigue",
+          body: "Alguien acaba de seguir tu perfil.",
+          kind: "follow",
+          actorId: viewerId,
+          targetId: profileId,
+        });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
+    },
     onError: () => toast.error("No se pudo actualizar el seguidor."),
   });
 
@@ -235,6 +249,16 @@ function ProfilePage() {
       if (error) throw error;
     },
     onSuccess: () => {
+      if (profileId && viewerId) {
+        void notifyUser({
+          userId: profileId,
+          title: "🤝 Solicitud de amistad",
+          body: "Una persona real quiere ser tu amiga.",
+          kind: "friend",
+          actorId: viewerId,
+          targetId: profileId,
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
       toast.success("Solicitud de amistad enviada ❤️");
     },
@@ -471,6 +495,27 @@ function ProfilePage() {
             </div>
           )}
         </div>
+      </section>
+
+      <section className="mt-8 space-y-8">
+        <div>
+          <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
+          <WallFeed
+            onlyUserId={profileId}
+            hideUpload
+            emptyText="Esta persona todavía no tiene fotos ni videos publicados."
+          />
+        </div>
+        {own && viewerId && (
+          <div>
+            <h2 className="mb-4 font-display text-xl text-white">Mis favoritos 🔖</h2>
+            <WallFeed
+              savedOnly
+              hideUpload
+              emptyText="Aún no guardaste publicaciones. Toca 🔖 en cualquier foto o video."
+            />
+          </div>
+        )}
       </section>
     </main>
   );
