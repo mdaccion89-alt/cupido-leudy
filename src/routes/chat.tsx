@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  BadgeCheck,
   Coffee,
   Flame,
   Gift,
@@ -17,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ type ChatProfile = {
   display_name: string;
   avatar_url: string;
   is_verified_blue: boolean;
+  email?: string | null;
 };
 
 type ConversationRow = {
@@ -107,7 +108,17 @@ function ChatPage() {
             .in("id", otherIds)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
-      const map = new Map((profiles.data ?? []).map((profile) => [profile.id, profile as ChatProfile]));
+      const emails = otherIds.length
+        ? await supabase.from("profiles").select("id,email").in("id", otherIds)
+        : { data: [], error: null };
+      if (emails.error) throw emails.error;
+      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
+      const map = new Map(
+        (profiles.data ?? []).map((profile) => [
+          profile.id,
+          { ...profile, email: emailMap.get(profile.id) ?? null } as ChatProfile,
+        ]),
+      );
       return (data ?? []).map<ConversationRow>((row) => {
         const otherId = row.participant_a === viewerId ? row.participant_b : row.participant_a;
         return { ...row, other: map.get(otherId) ?? null };
@@ -375,7 +386,7 @@ function ChatPage() {
             Conecta con personas reales, envía notas de voz y recibe regalos.
           </p>
           <Button asChild className="mt-5">
-            <Link to="/auth">Iniciar sesión</Link>
+            <Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link>
           </Button>
         </div>
       </main>
@@ -421,7 +432,7 @@ function ChatPage() {
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1 truncate text-sm font-medium text-white">
                   {row.other?.display_name ?? "Miembro"}
-                  {row.other?.is_verified_blue && <BadgeCheck className="h-4 w-4 shrink-0 fill-sky-400 text-white" />}
+                  <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} className="h-4 w-4" />
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">Toca para abrir la conversación</span>
               </span>
@@ -442,7 +453,7 @@ function ChatPage() {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
                     {activeConversation.other?.display_name ?? "Miembro"}
-                    {activeConversation.other?.is_verified_blue && <BadgeCheck className="h-4 w-4 fill-sky-400 text-white" />}
+                    <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} className="h-4 w-4" />
                   </p>
                   <p className="text-xs text-muted-foreground">Chat privado de Cupido Leudy</p>
                 </div>

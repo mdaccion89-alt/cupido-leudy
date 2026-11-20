@@ -1,4 +1,5 @@
 import { Heart, Image as ImageIcon, Play, ThumbsDown, X } from "lucide-react";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +13,7 @@ export type CupidoMedia = {
   display_name: string;
   avatar_url: string;
   is_verified_blue: boolean;
+  email?: string | null;
 };
 
 type MediaCardProps = {
@@ -52,7 +54,7 @@ export function MediaCard({ media, myId, interested, liked, onInterested, onPass
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
               {media.display_name}
-              {media.is_verified_blue && <span className="ml-1 text-sky-400">✔</span>}
+              <VerifiedBadge email={media.email} verified={media.is_verified_blue} className="ml-1 inline size-4" />
             </p>
             <p className="line-clamp-2 text-xs text-muted-foreground">{media.caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>

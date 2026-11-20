@@ -137,6 +137,7 @@ export type Database = {
       };
       creator_profiles: {
         Row: {
+          age: number | null;
           avatar_url: string;
           bio: string;
           country_code: string;
@@ -145,6 +146,7 @@ export type Database = {
           drinks: boolean;
           follower_count: number;
           friend_count: number;
+          gender: string | null;
           has_kids: boolean;
           id: string;
           is_official: boolean;
@@ -157,6 +159,7 @@ export type Database = {
           verification_status: string;
         };
         Insert: {
+          age?: number | null;
           avatar_url?: string;
           bio?: string;
           country_code?: string;
@@ -165,6 +168,7 @@ export type Database = {
           drinks?: boolean;
           follower_count?: number;
           friend_count?: number;
+          gender?: string | null;
           has_kids?: boolean;
           id: string;
           is_official?: boolean;
@@ -177,6 +181,7 @@ export type Database = {
           verification_status?: string;
         };
         Update: {
+          age?: number | null;
           avatar_url?: string;
           bio?: string;
           country_code?: string;
@@ -185,6 +190,7 @@ export type Database = {
           drinks?: boolean;
           follower_count?: number;
           friend_count?: number;
+          gender?: string | null;
           has_kids?: boolean;
           id?: string;
           is_official?: boolean;
@@ -397,41 +403,86 @@ export type Database = {
         };
         Relationships: [];
       };
+      cupido_reward_claims: {
+        Row: {
+          claim_key: string;
+          created_at: string;
+          id: string;
+          reward_type: string;
+          user_id: string;
+        };
+        Insert: {
+          claim_key: string;
+          created_at?: string;
+          id?: string;
+          reward_type: string;
+          user_id: string;
+        };
+        Update: {
+          claim_key?: string;
+          created_at?: string;
+          id?: string;
+          reward_type?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
+          age: number | null;
+          avatar_url: string | null;
           birth_date: string | null;
+          bio: string | null;
           country_code: string | null;
           created_at: string;
           display_name: string | null;
+          drinks: boolean;
           email: string | null;
           full_name: string | null;
+          gender: string | null;
+          has_kids: boolean;
           id: string;
+          looking_for: string | null;
           phone: string | null;
           plan: string;
           plan_expires_at: string | null;
           terms_accepted_at: string | null;
         };
         Insert: {
+          age?: number | null;
+          avatar_url?: string | null;
           birth_date?: string | null;
+          bio?: string | null;
           country_code?: string | null;
           created_at?: string;
           display_name?: string | null;
+          drinks?: boolean;
           email?: string | null;
           full_name?: string | null;
+          gender?: string | null;
+          has_kids?: boolean;
           id: string;
+          looking_for?: string | null;
           phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;
           terms_accepted_at?: string | null;
         };
         Update: {
+          age?: number | null;
+          avatar_url?: string | null;
           birth_date?: string | null;
+          bio?: string | null;
           country_code?: string | null;
           created_at?: string;
           display_name?: string | null;
+          drinks?: boolean;
           email?: string | null;
           full_name?: string | null;
+          gender?: string | null;
+          has_kids?: boolean;
           id?: string;
+          looking_for?: string | null;
           phone?: string | null;
           plan?: string;
           plan_expires_at?: string | null;

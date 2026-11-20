@@ -6,6 +6,10 @@ import { SLOGAN } from "./cupido";
 
 const IMMEDIATE_ADMIN_EMAIL = "leudyfeliz81@gmail.com";
 
+export function isSupremeAdminEmail(email?: string | null): boolean {
+  return email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
+}
+
 export function useAccount() {
   const { session } = useAuth();
   const userId = session?.user.id ?? null;

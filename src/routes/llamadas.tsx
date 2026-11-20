@@ -3,8 +3,11 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
 import { toast } from "sonner";
+import { CafeRoulette } from "@/components/cupido/cafe-roulette";
 import { CoinIcon } from "@/components/cupido/coin-icon";
+import { DailyReward } from "@/components/cupido/daily-reward";
 import { LiveRoom } from "@/components/cupido/live-room";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
@@ -34,6 +37,7 @@ type LiveRow = {
   host_name: string;
   host_avatar: string;
   is_verified_blue: boolean;
+  email: string | null;
 };
 
 type ActiveLive = {
@@ -95,6 +99,10 @@ function CallsPage() {
       const profiles = ids.length
         ? (await supabase.from("creator_profiles").select("id,display_name,avatar_url,is_verified_blue").in("id", ids)).data ?? []
         : [];
+      const emails = ids.length
+        ? (await supabase.from("profiles").select("id,email").in("id", ids)).data ?? []
+        : [];
+      const emailMap = new Map(emails.map((row) => [row.id, row.email]));
       return (rooms ?? []).map<LiveRow>((room) => {
         const profile = profiles.find((row) => row.id === room.host_id);
         return {
@@ -105,6 +113,7 @@ function CallsPage() {
           host_name: profile?.display_name ?? "Miembro de Cupido",
           host_avatar: profile?.avatar_url ?? "",
           is_verified_blue: profile?.is_verified_blue ?? false,
+          email: emailMap.get(room.host_id) ?? null,
         };
       });
     },
@@ -193,6 +202,11 @@ function CallsPage() {
         </div>
       </header>
 
+      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <DailyReward />
+        <CafeRoulette />
+      </section>
+
       <section className="mt-6 rounded-3xl border border-pink-400/25 bg-pink-500/[0.07] p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -233,7 +247,7 @@ function CallsPage() {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1 truncate text-sm font-medium text-white">
                     {room.title}
-                    {room.is_verified_blue && <BadgeCheck className="size-4 shrink-0 fill-sky-400 text-white" />}
+                    <VerifiedBadge email={room.email} verified={room.is_verified_blue} className="size-4" />
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {room.host_name} · <Users className="inline size-3" /> {room.viewer_count} viendo

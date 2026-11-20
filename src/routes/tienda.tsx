@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
+import { CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,13 @@ function StorePage() {
         .eq("id", giftTo!)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      if (!data) return data;
+      const { data: privateProfile } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", giftTo!)
+        .maybeSingle();
+      return { ...data, email: privateProfile?.email ?? null };
     },
   });
 
@@ -169,7 +176,7 @@ function StorePage() {
             Las monedas brillantes se usan en llamadas Hot/Café y en regalos virtuales.
           </p>
           <Button asChild className="mt-5">
-            <Link to="/auth">Iniciar sesión</Link>
+            <Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link>
           </Button>
         </div>
       </main>
@@ -206,7 +213,7 @@ function StorePage() {
               <div>
                 <p className="flex items-center gap-1 font-semibold text-white">
                   {target.data?.display_name ?? "Miembro de Cupido"}
-                  {target.data?.is_verified_blue && <BadgeCheck className="h-4 w-4 fill-sky-400 text-white" />}
+                  <VerifiedBadge email={target.data?.email} verified={target.data?.is_verified_blue} className="h-4 w-4" />
                 </p>
                 <p className="text-xs text-pink-100/70">Enviar un regalo convierte su valor en saldo retirable.</p>
               </div>

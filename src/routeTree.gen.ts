@@ -14,8 +14,10 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as HistoriaRouteImport } from './routes/historia'
 import { Route as LlamadasRouteImport } from './routes/llamadas'
 import { Route as PerfilRouteImport } from './routes/perfil'
+import { Route as SiguiendoRouteImport } from './routes/siguiendo'
 import { Route as TiendaRouteImport } from './routes/tienda'
 
 const IndexRoute = IndexRouteImport.update({
@@ -43,6 +45,11 @@ const ComunidadRoute = ComunidadRouteImport.update({
   path: '/comunidad',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HistoriaRoute = HistoriaRouteImport.update({
+  id: '/historia',
+  path: '/historia',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LlamadasRoute = LlamadasRouteImport.update({
   id: '/llamadas',
   path: '/llamadas',
@@ -51,6 +58,11 @@ const LlamadasRoute = LlamadasRouteImport.update({
 const PerfilRoute = PerfilRouteImport.update({
   id: '/perfil',
   path: '/perfil',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SiguiendoRoute = SiguiendoRouteImport.update({
+  id: '/siguiendo',
+  path: '/siguiendo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TiendaRoute = TiendaRouteImport.update({
@@ -65,8 +77,10 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
+  '/siguiendo': typeof SiguiendoRoute
   '/tienda': typeof TiendaRoute
 }
 export interface FileRoutesByTo {
@@ -75,8 +89,10 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
+  '/siguiendo': typeof SiguiendoRoute
   '/tienda': typeof TiendaRoute
 }
 export interface FileRoutesById {
@@ -86,8 +102,10 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/perfil': typeof PerfilRoute
+  '/siguiendo': typeof SiguiendoRoute
   '/tienda': typeof TiendaRoute
 }
 export interface FileRouteTypes {
@@ -98,8 +116,10 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/historia'
     | '/llamadas'
     | '/perfil'
+    | '/siguiendo'
     | '/tienda'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -108,8 +128,10 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/historia'
     | '/llamadas'
     | '/perfil'
+    | '/siguiendo'
     | '/tienda'
   id:
     | '__root__'
@@ -118,8 +140,10 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/historia'
     | '/llamadas'
     | '/perfil'
+    | '/siguiendo'
     | '/tienda'
   fileRoutesById: FileRoutesById
 }
@@ -129,8 +153,10 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
+  HistoriaRoute: typeof HistoriaRoute
   LlamadasRoute: typeof LlamadasRoute
   PerfilRoute: typeof PerfilRoute
+  SiguiendoRoute: typeof SiguiendoRoute
   TiendaRoute: typeof TiendaRoute
 }
 
@@ -171,6 +197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComunidadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/historia': {
+      id: '/historia'
+      path: '/historia'
+      fullPath: '/historia'
+      preLoaderRoute: typeof HistoriaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/llamadas': {
       id: '/llamadas'
       path: '/llamadas'
@@ -183,6 +216,13 @@ declare module '@tanstack/react-router' {
       path: '/perfil'
       fullPath: '/perfil'
       preLoaderRoute: typeof PerfilRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/siguiendo': {
+      id: '/siguiendo'
+      path: '/siguiendo'
+      fullPath: '/siguiendo'
+      preLoaderRoute: typeof SiguiendoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tienda': {
@@ -201,8 +241,10 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,
+  HistoriaRoute: HistoriaRoute,
   LlamadasRoute: LlamadasRoute,
   PerfilRoute: PerfilRoute,
+  SiguiendoRoute: SiguiendoRoute,
   TiendaRoute: TiendaRoute,
 }
 export const routeTree = rootRouteImport

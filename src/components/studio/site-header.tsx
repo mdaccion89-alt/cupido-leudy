@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
-  BadgeCheck,
   Heart,
   Infinity as InfinityIcon,
   LogOut,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { NotificationBell } from "@/components/cupido/notification-bell";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount, useSiteSettings } from "@/lib/account";
@@ -115,9 +115,7 @@ export function SiteHeader() {
               {isAdmin && <InfinityIcon className="size-3.5" />}
             </span>
             <NotificationBell />
-            {(isOfficial || plan === "premium") && (
-              <BadgeCheck className="size-5 text-primary" aria-label="Perfil oficial verificado" />
-            )}
+            <VerifiedBadge email={session.user.email} verified={isOfficial || plan === "premium"} />
             <Button asChild variant="glass" size="icon" className="rounded-full">
               <Link to="/perfil" title="Mi perfil">
                 <UserRound className="size-4" />
@@ -139,7 +137,7 @@ export function SiteHeader() {
           </div>
         ) : (
           <Button asChild variant="glass" size="pill">
-            <Link to="/auth">Iniciar sesión</Link>
+            <Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link>
           </Button>
         ))}
     </header>

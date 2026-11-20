@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Gift, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Gift, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
+import { ProfileSettings } from "@/components/cupido/profile-settings";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
-import { useAccount } from "@/lib/account";
+import { useAccount, isSupremeAdminEmail } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
+import { extraField, saveAvatarDirect, saveProfileDirect } from "@/lib/profile-write";
 import { compressImageFile, uploadPublicImage } from "@/lib/storage";
 
 export const Route = createFileRoute("/perfil")({
@@ -60,6 +63,8 @@ function ProfilePage() {
   const [displayName, setDisplayName] = useState("");
   const [fullName, setFullName] = useState("");
   const [bio, setBio] = useState("");
+  const [age, setAge] = useState("");
+  const [gender, setGender] = useState("");
   const [countryCode, setCountryCode] = useState("DO");
   const [lookingFor, setLookingFor] = useState("amistad");
   const [drinks, setDrinks] = useState(false);
@@ -73,7 +78,9 @@ function ProfilePage() {
         supabase.from("creator_profiles").select("*").eq("id", profileId!).maybeSingle(),
         supabase
           .from("profiles")
-          .select("display_name,full_name,email,phone,country_code,terms_accepted_at")
+          .select(
+            "display_name,full_name,email,phone,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids",
+          )
           .eq("id", profileId!)
           .maybeSingle(),
         viewerId
@@ -114,30 +121,31 @@ function ProfilePage() {
     const creator = profile.data?.creator;
     setDisplayName(creator?.display_name ?? profile.data?.privateProfile?.display_name ?? "");
     setFullName(profile.data?.privateProfile?.full_name ?? "");
-    setBio(creator?.bio ?? "");
-    setCountryCode(creator?.country_code ?? "DO");
-    setLookingFor(creator?.looking_for ?? "amistad");
-    setDrinks(Boolean(creator?.drinks));
-    setHasKids(Boolean(creator?.has_kids));
+    const privateProfile = profile.data?.privateProfile;
+    setBio(creator?.bio ?? privateProfile?.bio ?? "");
+    setAge(String(extraField(creator, "age") ?? privateProfile?.age ?? ""));
+    setGender(String(extraField(creator, "gender") ?? privateProfile?.gender ?? ""));
+    setCountryCode(creator?.country_code ?? privateProfile?.country_code ?? "DO");
+    setLookingFor(creator?.looking_for ?? privateProfile?.looking_for ?? "amistad");
+    setDrinks(Boolean(creator?.drinks ?? privateProfile?.drinks));
+    setHasKids(Boolean(creator?.has_kids ?? privateProfile?.has_kids));
   }, [profile.data]);
 
   const save = useMutation({
     mutationFn: async () => {
       if (!profileId) return;
-      const { error } = await supabase.rpc("cupido_save_profile", {
-        _display_name: displayName,
-        _bio: bio,
-        _country_code: countryCode,
-        _looking_for: lookingFor,
-        _drinks: drinks,
-        _has_kids: hasKids,
+      const parsedAge = Number.parseInt(age, 10);
+      await saveProfileDirect(profileId, {
+        displayName: displayName.trim() || "Miembro de Cupido",
+        fullName: fullName.trim(),
+        bio: bio.trim(),
+        age: Number.isFinite(parsedAge) && parsedAge >= 18 && parsedAge <= 100 ? parsedAge : null,
+        gender: gender.trim() || null,
+        countryCode,
+        lookingFor,
+        drinks,
+        hasKids,
       });
-      if (error) throw error;
-      const { error: privateError } = await supabase
-        .from("profiles")
-        .update({ full_name: fullName || null })
-        .eq("id", profileId);
-      if (privateError) throw privateError;
     },
     onSuccess: () => {
       setEditing(false);
@@ -158,11 +166,7 @@ function ProfilePage() {
       if (!verdict.ok) throw new Error(verdict.message);
       if (!verdict.safe && !verdict.needsReview) throw new Error(verdict.reason);
       const { url } = await uploadPublicImage(viewerId, uploadFile, "avatars", extensionOf(uploadFile, "jpg"));
-      const { error: rpcError } = await supabase.rpc("cupido_set_avatar", {
-        _url: url,
-        _moderation: verdict.needsReview ? "pending" : "approved",
-      });
-      if (rpcError) throw rpcError;
+      await saveAvatarDirect(viewerId, url, verdict.needsReview ? "pending" : "approved");
       return verdict;
     },
     onSuccess: (verdict) => {
@@ -248,7 +252,7 @@ function ProfilePage() {
             Tu perfil público se crea automáticamente con tu cuenta.
           </p>
           <Button asChild className="mt-5">
-            <Link to="/auth">Iniciar sesión</Link>
+            <Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link>
           </Button>
         </div>
       </main>
@@ -278,15 +282,19 @@ function ProfilePage() {
             <div className="pb-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-2xl text-white">{displayName || "Miembro de Cupido"}</h1>
-                {verified && (
-                  <BadgeCheck className="size-6 fill-sky-400 text-white" aria-label="Verificado" />
-                )}
+                <VerifiedBadge
+                  email={profile.data?.privateProfile?.email}
+                  verified={verified || isSupremeAdminEmail(profile.data?.privateProfile?.email)}
+                  className="size-6"
+                />
                 {creator?.is_official && <Badge className="bg-gradient-to-r from-pink-500 to-violet-500">Cuenta Oficial</Badge>}
                 {creator?.verification_status === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
                 {creator?.verification_status === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {countryFlag(creator?.country_code)} {countryName(creator?.country_code)} ·{" "}
+                {extraField(creator, "age") ?? profile.data?.privateProfile?.age ?? "—"} años ·{" "}
+                {extraField(creator, "gender") ?? profile.data?.privateProfile?.gender ?? "—"} ·{" "}
                 {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
               </p>
             </div>
@@ -328,7 +336,7 @@ function ProfilePage() {
               </>
             ) : (
               <Button asChild>
-                <Link to="/auth">Inicia sesión para conectar</Link>
+                <Link to="/auth" search={{ ref: "" }}>Inicia sesión para conectar</Link>
               </Button>
             )}
           </div>
@@ -347,6 +355,29 @@ function ProfilePage() {
               <div className="space-y-2">
                 <Label>Nombre completo</Label>
                 <Input value={fullName} maxLength={80} onChange={(event) => setFullName(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Edad</Label>
+                <Input
+                  type="number"
+                  min={18}
+                  max={100}
+                  value={age}
+                  onChange={(event) => setAge(event.target.value)}
+                  placeholder="18"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Género</Label>
+                <Select value={gender || "prefiero-no-decirlo"} onValueChange={(value) => setGender(value === "prefiero-no-decirlo" ? "" : value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mujer">Mujer</SelectItem>
+                    <SelectItem value="hombre">Hombre</SelectItem>
+                    <SelectItem value="no-binario">No binario</SelectItem>
+                    <SelectItem value="prefiero-no-decirlo">Prefiero no decirlo</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2 sm:col-span-2">
                 <Label>Biografía</Label>
@@ -428,6 +459,15 @@ function ProfilePage() {
               >
                 <UserPlus className="size-4" /> Copiar mi enlace
               </Button>
+            </div>
+          )}
+
+          {own && viewerId && (
+            <div className="mt-6">
+              <ProfileSettings
+                email={profile.data?.privateProfile?.email}
+                phone={profile.data?.privateProfile?.phone}
+              />
             </div>
           )}
         </div>

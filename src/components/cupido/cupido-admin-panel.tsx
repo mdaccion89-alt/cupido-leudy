@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { BadgeCheck, Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
+import { Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { savePaypalBusinessSettings, type PaypalBusinessInput } from "@/lib/admin.functions";
 import { countryFlag, countryName } from "@/lib/cupido";
@@ -21,6 +22,7 @@ type VerificationRow = {
   country_code: string;
   verification_status: string;
   is_verified_blue: boolean;
+  email?: string | null;
 };
 
 type WithdrawalRow = {
@@ -68,7 +70,12 @@ export function CupidoAdminPanel() {
         .eq("verification_status", "pending")
         .order("display_name");
       if (error) throw error;
-      return (data ?? []) as VerificationRow[];
+      const emails = data?.length
+        ? await supabase.from("profiles").select("id,email").in("id", data.map((row) => row.id))
+        : { data: [], error: null };
+      if (emails.error) throw emails.error;
+      const map = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
+      return (data ?? []).map((row) => ({ ...row, email: map.get(row.id) ?? null })) as VerificationRow[];
     },
   });
 
@@ -193,7 +200,7 @@ export function CupidoAdminPanel() {
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1 truncate text-sm font-medium text-white">
                       {row.display_name}
-                      {row.is_verified_blue && <BadgeCheck className="size-4 text-sky-300" />}
+                      <VerifiedBadge email={row.email} verified={row.is_verified_blue} className="size-4" />
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {countryFlag(row.country_code)} {countryName(row.country_code)}

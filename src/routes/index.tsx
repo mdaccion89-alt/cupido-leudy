@@ -52,7 +52,13 @@ function CupidoHome() {
         .order("created_at", { ascending: false })
         .limit(48);
       if (error) throw error;
-      return (data ?? []) as CupidoProfile[];
+      if (!data?.length) return [] as CupidoProfile[];
+      const { data: emails } = await supabase
+        .from("profiles")
+        .select("id,email")
+        .in("id", data.map((row) => row.id));
+      const emailMap = new Map((emails ?? []).map((row) => [row.id, row.email]));
+      return data.map((row) => ({ ...row, email: emailMap.get(row.id) ?? null })) as CupidoProfile[];
     },
   });
 
@@ -108,6 +114,10 @@ function CupidoHome() {
               .in("id", ids)
           ).data ?? []
         : [];
+      const emailRows = ids.length
+        ? (await supabase.from("profiles").select("id,email").in("id", ids)).data ?? []
+        : [];
+      const emailMap = new Map(emailRows.map((row) => [row.id, row.email]));
       return (posts ?? []).map((post): CupidoMedia => {
         const profile = profileRows.find((row) => row.id === post.user_id);
         return {
@@ -120,6 +130,7 @@ function CupidoHome() {
           display_name: profile?.display_name ?? "Miembro de Cupido",
           avatar_url: profile?.avatar_url ?? "",
           is_verified_blue: profile?.is_verified_blue ?? false,
+          email: emailMap.get(post.user_id) ?? null,
         };
       });
     },
@@ -368,7 +379,7 @@ function CupidoHome() {
               </Button>
             ) : (
               <Button asChild size="lg">
-                <Link to="/auth">Crear mi cuenta gratis</Link>
+                <Link to="/auth" search={{ ref: "" }}>Crear mi cuenta gratis</Link>
               </Button>
             )}
             <Button asChild size="lg" variant="outline">

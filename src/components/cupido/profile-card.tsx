@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { BadgeCheck, Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Gift, X } from "lucide-react";
+import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Gift, X } from "lucide-react";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -10,6 +11,7 @@ export type CupidoProfile = {
   avatar_url: string;
   bio: string;
   country_code: string;
+  email?: string | null;
   looking_for: string;
   drinks: boolean;
   has_kids: boolean;
@@ -52,10 +54,10 @@ export function ProfileCard({
   const initials = profile.display_name.slice(0, 2).toUpperCase();
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07]">
-      <div className="flex items-start gap-4">
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
+      <div className="flex items-start gap-3 sm:gap-4">
         <Link to="/perfil" search={{ userId: profile.id }} className="shrink-0">
-          <Avatar className="h-16 w-16 border-2 border-pink-500/40">
+          <Avatar className="h-12 w-12 border-2 border-pink-500/40 sm:h-16 sm:w-16">
             <AvatarImage src={profile.avatar_url} alt={profile.display_name} />
             <AvatarFallback className="bg-pink-500/20 text-lg text-pink-200">{initials}</AvatarFallback>
           </Avatar>
@@ -65,13 +67,11 @@ export function ProfileCard({
             <Link
               to="/perfil"
               search={{ userId: profile.id }}
-              className="truncate font-display text-lg text-white hover:text-pink-300"
+              className="truncate font-display text-sm text-white hover:text-pink-300 sm:text-lg"
             >
               {profile.display_name}
             </Link>
-            {profile.is_verified_blue && (
-              <BadgeCheck className="h-5 w-5 shrink-0 fill-sky-400 text-white" aria-label="Verificado" />
-            )}
+            <VerifiedBadge email={profile.email} verified={profile.is_verified_blue} className="h-5 w-5" />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground" title={countryName(profile.country_code)}>
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}
@@ -80,7 +80,7 @@ export function ProfileCard({
         </div>
       </div>
 
-      <p className="mt-4 line-clamp-3 min-h-[3.5rem] text-sm text-slate-300">
+      <p className="mt-4 line-clamp-3 min-h-[3.5rem] text-xs text-slate-300 sm:text-sm">
         {profile.bio || "Todavía no escribió su biografía."}
       </p>
 

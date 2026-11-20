@@ -44,7 +44,13 @@ function CommunityPage() {
       if (search.trim()) query = query.ilike("display_name", `%${search.trim()}%`);
       const { data, error } = await query;
       if (error) throw error;
-      return data ?? [];
+      if (!data?.length) return [];
+      const { data: emails } = await supabase
+        .from("profiles")
+        .select("id,email")
+        .in("id", data.map((row) => row.id));
+      const emailMap = new Map((emails ?? []).map((row) => [row.id, row.email]));
+      return data.map((row) => ({ ...row, email: emailMap.get(row.id) ?? null }));
     },
   });
 
@@ -97,6 +103,7 @@ function CommunityPage() {
         avatar_url: person.avatar_url ?? "",
         bio: person.bio ?? "",
         country_code: person.country_code ?? "",
+        email: person.email,
         looking_for: person.looking_for ?? "amistad",
         drinks: Boolean(person.drinks),
         has_kids: Boolean(person.has_kids),
@@ -109,7 +116,7 @@ function CommunityPage() {
 
   const requireLogin = () => {
     toast.info("Inicia sesión para conectar.");
-    void navigate({ to: "/auth" });
+    void navigate({ to: "/auth", search: { ref: "" } });
   };
 
   const like = useMutation({
@@ -212,7 +219,7 @@ function CommunityPage() {
       {!session && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-pink-400/30 bg-pink-500/10 p-4">
           <p className="text-sm text-pink-100/80">Inicia sesión para dar me gusta, seguir y agregar amigos.</p>
-          <Link to="/auth" className="text-sm font-medium text-white underline-offset-4 hover:underline">
+          <Link to="/auth" search={{ ref: "" }} className="text-sm font-medium text-white underline-offset-4 hover:underline">
             Iniciar sesión
           </Link>
         </div>
@@ -276,7 +283,7 @@ function CommunityPage() {
           No se pudo cargar la comunidad. Intenta de nuevo más tarde.
         </div>
       ) : cards.length > 0 ? (
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
           {cards.map((person) => (
             <ProfileCard
               key={person.id}

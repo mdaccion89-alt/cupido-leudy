@@ -11,6 +11,7 @@ import {
 import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { BottomNav } from "@/components/cupido/bottom-nav";
 import { SiteHeader } from "@/components/studio/site-header";
 import { SiteFooter } from "@/components/cupido/site-footer";
 import { TermsModal } from "@/components/cupido/terms-modal";
@@ -83,7 +84,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     // twitter:image here: every page without its own would inherit the root's preview image.
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      {
+        name: "viewport",
+        content:
+          "width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover",
+      },
       { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
@@ -139,12 +144,13 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
-        <div className="flex min-h-screen flex-col">
+        <div className="flex min-h-screen flex-col pb-20 lg:pb-0">
           <SiteHeader />
           <div className="flex-1">
             <Outlet />
           </div>
           <SiteFooter />
+          <BottomNav />
         </div>
         <EscudoWidget />
         <TermsModal />
