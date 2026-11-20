@@ -18,12 +18,12 @@ export const Route = createFileRoute("/")({
       { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
-        content: `${SLOGAN}. Marca Me interesa, sigue perfiles, agrega amigos y comparte fotos y videos cortos en ${BRAND}.`,
+        content: `${SLOGAN}. Marca Me interesa, sigue perfiles, agrega amigos y comparte fotos y Lives en ${BRAND}.`,
       },
       { property: "og:title", content: `${BRAND} — ${SLOGAN}` },
       {
         property: "og:description",
-        content: `${SLOGAN}. Chat, fotos, videos cortos y verificación azul en una sola app.`,
+        content: `${SLOGAN}. Chat, fotos, Lives y verificación azul en una sola app.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -370,7 +370,7 @@ function CupidoHome() {
           </h1>
           <p className="mt-4 max-w-xl text-sm text-slate-300 sm:text-base">
             Descubre perfiles verificados, marca <strong>Me interesa</strong>, sigue a quien te guste,
-            agrega amigos y comparte fotos y videos cortos. El Escudo Cupido cuida cada conexión.
+            agrega amigos y comparte fotos y Lives. El Escudo Cupido cuida cada conexión.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             {session ? (
@@ -449,7 +449,7 @@ function CupidoHome() {
           <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:flex-row sm:items-center">
             <div className="flex-1">
               <p className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Play className="h-4 w-4 text-pink-300" /> Sube tus fotos o videos cortos
+                <Play className="h-4 w-4 text-pink-300" /> Sube tus fotos y momentos
               </p>
               <p className="text-xs text-muted-foreground">Fotos hasta 12 MB y videos hasta 60 MB. Se publican al instante.</p>
             </div>

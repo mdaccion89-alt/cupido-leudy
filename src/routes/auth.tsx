@@ -22,7 +22,7 @@ export const Route = createFileRoute("/auth")({
       { property: "og:title", content: `Iniciar sesión — ${BRAND}` },
       {
         property: "og:description",
-        content: `${SLOGAN}. Chat, videos cortos y verificación azul.`,
+        content: `${SLOGAN}. Chat, llamadas en vivo y verificación azul.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

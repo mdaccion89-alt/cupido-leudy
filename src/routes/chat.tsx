@@ -25,7 +25,15 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { CALL_COSTS, type Gift as GiftItem } from "@/lib/cupido";
+import {
+  CALL_COSTS,
+  callErrorMessage,
+  canSendGift,
+  canStartCall,
+  FREE_GIFT_MAX_CREDITS,
+  giftErrorMessage,
+  type Gift as GiftItem,
+} from "@/lib/cupido";
 
 export const Route = createFileRoute("/chat")({
   validateSearch: (search: { userId?: string }) => search,
@@ -306,6 +314,12 @@ function ChatPage() {
   const startCall = useMutation({
     mutationFn: async (mode: "hot" | "cafe") => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
+      if (!canStartCall(mode, account))
+        throw new Error(
+          account.hasPurchased || account.isAdmin
+            ? "No tienes monedas brillantes suficientes."
+            : "Las llamadas requieren compra o recarga de monedas brillantes.",
+        );
       const { data, error } = await supabase.rpc("cupido_start_call", {
         _callee: activeConversation.other.id,
         _mode: mode,
@@ -321,16 +335,18 @@ function ChatPage() {
     },
     onSuccess: (data) => setCall(data),
     onError: (error) =>
-      toast.error(
-        error instanceof Error && error.message.includes("INSUFFICIENT")
-          ? "No tienes monedas brillantes suficientes."
-          : "No se pudo iniciar la llamada.",
-      ),
+      toast.error(callErrorMessage(error instanceof Error ? error.message : "", "No se pudo iniciar la llamada.")),
   });
 
   const sendGift = useMutation({
     mutationFn: async (gift: GiftItem) => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
+      if (!canSendGift(gift, account))
+        throw new Error(
+          account.hasPurchased || account.isAdmin
+            ? "No tienes monedas brillantes suficientes."
+            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+        );
       const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: activeConversation.other.id,
         _gift_id: gift.id,
@@ -347,11 +363,7 @@ function ChatPage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) =>
-      toast.error(
-        error instanceof Error && error.message.includes("INSUFFICIENT")
-          ? "No tienes monedas brillantes suficientes."
-          : "No se pudo enviar el regalo.",
-      ),
+      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo enviar el regalo.")),
   });
 
   const answerCall = async (accept: boolean) => {

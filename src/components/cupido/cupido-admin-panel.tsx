@@ -59,6 +59,7 @@ export function CupidoAdminPanel() {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["cupido-admin"] });
+    void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
   };
 
   const verifications = useQuery({
@@ -319,7 +320,9 @@ export function CupidoAdminPanel() {
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
           <div className="flex items-center gap-3">
             <Wallet className="size-5 text-emerald-300" />
-            <h2 className="font-display text-lg text-white">Integraciones PayPal Business (Checkout Real)</h2>
+            <h2 className="font-display text-lg text-white">
+              PayPal del Admin Supremo · Integraciones PayPal Business (Checkout Real)
+            </h2>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Los pagos de créditos y tarjeta llegan a esta cuenta Business. Nunca compartas el secreto de PayPal.

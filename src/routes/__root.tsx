@@ -92,13 +92,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: `${BRAND} — ${SLOGAN}` },
       {
         name: "description",
-        content: `${SLOGAN}. Chatea, comparte videos cortos y verifica tu perfil con la insignia azul de ${BRAND}.`,
+        content: `${SLOGAN}. Chatea, haz llamadas en vivo y verifica tu perfil con la insignia azul de ${BRAND}.`,
       },
       { name: "author", content: BRAND },
       { property: "og:title", content: `${BRAND} — ${SLOGAN}` },
       {
         property: "og:description",
-        content: `${SLOGAN}. Chat, llamadas en vivo y videos cortos con seguridad verificada.`,
+        content: `${SLOGAN}. Chat, llamadas en vivo y Lives con seguridad verificada.`,
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

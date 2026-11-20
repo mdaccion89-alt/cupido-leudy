@@ -19,7 +19,7 @@ export function useAccount() {
     enabled: Boolean(userId),
     queryFn: async () => {
       await supabase.rpc("refresh_my_credits");
-      const [credits, roles, profile] = await Promise.all([
+      const [credits, roles, profile, privateProfile, capturedOrders] = await Promise.all([
         supabase
           .from("user_credits")
           .select("balance,daily_reset_at")
@@ -31,6 +31,17 @@ export function useAccount() {
           .select("is_official,is_premium")
           .eq("id", userId!)
           .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("has_purchased")
+          .eq("id", userId!)
+          .maybeSingle(),
+        supabase
+          .from("paypal_orders")
+          .select("id")
+          .eq("user_id", userId!)
+          .eq("status", "captured")
+          .limit(1),
       ]);
       return {
         balance: credits.data?.balance ?? 0,
@@ -38,6 +49,8 @@ export function useAccount() {
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
         plan: profile.data?.is_premium ? "premium" : "free",
+        hasPurchased:
+          Boolean(privateProfile.data?.has_purchased) || Boolean(capturedOrders.data?.length),
       };
     },
   });
@@ -48,6 +61,7 @@ export function useAccount() {
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
     plan: isImmediateAdmin ? "premium" : (query.data?.plan ?? "free"),
+    hasPurchased: isImmediateAdmin || Boolean(query.data?.hasPurchased),
     loading: query.isLoading,
     refresh: () => query.refetch(),
   };
@@ -61,9 +75,9 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   logo_url: "",
   primary_color: "",
   accent_color: "",
-  songs_enabled: true,
-  covers_enabled: true,
-  videos_enabled: true,
+  songs_enabled: false,
+  covers_enabled: false,
+  videos_enabled: false,
   purchases_enabled: true,
   gallery_enabled: true,
 };

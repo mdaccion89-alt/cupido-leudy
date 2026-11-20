@@ -284,10 +284,18 @@ function ProfilePage() {
                 <h1 className="font-display text-2xl text-white">{displayName || "Miembro de Cupido"}</h1>
                 <VerifiedBadge
                   email={profile.data?.privateProfile?.email}
-                  verified={verified || isSupremeAdminEmail(profile.data?.privateProfile?.email)}
+                  verified={
+                    verified ||
+                    Boolean(creator?.is_official) ||
+                    isSupremeAdminEmail(profile.data?.privateProfile?.email)
+                  }
                   className="size-6"
                 />
-                {creator?.is_official && <Badge className="bg-gradient-to-r from-pink-500 to-violet-500">Cuenta Oficial</Badge>}
+                {creator?.is_official && (
+                  <Badge className="gap-1 bg-gradient-to-r from-pink-500 to-violet-500">
+                    <VerifiedBadge verified className="size-3.5" /> Cuenta Oficial
+                  </Badge>
+                )}
                 {creator?.verification_status === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
                 {creator?.verification_status === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
               </div>

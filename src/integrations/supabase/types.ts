@@ -441,6 +441,7 @@ export type Database = {
           full_name: string | null;
           gender: string | null;
           has_kids: boolean;
+          has_purchased: boolean;
           id: string;
           looking_for: string | null;
           phone: string | null;
@@ -461,6 +462,7 @@ export type Database = {
           full_name?: string | null;
           gender?: string | null;
           has_kids?: boolean;
+          has_purchased?: boolean;
           id: string;
           looking_for?: string | null;
           phone?: string | null;
@@ -481,6 +483,7 @@ export type Database = {
           full_name?: string | null;
           gender?: string | null;
           has_kids?: boolean;
+          has_purchased?: boolean;
           id?: string;
           looking_for?: string | null;
           phone?: string | null;

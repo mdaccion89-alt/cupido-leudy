@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Gift, Loader2, PhoneOff, Radio, Users, X } from "lucide-react";
+import { CreditCard, Gift, Loader2, PhoneOff, Radio, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAccount } from "@/lib/account";
-import { type Gift as GiftType } from "@/lib/cupido";
+import { canSendGift, FREE_GIFT_MAX_CREDITS, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
 
@@ -18,6 +18,7 @@ type LiveRoomProps = {
   role: "host" | "viewer";
   onClose: () => void;
   onEnded: () => void;
+  initialStream?: MediaStream | null;
 };
 
 type LiveSignal =
@@ -26,7 +27,18 @@ type LiveSignal =
   | { kind: "ice"; sender: string; receiver?: string; candidate: RTCIceCandidateInit }
   | { kind: "end"; sender: string; receiver?: string };
 
-export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, onEnded }: LiveRoomProps) {
+type PresenceMeta = { user_id: string; role: "host" | "viewer" };
+
+export function LiveRoom({
+  roomId,
+  hostId,
+  hostName,
+  viewerId,
+  role,
+  onClose,
+  onEnded,
+  initialStream,
+}: LiveRoomProps) {
   const account = useAccount();
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -35,7 +47,6 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
   const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const pendingJoinsRef = useRef<string[]>([]);
   const [ready, setReady] = useState(false);
-  const [giftOpen, setGiftOpen] = useState(false);
   const [sendingGift, setSendingGift] = useState(false);
   const [viewers, setViewers] = useState(0);
 
@@ -77,7 +88,7 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
     const start = async () => {
       try {
         if (role === "host") {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          const stream = initialStream ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
           if (disposed) {
             stream.getTracks().forEach((track) => track.stop());
             return;
@@ -101,8 +112,12 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
           await sendSignal({ kind: "join", sender: viewerId });
         }
         setReady(true);
-      } catch {
-        toast.error("No se pudo iniciar el video en vivo. Revisa permisos de cámara y micrófono.");
+      } catch (error) {
+        const message =
+          error instanceof Error && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError")
+            ? "Permite cámara y micrófono para iniciar el Live."
+            : "No se pudo iniciar el video en vivo. Revisa permisos de cámara y micrófono.";
+        toast.error(message);
         onClose();
       }
     };
@@ -120,21 +135,23 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
       )
       .subscribe();
 
-    const viewersChannel = supabase
-      .channel(`cupido-live-viewers-${roomId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "cupido_live_viewers", filter: `room_id=eq.${roomId}` },
-        async () => {
-          const { data, error } = await supabase
-            .from("cupido_live_rooms")
-            .select("viewer_count")
-            .eq("id", roomId)
-            .maybeSingle();
-          if (!error && data) setViewers(data.viewer_count);
-        },
-      )
-      .subscribe();
+    const presenceChannel = supabase
+      .channel(`cupido-live-presence-${roomId}`)
+      .on("presence", { event: "sync" }, () => {
+        const state = presenceChannel.presenceState<PresenceMeta>();
+        const ids = new Set<string>();
+        Object.values(state)
+          .flat()
+          .forEach((meta) => {
+            if (meta.role !== "host" && meta.user_id) ids.add(meta.user_id);
+          });
+        setViewers(ids.size);
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presenceChannel.track({ user_id: viewerId, role, online_at: new Date().toISOString() });
+        }
+      });
 
     const signalsChannel = supabase
       .channel(`cupido-live-signals-${roomId}-${viewerId}`)
@@ -203,12 +220,20 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
       peersRef.current.forEach((peer) => peer.close());
       peersRef.current.clear();
       void supabase.removeChannel(roomChannel);
-      void supabase.removeChannel(viewersChannel);
+      void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(signalsChannel);
     };
-  }, [roomId, hostId, viewerId, role, onClose, onEnded, createHostPeer, sendSignal]);
+  }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, sendSignal]);
 
   const sendGift = async (gift: GiftType) => {
+    if (!canSendGift(gift, account)) {
+      toast.error(
+        account.hasPurchased || account.isAdmin
+          ? "No tienes monedas brillantes suficientes."
+          : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+      );
+      return;
+    }
     setSendingGift(true);
     const { error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
@@ -219,15 +244,10 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
     });
     setSendingGift(false);
     if (error) {
-      toast.error(
-        error.message.includes("INSUFFICIENT")
-          ? "No tienes monedas brillantes suficientes."
-          : "No se pudo enviar el regalo en vivo.",
-      );
+      toast.error(giftErrorMessage(error.message, "No se pudo enviar el regalo en vivo."));
       return;
     }
     account.refresh();
-    setGiftOpen(false);
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
 
@@ -265,31 +285,33 @@ export function LiveRoom({ roomId, hostId, hostName, viewerId, role, onClose, on
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           {role === "viewer" ? (
-            <>
-              <Button variant="outline" onClick={() => setGiftOpen(true)} className="gap-2">
-                <Gift className="size-4" /> Enviar regalo
-              </Button>
-              <Button variant="destructive" onClick={onClose} className="gap-2">
-                <X className="size-4" /> Salir
-              </Button>
-            </>
+            <Button variant="destructive" onClick={onClose} className="gap-2">
+              <X className="size-4" /> Salir
+            </Button>
           ) : (
             <Button variant="destructive" onClick={() => void endLive()} className="gap-2">
               <PhoneOff className="size-4" /> Finalizar Live
             </Button>
           )}
         </div>
-        <Dialog open={giftOpen} onOpenChange={setGiftOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2"><Gift className="size-5 text-pink-300" /> Regalar en vivo</DialogTitle>
-              <DialogDescription className="flex items-center gap-1.5">
-                <CoinIcon className="size-4" /> {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes
-              </DialogDescription>
-            </DialogHeader>
-            <GiftGrid onSelect={(gift) => void sendGift(gift)} disabled={sendingGift} compact />
-          </DialogContent>
-        </Dialog>
+        <div className="mt-3 rounded-2xl border border-pink-400/20 bg-pink-500/[0.06] p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-2 font-display text-base text-white">
+              <Gift className="size-4 text-pink-300" /> 99 regalos para {role === "host" ? "tu audiencia" : hostName}
+            </p>
+            <p className="flex items-center gap-1 text-xs text-amber-200">
+              <CoinIcon className="size-3.5" />
+              {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+            </p>
+          </div>
+          <GiftGrid compact onSelect={(gift) => void sendGift(gift)} disabled={sendingGift} />
+          {!account.hasPurchased && !account.isAdmin && (
+            <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <CreditCard className="size-3" /> Hasta {FREE_GIFT_MAX_CREDITS} monedas son gratis; para regalos
+              superiores compra o recarga en la tienda.
+            </p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );

@@ -1,4 +1,5 @@
 import { Heart, Play } from "lucide-react";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -46,7 +47,7 @@ export function VideoCard({ video, liked, onLike }: VideoCardProps) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-white">
             {video.display_name}
-            {video.is_verified_blue && <span className="ml-1 text-sky-400">✔</span>}
+            <VerifiedBadge verified={video.is_verified_blue} className="ml-1 size-3.5" />
           </p>
           <p className="line-clamp-2 text-xs text-muted-foreground">{video.caption || "Momento en Cupido Leudy ❤️"}</p>
         </div>

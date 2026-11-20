@@ -447,9 +447,9 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
       logo_url: logo,
       primary_color: data?.primary_color ?? "",
       accent_color: data?.accent_color ?? "",
-      songs_enabled: data?.songs_enabled ?? true,
-      covers_enabled: data?.covers_enabled ?? true,
-      videos_enabled: data?.videos_enabled ?? true,
+      songs_enabled: data?.songs_enabled ?? false,
+      covers_enabled: data?.covers_enabled ?? false,
+      videos_enabled: data?.videos_enabled ?? false,
       purchases_enabled: data?.purchases_enabled ?? true,
       gallery_enabled: data?.gallery_enabled ?? true,
     };

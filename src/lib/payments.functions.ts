@@ -8,6 +8,7 @@ type PaypalConfig = {
   clientId: string;
   secret: string;
   email: string;
+  businessName: string;
   mode: "sandbox" | "live";
 };
 
@@ -17,7 +18,7 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
   const admin = await getAdminClient();
   const { data } = await admin
     .from("payment_settings")
-    .select("paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+    .select("paypal_email,paypal_business_name,paypal_client_id,paypal_secret,paypal_mode")
     .eq("id", 1)
     .maybeSingle();
   const mode: "sandbox" | "live" = data?.paypal_mode === "sandbox" ? "sandbox" : "live";
@@ -29,9 +30,31 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
     clientId: data?.paypal_client_id?.trim() || process.env["PAYPAL_CLIENT_ID"] || "",
     secret: data?.paypal_secret?.trim() || process.env["PAYPAL_SECRET"] || "",
     email: data?.paypal_email?.trim() || "",
+    businessName: data?.paypal_business_name?.trim() || "Cupido Leudy ❤️",
     mode,
   };
 }
+
+export type PublicPaypalConfig = {
+  configured: boolean;
+  clientId: string;
+  mode: "sandbox" | "live";
+  businessName: string;
+  email: string;
+};
+
+export const getPaypalCheckoutConfig = createServerFn({ method: "GET" }).handler(
+  async (): Promise<PublicPaypalConfig> => {
+    const config = await getPaypalConfig();
+    return {
+      configured: Boolean(config.clientId && config.secret),
+      clientId: config.clientId,
+      mode: config.mode,
+      businessName: config.businessName,
+      email: config.email,
+    };
+  },
+);
 
 async function paypalToken(config: PaypalConfig) {
   const key = `${config.mode}:${config.clientId}`;
@@ -83,7 +106,8 @@ export async function paypal(path: string, init: RequestInit = {}, config?: Payp
 
 export function paypalMessage(err: unknown) {
   const code = err instanceof Error ? err.message : "";
-  if (code === "PAYPAL_NOT_CONFIGURED") return "Los pagos aún no están configurados.";
+  if (code === "PAYPAL_NOT_CONFIGURED")
+    return "El Admin Supremo debe configurar PayPal Business en el panel Admin antes de comprar.";
   if (code === "PAYPAL_422") return "PayPal rechazó el pago. Revisa tu método de pago.";
   return "No se pudo completar el pago con PayPal. Inténtalo de nuevo.";
 }
@@ -161,7 +185,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
     },
   );
 
-type CaptureResult = { ok: true; credits: number } | { ok: false; message: string };
+type CaptureResult = { ok: true; credits: number; hasPurchased: boolean } | { ok: false; message: string };
 
 export const capturePaypalOrder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -179,7 +203,7 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!order) return { ok: false, message: "No se encontró el pedido." };
-    if (order.status === "captured") return { ok: true, credits: order.credits };
+    if (order.status === "captured") return { ok: true, credits: order.credits, hasPurchased: true };
     const pack = findPackage(order.package_id);
     if (!pack) return { ok: false, message: "Paquete no válido." };
 
@@ -224,8 +248,9 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
           _amount: pack.credits,
           _reason: `Compra PayPal ${pack.credits} créditos`,
         });
+        await admin.from("profiles").update({ has_purchased: true }).eq("id", context.userId);
       }
-      return { ok: true, credits: pack.credits };
+      return { ok: true, credits: pack.credits, hasPurchased: true };
     } catch (err) {
       return { ok: false, message: paypalMessage(err) };
     }

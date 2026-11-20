@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { ADMIN_EMAIL } from "./credits";
+import { getAdminClient } from "./server-helpers";
 
 type AdminContext = {
   supabase: SupabaseClient<Database>;
@@ -125,16 +126,15 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const { error } = await context.supabase
-      .from("payment_settings")
-      .update({
-        paypal_email: data.email,
-        paypal_business_name: data.businessName,
-        paypal_client_id: data.clientId,
-        paypal_secret: data.secret,
-        paypal_mode: data.mode,
-      })
-      .eq("id", 1);
+    const admin = await getAdminClient();
+    const { error } = await admin.from("payment_settings").upsert({
+      id: 1,
+      paypal_email: data.email,
+      paypal_business_name: data.businessName,
+      paypal_client_id: data.clientId,
+      paypal_secret: data.secret,
+      paypal_mode: data.mode,
+    });
     if (error) throw error;
     return { ok: true };
   });

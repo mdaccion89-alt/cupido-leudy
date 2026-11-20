@@ -1,5 +1,4 @@
 // Helpers used only inside server function handlers. Secrets are read per call, never at module scope.
-import { Buffer } from "node:buffer";
 import { Client } from "@gradio/client";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
@@ -634,25 +633,29 @@ export function synthesizeSongAudio(options: {
     if (profile.bongo.includes(inBar)) writeHit(start, 0.09, 0.22, 14, 240);
   }
 
-  const wav = Buffer.alloc(44 + sampleCount * 2);
-  wav.write("RIFF", 0);
-  wav.writeUInt32LE(36 + sampleCount * 2, 4);
-  wav.write("WAVE", 8);
-  wav.write("fmt ", 12);
-  wav.writeUInt32LE(16, 16);
-  wav.writeUInt16LE(1, 20);
-  wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(sampleRate, 24);
-  wav.writeUInt32LE(sampleRate * 2, 28);
-  wav.writeUInt16LE(2, 32);
-  wav.writeUInt16LE(16, 34);
-  wav.write("data", 36);
-  wav.writeUInt32LE(sampleCount * 2, 40);
+  const wav = new Uint8Array(44 + sampleCount * 2);
+  const view = new DataView(wav.buffer);
+  const writeAscii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i += 1) wav[offset + i] = text.charCodeAt(i);
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + sampleCount * 2, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, sampleCount * 2, true);
   for (let i = 0; i < sampleCount; i += 1) {
     const value = Math.max(-1, Math.min(1, mix[i] ?? 0));
-    wav.writeInt16LE(Math.round(value * 32767), 44 + i * 2);
+    view.setInt16(44 + i * 2, Math.round(value * 32767), true);
   }
-  return audioFromBytes(new Uint8Array(wav), "audio/wav");
+  return audioFromBytes(wav, "audio/wav");
 }
 
 export function hfTokens(): string[] {

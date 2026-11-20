@@ -38,6 +38,40 @@ export const LOOKING_FOR = [
 export const CALL_COSTS = { hot: 100, cafe: 50 } as const;
 export type CallMode = keyof typeof CALL_COSTS;
 
+export const FREE_WELCOME_CREDITS = 500;
+export const FREE_GIFT_MAX_CREDITS = 100;
+
+type SpendingAccount = {
+  balance: number;
+  hasPurchased: boolean;
+  isAdmin: boolean;
+};
+
+export function canSendGift(gift: { credits: number }, account: SpendingAccount): boolean {
+  if (account.isAdmin) return true;
+  if (gift.credits > FREE_GIFT_MAX_CREDITS && !account.hasPurchased) return false;
+  return account.balance >= gift.credits;
+}
+
+export function canStartCall(mode: CallMode, account: SpendingAccount): boolean {
+  if (account.isAdmin) return true;
+  if (!account.hasPurchased) return false;
+  return account.balance >= CALL_COSTS[mode];
+}
+
+export function giftErrorMessage(message: string, fallback: string): string {
+  if (message.includes("PURCHASE_REQUIRED"))
+    return `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`;
+  if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
+  return message || fallback;
+}
+
+export function callErrorMessage(message: string, fallback: string): string {
+  if (message.includes("PURCHASE_REQUIRED")) return "Las llamadas requieren compra o recarga de monedas brillantes.";
+  if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
+  return message || fallback;
+}
+
 export const GIFTS = [
   { id: "rosa-001", emoji: "🌹", name: "Rosa", credits: 10, cash: 0.01 },
   { id: "cafe-002", emoji: "☕", name: "Café", credits: 25, cash: 0.03 },

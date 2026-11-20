@@ -6,6 +6,7 @@ import { CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +18,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount } from "@/lib/account";
 import { CREDIT_PACKAGES } from "@/lib/credits";
-import { COUNTRIES, MIN_WITHDRAWAL, countryFlag, countryName, withdrawalMethods, type Gift as GiftItem } from "@/lib/cupido";
-import { capturePaypalOrder, createPaypalOrder } from "@/lib/payments.functions";
+import {
+  COUNTRIES,
+  FREE_GIFT_MAX_CREDITS,
+  MIN_WITHDRAWAL,
+  canSendGift,
+  countryFlag,
+  countryName,
+  giftErrorMessage,
+  withdrawalMethods,
+  type Gift as GiftItem,
+} from "@/lib/cupido";
+import {
+  capturePaypalOrder,
+  createPaypalOrder,
+  getPaypalCheckoutConfig,
+} from "@/lib/payments.functions";
 
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
@@ -91,6 +106,13 @@ function StorePage() {
     },
   });
 
+  const paypalConfig = useQuery({
+    queryKey: ["paypal-checkout-config"],
+    queryFn: () => getPaypalCheckoutConfig(),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
   useEffect(() => {
     if (!token || !viewerId || capturedRef.current === token) return;
     capturedRef.current = token;
@@ -99,6 +121,7 @@ function StorePage() {
       if (result.ok) {
         toast.success(`Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
         account.refresh();
+        void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
         void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
       } else {
         toast.error(result.message);
@@ -120,6 +143,12 @@ function StorePage() {
   const sendGift = useMutation({
     mutationFn: async (gift: GiftItem) => {
       if (!giftTo) throw new Error("Elige a quién regalar.");
+      if (!canSendGift(gift, account))
+        throw new Error(
+          account.hasPurchased || account.isAdmin
+            ? "No tienes monedas brillantes suficientes para ese regalo."
+            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+        );
       const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
         _gift_id: gift.id,
@@ -133,11 +162,7 @@ function StorePage() {
       toast.success("Regalo enviado ❤️");
     },
     onError: (error) =>
-      toast.error(
-        error instanceof Error && error.message.includes("INSUFFICIENT")
-          ? "No tienes monedas brillantes suficientes para ese regalo."
-          : "No se pudo enviar el regalo.",
-      ),
+      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo enviar el regalo.")),
   });
 
   const withdraw = useMutation({
@@ -226,6 +251,10 @@ function StorePage() {
             <Gift className="h-4 w-4 text-pink-300" />
             <h2 className="font-display text-lg text-white">99 regalos para enamorar</h2>
           </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            500 monedas gratis de bienvenida: regalos hasta {FREE_GIFT_MAX_CREDITS} monedas. Para regalos
+            superiores y llamadas, compra o recarga.
+          </p>
           <div className="mt-3">
             <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending} />
           </div>
@@ -250,14 +279,30 @@ function StorePage() {
               <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
               <p className="text-xs text-muted-foreground">monedas brillantes</p>
               <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
-              <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
-                {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} PayPal o tarjeta
-              </Button>
+              {paypalConfig.data?.configured ? (
+                <PayPalCheckoutButtons
+                  clientId={paypalConfig.data.clientId}
+                  packageId={pack.id}
+                  disabled={buy.isPending}
+                  onSuccess={(credits) => {
+                    toast.success(`Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
+                    account.refresh();
+                    void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+                  }}
+                  onError={(message) => toast.error(message)}
+                />
+              ) : (
+                <Button className="mt-5" disabled={buy.isPending} onClick={() => buy.mutate(pack.id)}>
+                  {buy.isPending ? <Loader2 className="animate-spin" /> : <CreditCard />} PayPal o tarjeta
+                </Button>
+              )}
             </article>
           ))}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          Checkout Business real: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente al volver.
+          {paypalConfig.data?.configured
+            ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
+            : "El Admin Supremo debe conectar PayPal Business en /admin para habilitar el checkout real."}
         </p>
       </section>
 

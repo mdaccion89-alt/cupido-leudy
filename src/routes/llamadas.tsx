@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
+import { Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
 import { toast } from "sonner";
 import { CafeRoulette } from "@/components/cupido/cafe-roulette";
 import { CoinIcon } from "@/components/cupido/coin-icon";
@@ -45,6 +45,7 @@ type ActiveLive = {
   hostId: string;
   hostName: string;
   role: "host" | "viewer";
+  stream?: MediaStream | null;
 };
 
 function CallsPage() {
@@ -54,6 +55,8 @@ function CallsPage() {
   const viewerId = session?.user.id ?? null;
   const [liveTitle, setLiveTitle] = useState("");
   const [activeLive, setActiveLive] = useState<ActiveLive | null>(null);
+  const [startingLive, setStartingLive] = useState(false);
+  const pendingStreamRef = useRef<MediaStream | null>(null);
 
   const calls = useQuery({
     queryKey: ["cupido-call-history", viewerId],
@@ -144,28 +147,59 @@ function CallsPage() {
     };
   }, [queryClient, viewerId]);
 
+  useEffect(
+    () => () => {
+      pendingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      pendingStreamRef.current = null;
+    },
+    [],
+  );
+
   const startLive = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc("cupido_start_live_room", { _title: liveTitle.trim() });
-      if (error) throw error;
-      return data as string;
+      setStartingLive(true);
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("CAMERA_UNAVAILABLE");
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch {
+        throw new Error("CAMERA_DENIED");
+      }
+      pendingStreamRef.current = stream;
+      try {
+        const { data, error } = await supabase.rpc("cupido_start_live_room", { _title: liveTitle.trim() });
+        if (error) throw error;
+        return { roomId: data as string, stream };
+      } catch (error) {
+        stream.getTracks().forEach((track) => track.stop());
+        pendingStreamRef.current = null;
+        throw error;
+      } finally {
+        setStartingLive(false);
+      }
     },
-    onSuccess: (roomId) => {
+    onSuccess: ({ roomId, stream }) => {
       setActiveLive({
         roomId,
         hostId: viewerId!,
         hostName: myProfile.data?.display_name ?? "Tú",
         role: "host",
+        stream,
       });
+      pendingStreamRef.current = null;
       setLiveTitle("");
       void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
     },
-    onError: (error) =>
-      toast.error(
-        error instanceof Error && error.message.includes("NOT_VERIFIED")
-          ? "Necesitas Insignia Azul para iniciar un Live."
-          : "No se pudo iniciar el Live.",
-      ),
+    onError: (error) => {
+      const code = error instanceof Error ? error.message : "";
+      if (code === "CAMERA_DENIED")
+        toast.error("Permite cámara y micrófono antes de iniciar el Live.");
+      else if (code === "CAMERA_UNAVAILABLE")
+        toast.error("Este navegador no permite usar cámara o micrófono.");
+      else if (code.includes("NOT_VERIFIED"))
+        toast.error("Necesitas Insignia Azul o ser Admin Supremo para iniciar un Live.");
+      else toast.error(`No se pudo iniciar el Live. ${code ? `Motivo: ${code}.` : ""}`);
+    },
   });
 
   const refreshAfterLive = () => {
@@ -225,13 +259,21 @@ function CallsPage() {
                 placeholder="Título de tu Live…"
                 className="h-9 min-w-48 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
               />
-              <Button onClick={() => startLive.mutate()} disabled={startLive.isPending} className="gap-2">
-                {startLive.isPending ? "Iniciando…" : <><Radio className="size-4" /> Iniciar Live</>}
+              <Button
+                onClick={() => startLive.mutate()}
+                disabled={startLive.isPending || startingLive}
+                className="gap-2"
+              >
+                {startLive.isPending || startingLive ? (
+                  "Iniciando…"
+                ) : (
+                  <><Radio className="size-4" /> Iniciar Live</>
+                )}
               </Button>
             </div>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-200">
-              <BadgeCheck className="size-3.5" /> Insignia Azul requerida para transmitir
+              <VerifiedBadge verified className="size-4" /> Insignia Azul requerida para transmitir
             </span>
           )}
         </div>
@@ -326,6 +368,7 @@ function CallsPage() {
           hostName={activeLive.hostName}
           viewerId={viewerId}
           role={activeLive.role}
+          initialStream={activeLive.stream}
           onClose={refreshAfterLive}
           onEnded={refreshAfterLive}
         />

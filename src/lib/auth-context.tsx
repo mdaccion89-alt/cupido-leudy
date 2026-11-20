@@ -13,6 +13,7 @@ function ensureMyProfile(): Promise<void> {
   };
   return Promise.resolve()
     .then(() => client.rpc("ensure_my_profile"))
+    .then(() => client.rpc("cupido_adapt_legacy_profile"))
     .then(() => client.rpc("cupido_admin_auto_terms"))
     .then(() => undefined)
     .catch(() => undefined);
