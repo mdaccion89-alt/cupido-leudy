@@ -99,12 +99,21 @@ function CupidoHome() {
   const mediaQuery = useQuery({
     queryKey: ["cupido-media", userId],
     queryFn: async () => {
-      const { data: posts, error } = await supabase
+      const db = supabase as unknown as { from: (table: string) => any };
+      let { data: posts, error } = await db
         .from("cupido_posts")
-        .select("id,user_id,media_path,kind,caption,likes_count")
+        .select("id,user_id,media_url,media_type,media_path,kind,caption,likes_count")
         .eq("moderation_status", "approved")
         .order("created_at", { ascending: false })
         .limit(24);
+      if (error) {
+        ({ data: posts, error } = await db
+          .from("cupido_posts")
+          .select("id,user_id,media_path,kind,caption,likes_count")
+          .eq("moderation_status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(24));
+      }
       if (error) throw error;
       const ids = [...new Set((posts ?? []).map((post) => post.user_id))];
       const profileRows = ids.length
@@ -124,7 +133,7 @@ function CupidoHome() {
         return {
           id: post.id,
           user_id: post.user_id,
-          media_url: post.media_path,
+          media_url: post.media_url ?? post.media_path,
           kind: post.kind === "video" ? "video" : "photo",
           caption: post.caption,
           likes_count: post.likes_count,
@@ -342,15 +351,28 @@ function CupidoHome() {
       setUploading(false);
       return;
     }
-    const { error: insertError } = await supabase.from("cupido_posts").insert({
+    const payload = {
       user_id: userId!,
-      kind: isVideo ? "video" : "photo",
       caption: caption.trim(),
-      media_path: url,
-      moderation_status: "approved",
-    });
-    if (insertError) toast.error(insertError.message);
-    else {
+      media_url: url,
+      media_type: isVideo ? "video" : "image",
+      kind: isVideo ? "video" : "photo",
+    };
+    const db = supabase as unknown as { from: (table: string) => any };
+    const { error: insertError } = await db.from("cupido_posts").insert(payload);
+    if (insertError) {
+      const { error: fallbackError } = await db.from("cupido_posts").insert({
+        user_id: userId!,
+        caption: caption.trim(),
+        media_url: url,
+      });
+      if (fallbackError) toast.error(fallbackError.message);
+      else {
+        toast.success(isVideo ? "Video publicado en Cupido Leudy ❤️" : "Foto publicada en Cupido Leudy ❤️");
+        setCaption("");
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
+      }
+    } else {
       toast.success(isVideo ? "Video publicado en Cupido Leudy ❤️" : "Foto publicada en Cupido Leudy ❤️");
       setCaption("");
       void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });

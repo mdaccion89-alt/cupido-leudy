@@ -203,21 +203,18 @@ export function CupidoAdminPanel() {
       const paypal_mode = paypalConfig.mode;
       const payload = {
         id: 1,
-        paypal_business_name: business_name,
+        business_name,
         paypal_email,
         paypal_client_id,
         paypal_secret,
         paypal_mode,
       };
-      const { error } = await supabase.from("payment_settings").upsert(payload);
-      if (error) {
-        const { error: updateError } = await supabase
-          .from("payment_settings")
-          .update(payload)
-          .eq("id", 1);
-        if (updateError) throw updateError;
-      }
       const db = supabase as unknown as { from: (table: string) => any };
+      const { error } = await db.from("payment_settings").upsert({
+        ...payload,
+        paypal_business_name: business_name,
+      });
+      if (error) throw error;
       const { error: appError } = await db
         .from("app_settings")
         .update({

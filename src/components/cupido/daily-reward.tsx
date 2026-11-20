@@ -1,37 +1,65 @@
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Coins, Gift, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
-import { claimDailyReward } from "@/lib/rewards.functions";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/integrations/supabase/client";
 import { DAILY_REWARDS, DAY_MS, formatCountdown, nextDailyDay } from "@/lib/rewards";
 
 export function DailyReward() {
   const account = useAccount();
-  const claim = useServerFn(claimDailyReward);
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const mutation = useMutation({
-    mutationFn: (day: number) => claim({ data: { day } }),
-    onSuccess: (result) => {
-      toast.success(`Día ${result.day}: +${result.awarded} monedas brillantes ✨`);
-      void queryClient.invalidateQueries({ queryKey: ["account"] });
-      account.refresh();
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo reclamar."),
-  });
+  const claim = async () => {
+    if (!session?.user.id) {
+      toast.error("Inicia sesión para reclamar tu premio diario.");
+      return;
+    }
+    const claimedAt = new Date().toISOString();
+    const nextDay = nextDailyDay(account.dailyStreak, account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0, Date.now());
+    const reward = DAILY_REWARDS[nextDay - 1] ?? 0;
+    const currentBalance = account.balance === Infinity ? 0 : account.balance;
+    setClaiming(true);
+    const profileUpdate = {
+      daily_streak: nextDay,
+      last_daily_claim: claimedAt,
+    };
+    const db = supabase as unknown as { from: (table: string) => any };
+    let { error } = await db
+      .from("profiles")
+      .update({ ...profileUpdate, credits_balance: currentBalance + reward })
+      .eq("id", session.user.id);
+    if (error) {
+      ({ error } = await db
+        .from("profiles")
+        .update({ ...profileUpdate, credits: currentBalance + reward })
+        .eq("id", session.user.id));
+    }
+    if (error) {
+      toast.error(error.message);
+      setClaiming(false);
+      return;
+    }
+    toast.success(`Día ${nextDay}: +${reward} monedas brillantes ✨`);
+    void queryClient.invalidateQueries({ queryKey: ["account"] });
+    account.refresh();
+    setNow(Date.now());
+    setClaiming(false);
+  };
 
   const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;
   const waitingMs = Math.max(0, lastClaim + DAY_MS - now);
-  const locked = waitingMs > 0 || mutation.isPending;
+  const locked = waitingMs > 0 || claiming;
   const nextDay = nextDailyDay(account.dailyStreak, lastClaim, now);
 
   return (
@@ -61,9 +89,9 @@ export function DailyReward() {
           );
         })}
       </div>
-      <Button className="mt-3 w-full gap-2" disabled={locked} onClick={() => mutation.mutate(nextDay)}>
-        {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
-        {mutation.isPending
+      <Button className="mt-3 w-full gap-2" disabled={locked} onClick={() => void claim()}>
+        {claiming ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
+        {claiming
           ? "Reclamando…"
           : locked
             ? `Vuelve en ${formatCountdown(waitingMs)} ❤️`

@@ -21,12 +21,21 @@ function HistoriaPage() {
   const feed = useQuery({
     queryKey: ["cupido-historia", viewerId],
     queryFn: async () => {
-      const { data: posts, error } = await supabase
+      const db = supabase as unknown as { from: (table: string) => any };
+      let { data: posts, error } = await db
         .from("cupido_posts")
-        .select("id,user_id,media_path,kind,caption,likes_count")
+        .select("id,user_id,media_url,media_type,media_path,kind,caption,likes_count")
         .eq("moderation_status", "approved")
         .order("created_at", { ascending: false })
         .limit(30);
+      if (error) {
+        ({ data: posts, error } = await db
+          .from("cupido_posts")
+          .select("id,user_id,media_path,kind,caption,likes_count")
+          .eq("moderation_status", "approved")
+          .order("created_at", { ascending: false })
+          .limit(30));
+      }
       if (error) throw error;
       const ids = [...new Set((posts ?? []).map((post) => post.user_id))];
       const profiles = ids.length
@@ -44,7 +53,7 @@ function HistoriaPage() {
           return {
             id: post.id,
             user_id: post.user_id,
-            media_url: post.media_path,
+            media_url: post.media_url ?? post.media_path,
             kind: "video",
             caption: post.caption,
             likes_count: post.likes_count,

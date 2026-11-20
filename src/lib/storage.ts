@@ -87,7 +87,7 @@ export async function uploadPublicImage(
   const path = publicImagePath(userId, folder, extension);
   let lastError = "";
 
-  for (const bucket of PUBLIC_IMAGE_BUCKETS) {
+  for (const bucket of ["media", ...PUBLIC_IMAGE_BUCKETS.filter((name) => name !== "media")]) {
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       contentType: file.type || "application/octet-stream",
       upsert: true,
