@@ -85,6 +85,19 @@ type SignalPayload =
   | { kind: "answer"; sdp: RTCSessionDescriptionInit }
   | { kind: "ice"; candidate: RTCIceCandidateInit };
 
+function actionErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+  return fallback;
+}
+
 function ChatPage() {
   const { session, loading: authLoading } = useAuth();
   const account = useAccount();
@@ -186,7 +199,7 @@ function ChatPage() {
       } catch (error) {
         if (!cancelled) {
           openedRef.current = null;
-          toast.error(error instanceof Error ? error.message : "No se pudo abrir la conversación.");
+          toast.error(actionErrorMessage(error, "No se pudo abrir la conversación."));
         }
       } finally {
         if (!cancelled) setOpeningConversation(false);
@@ -547,7 +560,7 @@ function ChatPage() {
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
           {conversations.isError && (
             <div className="space-y-2 p-4 text-sm text-red-200">
-              <p>{conversations.error instanceof Error ? conversations.error.message : "No se pudieron cargar las conversaciones."}</p>
+              <p>{actionErrorMessage(conversations.error, "No se pudieron cargar las conversaciones.")}</p>
               <Button variant="outline" size="sm" onClick={() => void conversations.refetch()}>Reintentar</Button>
             </div>
           )}
