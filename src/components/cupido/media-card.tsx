@@ -38,6 +38,7 @@ type MediaCardProps = {
 export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare }: MediaCardProps) {
   const queryClient = useQueryClient();
   const visibilityRef = useRef<HTMLElement>(null);
+  const watchPositionRef = useRef(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [sending, setSending] = useState(false);
@@ -47,6 +48,14 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const caption = safeText(media?.caption);
   const authorName = safeText(media?.display_name, "Miembro de Cupido");
   const authorEmail = safeText(media?.email) || undefined;
+
+  const reportWatchProgress = (currentTime: number) => {
+    const seconds = Math.floor(currentTime - watchPositionRef.current);
+    if (seconds < 30 || !postId) return;
+    const acceptedSeconds = Math.min(seconds, 30);
+    watchPositionRef.current = currentTime;
+    void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: acceptedSeconds });
+  };
 
   useEffect(() => {
     const element = visibilityRef.current;
@@ -130,7 +139,25 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         {media?.kind === "text" ? (
           <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white">{caption}</p>
         ) : media?.kind === "video" ? (
-          <CupidoVideoPlayer src={mediaUrl} controls loop className="h-full w-full object-cover" />
+          <CupidoVideoPlayer
+            src={mediaUrl}
+            controls
+            loop
+            className="h-full w-full object-cover"
+            onPlay={(currentTime) => {
+              watchPositionRef.current = currentTime;
+              void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: 0 });
+            }}
+            onSeeking={(currentTime) => { watchPositionRef.current = currentTime; }}
+            onTimeUpdate={reportWatchProgress}
+            onPause={(currentTime) => {
+              const seconds = Math.floor(currentTime - watchPositionRef.current);
+              if (seconds >= 5 && postId) {
+                watchPositionRef.current = currentTime;
+                void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: Math.min(seconds, 30) });
+              }
+            }}
+          />
         ) : (
           <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}
@@ -207,6 +234,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             <p className="mb-2 text-xs font-medium text-white">Comentarios</p>
             <div className="max-h-40 space-y-2 overflow-y-auto">
               {comments.isLoading && <p className="text-xs text-muted-foreground">Cargando comentarios…</p>}
+              {comments.isError && <p role="alert" className="text-xs text-rose-300">No se pudieron cargar los comentarios. Inténtalo de nuevo.</p>}
               {!comments.isLoading && !comments.data?.length && (
                 <p className="text-xs text-muted-foreground">Sé la primera persona en comentar.</p>
               )}

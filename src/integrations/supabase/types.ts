@@ -165,6 +165,7 @@ export type Database = {
           selfie_path: string;
           verification_frames: string[];
           verification_status: string;
+          video_watch_seconds: number;
         };
         Insert: {
           age?: number | null;
@@ -195,6 +196,7 @@ export type Database = {
           selfie_path?: string;
           verification_frames?: string[];
           verification_status?: string;
+          video_watch_seconds?: number;
         };
         Update: {
           age?: number | null;
@@ -225,6 +227,7 @@ export type Database = {
           selfie_path?: string;
           verification_frames?: string[];
           verification_status?: string;
+          video_watch_seconds?: number;
         };
         Relationships: [
           {
@@ -972,6 +975,12 @@ export type Database = {
       Update: { joined_at?: string; room_id?: string; user_id?: string };
       Relationships: [];
     };
+    cupido_face_verification_videos: {
+      Row: { created_at: string; id: string; reviewed_at: string | null; reviewed_by: string | null; status: string; user_id: string; video_path: string };
+      Insert: { created_at?: string; id?: string; reviewed_at?: string | null; reviewed_by?: string | null; status?: string; user_id: string; video_path: string };
+      Update: { created_at?: string; id?: string; reviewed_at?: string | null; reviewed_by?: string | null; status?: string; user_id?: string; video_path?: string };
+      Relationships: [];
+    };
     cupido_follower_count_events: {
       Row: { follower_count: number; updated_at: string; user_id: string };
       Insert: { follower_count?: number; updated_at?: string; user_id: string };
@@ -1028,6 +1037,7 @@ export type Database = {
         created_at: string;
         id: string;
         sender_id: string;
+        media_path: string;
       };
       Insert: {
         audio_path?: string;
@@ -1036,6 +1046,7 @@ export type Database = {
         created_at?: string;
         id?: string;
         sender_id: string;
+        media_path?: string;
       };
       Update: {
         audio_path?: string;
@@ -1044,6 +1055,7 @@ export type Database = {
         created_at?: string;
         id?: string;
         sender_id?: string;
+        media_path?: string;
       };
       Relationships: [];
     };
@@ -1313,6 +1325,10 @@ export type Database = {
       Returns: undefined;
     };
     cupido_end_live_room: { Args: { _id: string }; Returns: undefined };
+    cupido_submit_face_verification_video: { Args: { _video_path: string }; Returns: string };
+    cupido_review_face_verification_video: { Args: { _approve: boolean; _request: string }; Returns: undefined };
+    cupido_record_video_watch: { Args: { _post: string; _seconds: number }; Returns: number };
+    cupido_get_video_watch_seconds: { Args: { _user: string }; Returns: number };
     cupido_send_gift: {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string };
       Returns: string;

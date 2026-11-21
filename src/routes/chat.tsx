@@ -5,6 +5,7 @@ import {
   Coffee,
   Flame,
   Gift,
+  ImagePlus,
   Loader2,
   Mic,
   MicOff,
@@ -100,6 +101,7 @@ function ChatPage() {
   const openedRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const conversations = useQuery({
@@ -387,12 +389,45 @@ function ChatPage() {
     setRecording(false);
   };
 
+  const uploadChatPhoto = async (file: File | null) => {
+    if (!file || !activeId || !viewerId) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Elige una foto válida.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"].includes(file.type)) {
+      toast.error("La foto debe pesar menos de 10 MB.");
+      return;
+    }
+    const extension = file.type.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
+    const path = `${activeId}/${viewerId}/${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("cupido-chat-media").upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (uploadError) {
+      toast.error("No se pudo subir la foto.");
+      return;
+    }
+    const { error } = await supabase.from("cupido_messages").insert({
+      conversation_id: activeId,
+      sender_id: viewerId,
+      media_path: path,
+    });
+    if (error) {
+      toast.error("No se pudo enviar la foto.");
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+    photoInputRef.current && (photoInputRef.current.value = "");
+  };
+
   const startCall = useMutation({
     mutationFn: async ({ mode, video = false }: { mode: "hot" | "cafe"; video?: boolean }) => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canStartCall(mode, account))
         throw new Error(
-          account.hasPurchased || account.isAdmin
+          account.hasPurchased || account.isSupremeAdmin
             ? "No tienes monedas brillantes suficientes."
             : "Las llamadas requieren compra o recarga de monedas brillantes.",
         );
@@ -614,6 +649,8 @@ function ChatPage() {
                       >
                         {message.audio_path ? (
                           <VoiceBubble path={message.audio_path} />
+                        ) : message.media_path ? (
+                          <ChatPhoto path={message.media_path} />
                         ) : (
                           <p className="whitespace-pre-wrap break-words">{message.body}</p>
                         )}
@@ -628,6 +665,7 @@ function ChatPage() {
               </div>
 
               <div className="border-t border-white/10 p-3">
+                <p className="mb-2 text-center text-[11px] text-muted-foreground">Mensajes de texto, notas de voz y fotos son gratis. Las llamadas privadas cuestan monedas.</p>
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -637,6 +675,16 @@ function ChatPage() {
                     aria-label={recording ? "Detener nota de voz" : "Grabar nota de voz"}
                   >
                     {recording ? <Square /> : <Mic />}
+                  </Button>
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => void uploadChatPhoto(event.target.files?.[0] ?? null)}
+                  />
+                  <Button type="button" size="icon" variant="outline" onClick={() => photoInputRef.current?.click()} aria-label="Enviar foto gratis">
+                    <ImagePlus />
                   </Button>
                   <Input
                     value={text}
@@ -739,6 +787,19 @@ function ChatPage() {
       )}
     </main>
   );
+}
+
+function ChatPhoto({ path }: { path: string }) {
+  const photo = useQuery({
+    queryKey: ["cupido-chat-photo", path],
+    queryFn: async () => {
+      const { data, error } = await supabase.storage.from("cupido-chat-media").createSignedUrl(path, 300);
+      if (error) throw error;
+      return data.signedUrl;
+    },
+  });
+  if (!photo.data) return <p className="text-xs text-muted-foreground">{photo.isError ? "No se pudo cargar la foto." : "Cargando foto…"}</p>;
+  return <img src={photo.data} alt="Foto privada" className="max-h-72 max-w-full rounded-xl object-contain" />;
 }
 
 function VoiceBubble({ path }: { path: string }) {

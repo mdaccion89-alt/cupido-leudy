@@ -8,6 +8,10 @@ type CupidoVideoPlayerProps = {
   autoPlay?: boolean;
   muted?: boolean;
   controls?: boolean;
+  onPlay?: (currentTime: number) => void;
+  onPause?: (currentTime: number) => void;
+  onSeeking?: (currentTime: number) => void;
+  onTimeUpdate?: (currentTime: number) => void;
 };
 
 export function CupidoVideoPlayer({
@@ -17,6 +21,10 @@ export function CupidoVideoPlayer({
   autoPlay = false,
   muted: initialMuted = false,
   controls = true,
+  onPlay,
+  onPause,
+  onSeeking,
+  onTimeUpdate,
 }: CupidoVideoPlayerProps) {
   const [muted, setMuted] = useState(initialMuted || autoPlay);
 
@@ -38,6 +46,10 @@ export function CupidoVideoPlayer({
         loop={loop}
         muted={muted}
         className={className}
+        onPlay={(event) => onPlay?.(event.currentTarget.currentTime)}
+        onPause={(event) => onPause?.(event.currentTarget.currentTime)}
+        onSeeking={(event) => onSeeking?.(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => onTimeUpdate?.(event.currentTarget.currentTime)}
       />
       <button
         type="button"

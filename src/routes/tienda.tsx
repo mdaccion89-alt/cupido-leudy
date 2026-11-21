@@ -114,6 +114,17 @@ function StorePage() {
     },
   });
 
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase
+      .channel(`cupido-wallet-${viewerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances", filter: `user_id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
+
   const withdrawals = useQuery({
     queryKey: ["cupido-withdrawals", viewerId],
     enabled: Boolean(viewerId),

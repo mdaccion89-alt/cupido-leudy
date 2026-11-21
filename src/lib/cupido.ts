@@ -45,6 +45,7 @@ type SpendingAccount = {
   balance: number;
   hasPurchased: boolean;
   isAdmin: boolean;
+  isSupremeAdmin?: boolean;
 };
 
 export function canSendGift(gift: { credits: number }, account: SpendingAccount): boolean {
@@ -54,7 +55,7 @@ export function canSendGift(gift: { credits: number }, account: SpendingAccount)
 }
 
 export function canStartCall(mode: CallMode, account: SpendingAccount): boolean {
-  if (account.isAdmin) return true;
+  if (account.isSupremeAdmin) return true;
   if (!account.hasPurchased) return false;
   return account.balance >= CALL_COSTS[mode];
 }
@@ -72,7 +73,7 @@ export function callErrorMessage(message: string, fallback: string): string {
   return message || fallback;
 }
 
-export const GIFTS = [
+const GIFT_CATALOG = [
   { id: "rosa-001", emoji: "🌹", name: "Rosa", credits: 10, cash: 0.01 },
   { id: "cafe-002", emoji: "☕", name: "Café", credits: 25, cash: 0.03 },
   { id: "beso-003", emoji: "💋", name: "Beso", credits: 50, cash: 0.05 },
@@ -173,6 +174,16 @@ export const GIFTS = [
   { id: "galaxia-098", emoji: "🌌", name: "Galaxia", credits: 200000, cash: 200 },
   { id: "corona-eterna-099", emoji: "👑", name: "Corona eterna", credits: 250000, cash: 250 },
 ] as const;
+
+const BASIC_GIFT_PRICES = [5, 10, 20, 50, 75, 100];
+const LUXURY_GIFT_PRICES = [120, 160, 220, 300, 400, 550, 700, 900, 1200, 1600, 2000, 2500];
+
+export const GIFTS = GIFT_CATALOG.map((gift, index) => {
+  const credits = index < 55
+    ? BASIC_GIFT_PRICES[index % BASIC_GIFT_PRICES.length]!
+    : LUXURY_GIFT_PRICES[(index - 55) % LUXURY_GIFT_PRICES.length]!;
+  return { ...gift, credits, cash: Number((credits / 1000).toFixed(3)), imageIndex: index };
+});
 
 export type Gift = (typeof GIFTS)[number];
 

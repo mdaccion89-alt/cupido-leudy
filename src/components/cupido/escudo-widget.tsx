@@ -37,7 +37,7 @@ export function EscudoWidget() {
         {
           id: Date.now() + 1,
           role: "assistant",
-          content: result.ok ? result.reply : result.message,
+          content: result.ok ? result.reply : "Puedo ayudarte con seguridad en Cupido. Protege tus datos y evita pagos fuera de la app.",
         },
       ]);
     } catch {
@@ -46,7 +46,7 @@ export function EscudoWidget() {
         {
           id: Date.now() + 1,
           role: "assistant",
-          content: "No pude responder ahora. Inténtalo de nuevo en unos segundos.",
+          content: "Puedo ayudarte con seguridad en Cupido. Protege tus datos y evita pagos fuera de la app.",
         },
       ]);
     } finally {

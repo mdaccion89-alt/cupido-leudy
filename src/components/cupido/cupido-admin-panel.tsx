@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { VerificationVideoPreview } from "@/components/cupido/verification-video-preview";
 import { supabase } from "@/integrations/supabase/client";
 import { countryFlag, countryName } from "@/lib/cupido";
 import { savePaypalBusinessSettings as savePaypalBusinessSettingsServer } from "@/lib/admin.functions";
@@ -32,6 +33,15 @@ type VerificationRow = {
   verification_status: string;
   is_verified_blue: boolean;
   email?: string | null;
+};
+
+type VerificationVideoRow = {
+  id: string;
+  user_id: string;
+  video_path: string;
+  created_at: string;
+  display_name: string;
+  avatar_url: string;
 };
 
 type WithdrawalRow = {
@@ -97,11 +107,36 @@ export function CupidoAdminPanel() {
     },
   });
 
+  const verificationVideos = useQuery({
+    queryKey: ["cupido-admin", "verification-videos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cupido_face_verification_videos")
+        .select("id,user_id,video_path,created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const ids = (data ?? []).map((row) => row.user_id);
+      const profiles = ids.length
+        ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", ids)
+        : { data: [], error: null };
+      if (profiles.error) throw profiles.error;
+      const profileById = new Map((profiles.data ?? []).map((row) => [row.id, row]));
+      return (data ?? []).map((row) => {
+        const profile = profileById.get(row.user_id);
+        return { ...row, display_name: profile?.display_name?.trim() || "Miembro de Cupido", avatar_url: profile?.avatar_url ?? "" };
+      }) as VerificationVideoRow[];
+    },
+  });
+
   useEffect(() => {
     const channel = supabase
       .channel("cupido-admin-verification-queue")
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verifications"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_face_verification_videos" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verification-videos"] });
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -163,6 +198,21 @@ export function CupidoAdminPanel() {
       invalidate();
     },
     onError: () => toast.error("No se pudo revisar la verificación."),
+  });
+
+  const reviewVerificationVideo = useMutation({
+    mutationFn: async ({ requestId, approve }: { requestId: string; approve: boolean }) => {
+      const { error } = await supabase.rpc("cupido_review_face_verification_video", {
+        _request: requestId,
+        _approve: approve,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      toast.success(variables.approve ? "Insignia azul habilitada y usuario notificado." : "Video rechazado y usuario notificado.");
+      invalidate();
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo revisar el video."),
   });
 
   const reviewWithdrawal = useMutation({
@@ -232,6 +282,38 @@ export function CupidoAdminPanel() {
 
   return (
     <div className="space-y-6">
+      <section className="rounded-3xl border border-sky-400/20 bg-sky-500/[0.06] p-5">
+        <div className="flex items-center gap-3">
+          <ShieldCheck className="size-5 text-sky-300" />
+          <div>
+            <h2 className="font-display text-lg text-white">Mensajes · videos para habilitar insignia</h2>
+            <p className="text-xs text-muted-foreground">Videos faciales recibidos para revisión del Administrador Oficial.</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(verificationVideos.data ?? []).map((row) => (
+            <div key={row.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <img src={row.avatar_url || "/favicon.ico"} alt="" className="size-10 rounded-full object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">{row.display_name}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(row.created_at).toLocaleString("es")}</p>
+                </div>
+              </div>
+              <VerificationVideoPreview path={row.video_path} />
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, approve: true })}>
+                  <Check className="size-4" /> Aceptar
+                </Button>
+                <Button size="sm" variant="glass" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, approve: false })}>
+                  <X className="size-4" /> Rechazar
+                </Button>
+              </div>
+            </div>
+          ))}
+          {!verificationVideos.isLoading && !verificationVideos.data?.length && <p className="text-sm text-muted-foreground">No hay videos de verificación pendientes.</p>}
+        </div>
+      </section>
       <section className="rounded-3xl border border-pink-400/20 bg-pink-500/[0.06] p-5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-5 text-pink-300" />

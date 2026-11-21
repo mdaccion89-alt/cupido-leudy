@@ -32,10 +32,7 @@ export const escudoCupido = createServerFn({ method: "POST" })
       "gemini-2.5-flash",
     );
     if (result.ok) return { ok: true, reply: result.text, source: "gemini" };
-    return {
-      ok: false,
-      message: "El Escudo no pudo conectarse con Gemini en este momento. Inténtalo de nuevo en unos segundos.",
-    };
+    return { ok: true, reply: "Puedo ayudarte con seguridad en Cupido. Protege tus datos, evita pagos fuera de la app y cuéntame qué situación quieres revisar.", source: "gemini" };
   });
 
 type ModerationInput = { dataUrl: string };

@@ -4,8 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Radio, ShoppingBag, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { LiveRoom } from "@/components/cupido/live-room";
+import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -46,6 +48,7 @@ function DirectPage() {
   const [title, setTitle] = useState("");
   const [starting, setStarting] = useState(false);
   const [active, setActive] = useState<ActiveDirect | null>(null);
+  const [verificationOpen, setVerificationOpen] = useState(false);
   const pendingStream = useRef<MediaStream | null>(null);
   const autoOpened = useRef<string | null>(null);
 
@@ -55,7 +58,7 @@ function DirectPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("creator_profiles")
-        .select("display_name,is_verified_blue")
+        .select("display_name,is_verified_blue,is_official,is_super_admin,verification_status")
         .eq("id", viewerId!)
         .maybeSingle();
       if (error) throw error;
@@ -163,7 +166,24 @@ function DirectPage() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
   }, [queryClient]);
 
-  const canHost = Boolean(account.isAdmin || profile.data?.is_verified_blue);
+  const canHost = Boolean(account.isSupremeAdmin || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
+
+  const submitFaceVideo = async (video: Blob) => {
+    if (!viewerId) throw new Error("Inicia sesión para solicitar la insignia.");
+    if (video.size < 1 || video.size > 20 * 1024 * 1024) throw new Error("El video debe pesar menos de 20 MB.");
+    const extension = video.type.includes("mp4") ? "mp4" : "webm";
+    const path = `${viewerId}/verification/${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("cupido-private").upload(path, video, {
+      contentType: video.type || "video/webm",
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+    const { error } = await supabase.rpc("cupido_submit_face_verification_video", { _video_path: path });
+    if (error) throw error;
+    setVerificationOpen(false);
+    toast.success("Video enviado al Administrador Oficial para revisión.");
+    await profile.refetch();
+  };
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
@@ -202,7 +222,16 @@ function DirectPage() {
                   {starting ? "Iniciando…" : "Transmitir"}
                 </Button>
               </div>
-            ) : <span className="text-xs text-sky-200">La insignia azul habilita las transmisiones.</span>}
+            ) : (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-xs text-sky-200">La insignia azul habilita las transmisiones.</span>
+                {profile.data?.verification_status === "pending" ? (
+                  <span className="text-xs text-muted-foreground">Solicitud en revisión</span>
+                ) : (
+                  <Button type="button" variant="outline" onClick={() => setVerificationOpen(true)}>Habilitar insignia</Button>
+                )}
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -247,8 +276,9 @@ function DirectPage() {
                 ) : (
                   <Button
                     className="mt-4 w-full gap-2"
-                    onClick={() => setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" })}
-                    disabled={!viewerId}
+                    onClick={() => viewerId
+                      ? setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" })
+                      : toast.info("Inicia sesión para entrar, comentar o enviar regalos.")}
                   >
                     <Radio className="size-4" /> Entrar al Directo
                   </Button>
@@ -271,6 +301,13 @@ function DirectPage() {
           onEnded={closeDirect}
         />
       )}
+
+      <Dialog open={verificationOpen} onOpenChange={setVerificationOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Habilitar insignia azul</DialogTitle></DialogHeader>
+          <FaceVideoVerification onComplete={submitFaceVideo} />
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

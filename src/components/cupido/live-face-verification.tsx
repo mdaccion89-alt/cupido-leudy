@@ -198,3 +198,110 @@ export function LiveFaceVerification({ onComplete }: LiveFaceVerificationProps) 
     </div>
   );
 }
+
+const VIDEO_STEPS = [
+  "Coloca tu cara dentro del óvalo",
+  "Mira hacia la izquierda",
+  "Mira hacia la derecha",
+] as const;
+
+export function FaceVideoVerification({ onComplete }: { onComplete: (video: Blob) => Promise<void> }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [step, setStep] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+
+  const stopStream = () => {
+    if (timerRef.current !== null) window.clearInterval(timerRef.current);
+    timerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  };
+
+  useEffect(() => stopStream, []);
+
+  const startRecording = async () => {
+    setError("");
+    setStep(0);
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("Este dispositivo no permite grabar video desde la cámara.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      const mimeType = ["video/webm;codecs=vp8", "video/webm", "video/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const clip = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        stopStream();
+        setRecording(false);
+        if (!clip.size) {
+          setError("No se pudo grabar el video. Inténtalo de nuevo.");
+          return;
+        }
+        setUploading(true);
+        void onComplete(clip)
+          .catch((uploadError: unknown) => setError(uploadError instanceof Error ? uploadError.message : "No se pudo enviar el video."))
+          .finally(() => setUploading(false));
+      };
+      recorder.start(250);
+      setRecording(true);
+      let currentStep = 0;
+      timerRef.current = window.setInterval(() => {
+        currentStep += 1;
+        if (currentStep >= VIDEO_STEPS.length) {
+          if (timerRef.current !== null) window.clearInterval(timerRef.current);
+          timerRef.current = null;
+          recorder.stop();
+          return;
+        }
+        setStep(currentStep);
+      }, 3500);
+    } catch {
+      stopStream();
+      setError("No pudimos abrir la cámara frontal. Revisa los permisos e inténtalo de nuevo.");
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-2xl bg-black">
+        <video ref={videoRef} muted playsInline className="size-full object-cover" />
+        <svg aria-hidden="true" viewBox="0 0 640 640" className="absolute inset-0 size-full">
+          <path d="M0 0h640v640H0z M320 72c-91 0-139 67-139 169 0 116 57 233 139 233s139-117 139-233c0-102-48-169-139-169z" fillRule="evenodd" fill="rgba(0,0,0,.48)" />
+          <path d="M320 72c-91 0-139 67-139 169 0 116 57 233 139 233s139-117 139-233c0-102-48-169-139-169z" fill="none" stroke="#7dd3fc" strokeWidth="6" />
+        </svg>
+        <p className="absolute inset-x-3 bottom-4 rounded-xl bg-black/75 px-3 py-2 text-center text-sm font-semibold text-white">
+          {VIDEO_STEPS[step]}
+        </p>
+      </div>
+      <p className="text-center text-xs text-muted-foreground">
+        {recording ? `Grabando paso ${step + 1} de 3…` : "Video corto real: rostro al frente, giro a la izquierda y giro a la derecha."}
+      </p>
+      {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+      <Button type="button" onClick={() => void startRecording()} disabled={recording || uploading} className="w-full gap-2">
+        {uploading ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+        {uploading ? "Enviando video al Administrador Oficial…" : recording ? "Grabando verificación…" : "Grabar video y habilitar insignia"}
+      </Button>
+    </div>
+  );
+}

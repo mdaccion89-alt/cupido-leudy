@@ -62,6 +62,7 @@ export function useAccount() {
           500,
         nextReset: credits.data?.daily_reset_at ?? null,
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
+        isSupremeAdmin: isImmediateAdmin || (roles.data ?? []).some((r) => r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
         plan: profile.data?.is_premium ? "premium" : "free",
         hasPurchased:
@@ -76,6 +77,7 @@ export function useAccount() {
     balance: isImmediateAdmin || query.data?.balance === -1 ? Infinity : (query.data?.balance ?? 500),
     nextReset: query.data?.nextReset ?? null,
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
+    isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
     plan: isImmediateAdmin ? "premium" : (query.data?.plan ?? "free"),
     hasPurchased: isImmediateAdmin || Boolean(query.data?.hasPurchased),

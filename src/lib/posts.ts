@@ -297,7 +297,7 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
     .eq("post_id", postId)
     .order("created_at", { ascending: true })
     .limit(60);
-  if (result.error) return [];
+  if (result.error) throw result.error;
   const rows = (result.data ?? []) as AnyRow[];
   const ids = [...new Set(rows.map((row) => row.user_id as string))];
   const profiles = ids.length

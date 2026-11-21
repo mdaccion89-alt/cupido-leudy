@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InviteButton } from "@/components/cupido/invite-button";
-import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
+import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
@@ -81,14 +81,6 @@ function extensionOf(file: File, fallback: string): string {
   return file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || fallback;
 }
 
-function dataUrlBytes(dataUrl: string): Uint8Array {
-  const base64 = dataUrl.split(",").pop() ?? "";
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 function ProfilePage() {
   const { session, loading: authLoading } = useAuth();
   const account = useAccount();
@@ -116,12 +108,13 @@ function ProfilePage() {
   const [smokes, setSmokes] = useState(false);
   const [hobbies, setHobbies] = useState("");
   const [followersOpen, setFollowersOpen] = useState(false);
+  const [verificationOpen, setVerificationOpen] = useState(false);
 
   const profile = useQuery({
     queryKey: ["cupido-profile", profileId, viewerId],
     enabled: Boolean(profileId),
     queryFn: async () => {
-      const [creator, privateProfile, follow, friendA, friendB, followerTotal] = await Promise.all([
+      const [creator, privateProfile, follow, friendA, friendB, followerTotal, watchSeconds] = await Promise.all([
         supabase
           .from("cupido_public_profiles")
           .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
@@ -159,6 +152,9 @@ function ProfilePage() {
               .maybeSingle()
           : Promise.resolve({ data: null }),
         supabase.rpc("cupido_count_followers", { _following: profileId! }),
+        viewerId === profileId
+          ? supabase.rpc("cupido_get_video_watch_seconds", { _user: profileId! })
+          : Promise.resolve({ data: 0, error: null }),
       ]);
       if (creator.error) {
         console.error("[perfil] Falló la consulta del perfil público.", creator.error);
@@ -173,6 +169,7 @@ function ProfilePage() {
         privateProfile: privateProfile.data,
         following: Boolean(follow.data),
         actualFollowerCount: followerTotal.data ?? 0,
+        videoWatchSeconds: watchSeconds.data ?? 0,
         friendStatus: friendA.data?.status ?? friendB.data?.status ?? null,
       };
     },
@@ -309,31 +306,23 @@ function ProfilePage() {
   });
 
   const liveVerification = useMutation({
-    mutationFn: async (frames: string[]) => {
+    mutationFn: async (video: Blob) => {
       if (!viewerId) throw new Error("Inicia sesión.");
-      const ownProfile = profile.data?.privateProfile;
-      const publicProfile = profile.data?.creator;
-      if (!ownProfile?.avatar_url || !ownProfile?.full_name || !ownProfile?.birth_date || !ownProfile?.country_code || !ownProfile?.phone || !ownProfile?.bio || ownProfile?.survey_completed !== true || publicProfile?.is_official || publicProfile?.is_super_admin) {
-        throw new Error("Completa foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta antes de solicitar la insignia.");
-      }
-      if (frames.length !== 3) throw new Error("Debes completar las 3 poses.");
-      const stamp = Date.now();
-      const paths: string[] = [];
-      for (let index = 0; index < frames.length; index += 1) {
-        const path = `${viewerId}/verification/${stamp}-${index + 1}.jpg`;
-        const { error } = await supabase.storage.from("cupido-private").upload(path, dataUrlBytes(frames[index]!), {
-          contentType: "image/jpeg",
-          upsert: false,
-        });
-        if (error) throw error;
-        paths.push(path);
-      }
-      const { error: rpcError } = await supabase.rpc("cupido_submit_live_verification", { _frames: paths });
+      if (video.size < 1 || video.size > 20 * 1024 * 1024) throw new Error("El video debe pesar menos de 20 MB.");
+      const extension = video.type.includes("mp4") ? "mp4" : "webm";
+      const path = `${viewerId}/verification/${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from("cupido-private").upload(path, video, {
+        contentType: video.type || "video/webm",
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const { error: rpcError } = await supabase.rpc("cupido_submit_face_verification_video", { _video_path: path });
       if (rpcError) throw rpcError;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
-      toast.success("3 capturas enviadas. El Admin Supremo revisará tu verificación ❤️");
+      setVerificationOpen(false);
+      toast.success("Video enviado al Administrador Oficial para revisión.");
     },
     onError: (error) => toast.error(errorMessage(error, "No se pudo enviar la verificación.")),
   });
@@ -678,10 +667,19 @@ function ProfilePage() {
             <div className="mt-6">
               {creator?.verification_status === "pending" ? (
                 <p className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Tu solicitud está en revisión.</p>
-              ) : !verified && verificationEligible ? (
-                <LiveFaceVerification onComplete={(frames) => liveVerification.mutateAsync(frames)} />
               ) : !verified ? (
-                <p className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa tu foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta para solicitar la insignia azul.</p>
+                <>
+                  {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa tu foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta para solicitar la insignia azul.</p>}
+                  <Button type="button" onClick={() => setVerificationOpen(true)} disabled={!verificationEligible}>
+                    Habilitar insignia
+                  </Button>
+                  <Dialog open={verificationOpen} onOpenChange={setVerificationOpen}>
+                    <DialogContent className="max-w-lg">
+                      <DialogHeader><DialogTitle>Habilitar insignia azul</DialogTitle></DialogHeader>
+                      <FaceVideoVerification onComplete={(video) => liveVerification.mutateAsync(video)} />
+                    </DialogContent>
+                  </Dialog>
+                </>
               ) : null}
             </div>
           )}
@@ -726,6 +724,23 @@ function ProfilePage() {
       </section>
 
       <section className="mt-8 space-y-8">
+        {own && (
+          <section className="rounded-3xl border border-sky-400/20 bg-sky-500/[0.05] p-5">
+            <h2 className="font-display text-lg text-white">Monetización de videos del muro</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Se activa con 1.000 seguidores reales y 1.000 horas de reproducción reales.</p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-white"><span>Seguidores</span><span>{actualFollowerCount.toLocaleString("es")} / 1.000</span></div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-pink-400" style={{ width: `${Math.min(actualFollowerCount / 10, 100)}%` }} /></div>
+              </div>
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-white"><span>Horas reproducidas</span><span>{(Number(profile.data?.videoWatchSeconds ?? 0) / 3600).toFixed(1)} / 1.000</span></div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-sky-300" style={{ width: `${Math.min(Number(profile.data?.videoWatchSeconds ?? 0) / 36000, 100)}%` }} /></div>
+              </div>
+              <p className="text-xs text-muted-foreground">{actualFollowerCount >= 1000 && Number(profile.data?.videoWatchSeconds ?? 0) >= 3_600_000 ? "Monetización habilitada." : "Sigue creciendo con reproducciones y seguidores reales."}</p>
+            </div>
+          </section>
+        )}
         <div>
           <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
           <WallFeed

@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
 import { toast } from "sonner";
-import { CafeRoulette } from "@/components/cupido/cafe-roulette";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { DailyReward } from "@/components/cupido/daily-reward";
 import { LiveRoom } from "@/components/cupido/live-room";
@@ -204,7 +203,7 @@ function CallsPage() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
   };
 
-  const canHostLive = Boolean(account.isAdmin || myProfile.data?.is_verified_blue);
+  const canHostLive = Boolean(account.isSupremeAdmin || myProfile.data?.is_official || myProfile.data?.is_super_admin || myProfile.data?.is_verified_blue);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
@@ -235,10 +234,6 @@ function CallsPage() {
 
       <section className="mt-6 max-w-xl">
         <DailyReward />
-      </section>
-
-      <section className="mt-6 max-w-xl">
-        <CafeRoulette />
       </section>
 
       <section className="mt-6 rounded-3xl border border-pink-400/25 bg-pink-500/[0.07] p-6">
