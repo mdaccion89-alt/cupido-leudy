@@ -24,7 +24,6 @@ import { displayedFollowerCount, useAccount, isSupremeAdminEmail } from "@/lib/a
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
-import { notifyUser } from "@/lib/posts";
 import { extraField, saveAvatarDirect, saveProfileDirect } from "@/lib/profile-write";
 import { compressImageFile } from "@/lib/storage";
 
@@ -145,7 +144,7 @@ function ProfilePage() {
           : Promise.resolve({ data: null }),
         viewerId
           ? supabase
-              .from("cupido_friends")
+              .from("friend_requests")
               .select("status")
               .eq("requester_id", viewerId)
               .eq("addressee_id", profileId!)
@@ -153,7 +152,7 @@ function ProfilePage() {
           : Promise.resolve({ data: null }),
         viewerId
           ? supabase
-              .from("cupido_friends")
+              .from("friend_requests")
               .select("status")
               .eq("requester_id", profileId!)
               .eq("addressee_id", viewerId)
@@ -178,6 +177,24 @@ function ProfilePage() {
       };
     },
   });
+
+  useEffect(() => {
+    if (!profileId) return;
+    const channelName = `cupido-profile-followers-${profileId}-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cupido_follower_count_events", filter: `user_id=eq.${profileId}` },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [profileId, queryClient, viewerId]);
 
   useEffect(() => {
     if (!profileId) return;
@@ -354,46 +371,26 @@ function ProfilePage() {
       }
     },
     onSuccess: () => {
-      if (profileId && viewerId && !Boolean(profile.data?.following)) {
-        void notifyUser({
-          userId: profileId,
-          title: "👀 Nueva persona que te sigue",
-          body: "Alguien acaba de seguir tu perfil.",
-          kind: "follow",
-          actorId: viewerId,
-          targetId: profileId,
-        });
-      }
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
     },
-    onError: () => toast.error("No se pudo actualizar el seguidor."),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo actualizar el seguidor.")),
   });
 
   const requestFriend = useMutation({
     mutationFn: async () => {
       if (!viewerId || !profileId) return;
-      const { error } = await supabase.from("cupido_friends").insert({
-        requester_id: viewerId,
-        addressee_id: profileId,
-        status: "pending",
-      });
+      const { error } = await supabase.from("friend_requests").upsert(
+        { requester_id: viewerId, addressee_id: profileId, status: "pending" },
+        { onConflict: "requester_id,addressee_id", ignoreDuplicates: true },
+      );
       if (error) throw error;
     },
     onSuccess: () => {
-      if (profileId && viewerId) {
-        void notifyUser({
-          userId: profileId,
-          title: "🤝 Solicitud de amistad",
-          body: "Una persona real quiere ser tu amiga.",
-          kind: "friend",
-          actorId: viewerId,
-          targetId: profileId,
-        });
-      }
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
       toast.success("Solicitud de amistad enviada ❤️");
     },
-    onError: () => toast.error("No se pudo enviar la solicitud."),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo enviar la solicitud.")),
   });
 
   if (authLoading || profile.isLoading)

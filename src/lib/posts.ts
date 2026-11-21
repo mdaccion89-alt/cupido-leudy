@@ -325,17 +325,6 @@ export async function addComment(postId: string, body: string): Promise<void> {
   if (!text) throw new Error("Escribe un comentario.");
   const { error } = await db.from("cupido_post_comments").insert({ post_id: postId, user_id: userId, body: text });
   if (error) throw error;
-  const owner = await db.from("cupido_posts").select("user_id").eq("id", postId).maybeSingle();
-  if (owner.data?.user_id && owner.data.user_id !== userId) {
-    void notifyUser({
-      userId: owner.data.user_id as string,
-      title: "💬 Nuevo comentario",
-      body: text.slice(0, 120),
-      kind: "comment",
-      actorId: userId,
-      targetId: postId,
-    });
-  }
 }
 
 export async function registerPostView(postId: string): Promise<void> {

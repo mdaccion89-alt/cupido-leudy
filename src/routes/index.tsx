@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
-import { fetchFeed, notifyUser, SUPREME_ADMIN_EMAIL, togglePostLike } from "@/lib/posts";
+import { fetchFeed, SUPREME_ADMIN_EMAIL, togglePostLike } from "@/lib/posts";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -124,7 +124,7 @@ function CupidoHome() {
     enabled: Boolean(userId),
     queryFn: async () => {
       const { data } = await supabase
-        .from("cupido_friends")
+        .from("friend_requests")
         .select("requester_id,addressee_id,status")
         .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
       return data ?? [];
@@ -159,7 +159,7 @@ function CupidoHome() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-home-live")
+      .channel(`cupido-home-live-${userId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
@@ -169,6 +169,9 @@ function CupidoHome() {
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profiles", userId] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-follows", userId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-friends", userId] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
@@ -202,17 +205,7 @@ function CupidoHome() {
       return;
     }
     if (kind === "pass") setPassed((current) => [...current, targetId]);
-    else {
-      toast.success("Me interesa guardado ❤️");
-      void notifyUser({
-        userId: targetId,
-        title: "❤️ Alguien está interesado",
-        body: "Una persona real marcó que le interesa tu perfil.",
-        kind: "interested",
-        actorId: userId,
-        targetId,
-      });
-    }
+    else toast.success("Me interesa guardado ❤️");
     void queryClient.invalidateQueries({ queryKey: ["cupido-likes", userId] });
   };
 
@@ -229,17 +222,7 @@ function CupidoHome() {
     } else {
       const { error } = await supabase.from("follows").insert({ follower_id: userId!, following_id: targetId });
       if (error) toast.error(error.message);
-      else {
-        toast.success("Ahora sigues este perfil");
-        void notifyUser({
-          userId: targetId,
-          title: "👀 Nueva persona que te sigue",
-          body: "Alguien acaba de seguir tu perfil.",
-          kind: "follow",
-          actorId: userId,
-          targetId,
-        });
-      }
+      else toast.success("Ahora sigues este perfil");
     }
     void queryClient.invalidateQueries({ queryKey: ["cupido-follows", userId] });
     void queryClient.invalidateQueries({ queryKey: ["cupido-profiles", userId] });
@@ -251,23 +234,12 @@ function CupidoHome() {
       toast.info("Ya existe una solicitud o amistad con este perfil.");
       return;
     }
-    const { error } = await supabase.from("cupido_friends").insert({
-      requester_id: userId!,
-      addressee_id: targetId,
-      status: "pending",
-    });
+    const { error } = await supabase.from("friend_requests").upsert(
+      { requester_id: userId!, addressee_id: targetId, status: "pending" },
+      { onConflict: "requester_id,addressee_id", ignoreDuplicates: true },
+    );
     if (error) toast.error(error.message);
-    else {
-      toast.success("Solicitud de amistad enviada ❤️");
-      void notifyUser({
-        userId: targetId,
-        title: "🤝 Solicitud de amistad",
-        body: "Una persona real quiere ser tu amiga.",
-        kind: "friend",
-        actorId: userId,
-        targetId,
-      });
-    }
+    else toast.success("Solicitud de amistad enviada ❤️");
     void queryClient.invalidateQueries({ queryKey: ["cupido-friends", userId] });
   };
 
@@ -281,16 +253,6 @@ function CupidoHome() {
     const wasLiked = mediaQuery.data?.liked.has(post.id) ?? false;
     try {
       const next = await togglePostLike(post.id, wasLiked);
-      if (next && profileId !== userId) {
-        void notifyUser({
-          userId: profileId,
-          title: "❤️ Te gusta en tu publicación",
-          body: "A alguien le gustó tu foto o video.",
-          kind: "like",
-          actorId: userId,
-          targetId: post.id,
-        });
-      }
       toast.success(next ? "❤️ Te gusta" : "Te gusta eliminado");
       void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
     } catch (error) {

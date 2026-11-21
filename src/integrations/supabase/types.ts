@@ -322,6 +322,7 @@ export type Database = {
       notifications: {
         Row: {
           actor_id: string | null;
+          action_url: string | null;
           body: string;
           created_at: string;
           id: string;
@@ -333,6 +334,7 @@ export type Database = {
         };
         Insert: {
           actor_id?: string | null;
+          action_url?: string | null;
           body?: string;
           created_at?: string;
           id?: string;
@@ -344,6 +346,7 @@ export type Database = {
         };
         Update: {
           actor_id?: string | null;
+          action_url?: string | null;
           body?: string;
           created_at?: string;
           id?: string;
@@ -850,6 +853,33 @@ export type Database = {
       };
       Relationships: [];
     };
+    friend_requests: {
+      Row: {
+        addressee_id: string;
+        created_at: string;
+        id: string;
+        requester_id: string;
+        status: string;
+        updated_at: string;
+      };
+      Insert: {
+        addressee_id: string;
+        created_at?: string;
+        id?: string;
+        requester_id: string;
+        status?: string;
+        updated_at?: string;
+      };
+      Update: {
+        addressee_id?: string;
+        created_at?: string;
+        id?: string;
+        requester_id?: string;
+        status?: string;
+        updated_at?: string;
+      };
+      Relationships: [];
+    };
     cupido_gift_sends: {
       Row: {
         cash_value: number;
@@ -940,6 +970,48 @@ export type Database = {
       Row: { joined_at: string; room_id: string; user_id: string };
       Insert: { joined_at?: string; room_id: string; user_id: string };
       Update: { joined_at?: string; room_id?: string; user_id?: string };
+      Relationships: [];
+    };
+    cupido_follower_count_events: {
+      Row: { follower_count: number; updated_at: string; user_id: string };
+      Insert: { follower_count?: number; updated_at?: string; user_id: string };
+      Update: { follower_count?: number; updated_at?: string; user_id?: string };
+      Relationships: [];
+    };
+    live_streams: {
+      Row: {
+        ended_at: string | null;
+        host_id: string;
+        id: string;
+        started_at: string;
+        status: string;
+        title: string;
+        viewers_count: number;
+      };
+      Insert: {
+        ended_at?: string | null;
+        host_id: string;
+        id: string;
+        started_at?: string;
+        status?: string;
+        title?: string;
+        viewers_count?: number;
+      };
+      Update: {
+        ended_at?: string | null;
+        host_id?: string;
+        id?: string;
+        started_at?: string;
+        status?: string;
+        title?: string;
+        viewers_count?: number;
+      };
+      Relationships: [];
+    };
+    live_comments: {
+      Row: { body: string; created_at: string; id: string; stream_id: string; user_id: string };
+      Insert: { body: string; created_at?: string; id?: string; stream_id: string; user_id: string };
+      Update: { body?: string; created_at?: string; id?: string; stream_id?: string; user_id?: string };
       Relationships: [];
     };
     cupido_likes: {

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, Gift, Loader2, Mic, MicOff, PhoneOff, Radio, Users, Volume2, VolumeX, X } from "lucide-react";
+import { CreditCard, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
 import { showInterstitialAd } from "@/lib/admob";
 import { canSendGift, FREE_GIFT_MAX_CREDITS, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
@@ -28,7 +30,8 @@ type LiveSignal =
   | { kind: "ice"; sender: string; receiver?: string; candidate: RTCIceCandidateInit }
   | { kind: "end"; sender: string; receiver?: string };
 
-type PresenceMeta = { user_id: string; role: "host" | "viewer" };
+type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
+type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string };
 
 export function LiveRoom({
   roomId,
@@ -52,6 +55,10 @@ export function LiveRoom({
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
+  const [comments, setComments] = useState<LiveComment[]>([]);
+  const [joinMessages, setJoinMessages] = useState<string[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [sendingComment, setSendingComment] = useState(false);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   const sendSignal = useCallback(
@@ -147,13 +154,23 @@ export function LiveRoom({
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_live_rooms", filter: `id=eq.${roomId}` },
         (payload) => {
-          if (payload.eventType === "UPDATE" || payload.eventType === "DELETE") onEnded();
+          const updatedRoom = payload.new as { is_live?: boolean };
+          if (payload.eventType === "DELETE" || (payload.eventType === "UPDATE" && updatedRoom.is_live === false)) onEnded();
         },
       )
       .subscribe();
 
     const presenceChannel = supabase
-      .channel(`cupido-live-presence-${roomId}`)
+      .channel(`cupido-live-presence-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .on("presence", { event: "join" }, (payload) => {
+        const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
+        for (const person of joined) {
+          if (person.user_id === viewerId || person.role !== "viewer") continue;
+          const name = person.display_name?.trim() || "Usuario";
+          const message = `${name.startsWith("@") ? name : `@${name}`} se unió a la transmisión`;
+          setJoinMessages((current) => [...current.slice(-4), message]);
+        }
+      })
       .on("presence", { event: "sync" }, () => {
         const state = presenceChannel.presenceState<PresenceMeta>();
         const ids = new Set<string>();
@@ -166,12 +183,22 @@ export function LiveRoom({
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          await presenceChannel.track({ user_id: viewerId, role, online_at: new Date().toISOString() });
+          const { data: profile } = await supabase
+            .from("cupido_public_profiles")
+            .select("display_name")
+            .eq("id", viewerId)
+            .maybeSingle();
+          await presenceChannel.track({
+            user_id: viewerId,
+            role,
+            display_name: role === "host" ? hostName : profile?.display_name ?? "@Usuario",
+            online_at: new Date().toISOString(),
+          });
         }
       });
 
     const signalsChannel = supabase
-      .channel(`cupido-live-signals-${roomId}-${viewerId}`)
+      .channel(`cupido-live-signals-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "cupido_live_signals", filter: `room_id=eq.${roomId}` },
@@ -241,6 +268,89 @@ export function LiveRoom({
       void supabase.removeChannel(signalsChannel);
     };
   }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, sendSignal]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadComments = async () => {
+      const { data, error } = await supabase
+        .from("live_comments")
+        .select("id,stream_id,user_id,body,created_at")
+        .eq("stream_id", roomId)
+        .order("created_at", { ascending: true })
+        .limit(100);
+      if (error) throw error;
+      const ids = [...new Set((data ?? []).map((row) => row.user_id))];
+      const profiles = ids.length
+        ? await supabase.from("cupido_public_profiles").select("id,display_name").in("id", ids)
+        : { data: [], error: null };
+      if (profiles.error) throw profiles.error;
+      const names = new Map((profiles.data ?? []).map((profile) => [profile.id, profile.display_name]));
+      if (!cancelled) {
+        setComments((current) => {
+          const currentById = new Map(current.map((comment) => [comment.id, comment]));
+          for (const row of data ?? []) {
+            currentById.set(row.id, {
+              ...row,
+              display_name: names.get(row.user_id)?.trim() || "@Usuario",
+            });
+          }
+          return [...currentById.values()].sort((left, right) => left.created_at.localeCompare(right.created_at)).slice(-100);
+        });
+      }
+    };
+
+    void loadComments().catch((error: unknown) => {
+      if (!cancelled) toast.error(error instanceof Error ? error.message : "No se pudo cargar el chat del Live.");
+    });
+    const channel = supabase
+      .channel(`cupido-live-comments-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_comments", filter: `stream_id=eq.${roomId}` }, (payload) => {
+        const row = payload.new as { id: string; stream_id: string; user_id: string; body: string; created_at: string };
+        void supabase
+          .from("cupido_public_profiles")
+          .select("display_name")
+          .eq("id", row.user_id)
+          .maybeSingle()
+          .then(({ data: profile }) => {
+            if (cancelled) return;
+            setComments((current) => current.some((comment) => comment.id === row.id)
+              ? current
+              : [...current, { ...row, display_name: profile?.display_name?.trim() || "@Usuario" }].slice(-100));
+          });
+      })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [roomId, viewerId]);
+
+  const sendLiveComment = async () => {
+    const body = commentText.trim().slice(0, 500);
+    if (!body || sendingComment) return;
+    setSendingComment(true);
+    try {
+      const [{ data, error }, { data: profile }] = await Promise.all([
+        supabase
+          .from("live_comments")
+          .insert({ stream_id: roomId, user_id: viewerId, body })
+          .select("id,stream_id,user_id,body,created_at")
+          .single(),
+        supabase.from("cupido_public_profiles").select("display_name").eq("id", viewerId).maybeSingle(),
+      ]);
+      if (error) throw error;
+      if (data) {
+        setComments((current) => current.some((comment) => comment.id === data.id)
+          ? current
+          : [...current, { ...data, display_name: role === "host" ? hostName : profile?.display_name?.trim() || "@Usuario" }].slice(-100));
+      }
+      setCommentText("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo enviar el comentario.");
+    } finally {
+      setSendingComment(false);
+    }
+  };
 
   const sendGift = async (gift: GiftType) => {
     if (!canSendGift(gift, account)) {
@@ -340,24 +450,68 @@ export function LiveRoom({
             </Button>
           )}
         </div>
-        <div className="mt-3 rounded-2xl border border-pink-400/20 bg-pink-500/[0.06] p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="flex items-center gap-2 font-display text-base text-white">
-              <Gift className="size-4 text-pink-300" /> 99 regalos para {role === "host" ? "tu audiencia" : hostName}
-            </p>
-            <p className="flex items-center gap-1 text-xs text-amber-200">
-              <CoinIcon className="size-3.5" />
-              {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
-            </p>
+        <section className="rounded-2xl border border-white/10 bg-black/25 p-3" aria-label="Chat en vivo">
+          <h3 className="mb-2 flex items-center gap-2 font-display text-base text-white">
+            <MessageCircle className="size-4 text-pink-300" /> Chat del directo
+          </h3>
+          <div className="max-h-44 space-y-2 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
+            {joinMessages.map((message, index) => (
+              <p key={`${message}-${index}`} className="rounded-full bg-pink-500/10 px-3 py-1 text-center text-[11px] text-pink-200">
+                {message}
+              </p>
+            ))}
+            {comments.map((comment) => (
+              <p key={comment.id} className="break-words text-xs text-slate-200">
+                <span className="font-semibold text-pink-200">{comment.display_name}</span> {comment.body}
+              </p>
+            ))}
+            {!comments.length && !joinMessages.length && (
+              <p className="py-4 text-center text-xs text-muted-foreground">Saluda para iniciar la conversación.</p>
+            )}
           </div>
-          <GiftGrid compact onSelect={(gift) => void sendGift(gift)} disabled={sendingGift} />
-          {!account.hasPurchased && !account.isAdmin && (
-            <p className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground">
-              <CreditCard className="size-3" /> Hasta {FREE_GIFT_MAX_CREDITS} monedas son gratis; para regalos
-              superiores compra o recarga en la tienda.
-            </p>
-          )}
-        </div>
+          <div className="mt-2 flex gap-2">
+            <Input
+              value={commentText}
+              maxLength={500}
+              onChange={(event) => setCommentText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void sendLiveComment();
+                }
+              }}
+              placeholder="Escribe en el directo…"
+              aria-label="Comentario para el directo"
+            />
+            <Button type="button" size="icon" onClick={() => void sendLiveComment()} disabled={sendingComment || !commentText.trim()} aria-label="Enviar comentario">
+              {sendingComment ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+            </Button>
+          </div>
+        </section>
+        {role === "viewer" && (
+          <div className="mt-3 rounded-2xl border border-pink-400/20 bg-pink-500/[0.06] p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 font-display text-base text-white">
+                <Gift className="size-4 text-pink-300" /> Regalos virtuales para {hostName}
+              </p>
+              <p className="flex items-center gap-1 text-xs text-amber-200">
+                <CoinIcon className="size-3.5" />
+                {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+              </p>
+            </div>
+            <GiftGrid compact onSelect={(gift) => void sendGift(gift)} disabled={sendingGift} />
+            {account.balance < 10 && !account.isAdmin && (
+              <Button asChild variant="outline" size="sm" className="mt-2 gap-1.5">
+                <Link to="/tienda"><CreditCard className="size-3.5" /> Recargar monedas con PayPal</Link>
+              </Button>
+            )}
+            {!account.hasPurchased && !account.isAdmin && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Hasta {FREE_GIFT_MAX_CREDITS} monedas son gratis; puedes recargar desde la tienda para regalos mayores.
+              </p>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

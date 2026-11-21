@@ -15,6 +15,7 @@ import { Route as AjustesRouteImport } from './routes/ajustes'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as DirectoRouteImport } from './routes/directo'
 import { Route as HistoriaRouteImport } from './routes/historia'
 import { Route as LlamadasRouteImport } from './routes/llamadas'
 import { Route as MuroRouteImport } from './routes/muro'
@@ -50,6 +51,11 @@ const ChatRoute = ChatRouteImport.update({
 const ComunidadRoute = ComunidadRouteImport.update({
   id: '/comunidad',
   path: '/comunidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DirectoRoute = DirectoRouteImport.update({
+  id: '/directo',
+  path: '/directo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoriaRoute = HistoriaRouteImport.update({
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/directo'
     | '/historia'
     | '/llamadas'
     | '/muro'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/directo'
     | '/historia'
     | '/llamadas'
     | '/muro'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/directo'
     | '/historia'
     | '/llamadas'
     | '/muro'
@@ -178,6 +190,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
+  DirectoRoute: typeof DirectoRoute
   HistoriaRoute: typeof HistoriaRoute
   LlamadasRoute: typeof LlamadasRoute
   MuroRoute: typeof MuroRoute
@@ -228,6 +241,13 @@ declare module '@tanstack/react-router' {
       path: '/comunidad'
       fullPath: '/comunidad'
       preLoaderRoute: typeof ComunidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/directo': {
+      id: '/directo'
+      path: '/directo'
+      fullPath: '/directo'
+      preLoaderRoute: typeof DirectoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/historia': {
@@ -282,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,
+  DirectoRoute: DirectoRoute,
   HistoriaRoute: HistoriaRoute,
   LlamadasRoute: LlamadasRoute,
   MuroRoute: MuroRoute,

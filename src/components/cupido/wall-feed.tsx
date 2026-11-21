@@ -10,7 +10,6 @@ import { useAuth } from "@/lib/auth-context";
 import {
   createPost,
   fetchFeed,
-  notifyUser,
   sharePost,
   togglePostDislike,
   togglePostLike,
@@ -141,20 +140,10 @@ export function WallFeed({
     ]);
   };
 
-  const handleLike = async (postId: string, ownerId: string, liked: boolean) => {
+  const handleLike = async (postId: string, liked: boolean) => {
     if (!requireSession()) return;
     try {
       const next = await togglePostLike(postId, liked);
-      if (next && ownerId !== viewerId) {
-        void notifyUser({
-          userId: ownerId,
-          title: "❤️ Te gusta en tu publicación",
-          body: "A alguien le gustó tu foto o video.",
-          kind: "like",
-          actorId: viewerId,
-          targetId: postId,
-        });
-      }
       toast.success(next ? "❤️ Te gusta" : "Te gusta eliminado");
       await invalidateFeed();
     } catch (error) {
@@ -417,7 +406,7 @@ export function WallFeed({
               liked={likedIds.has(post.id) ?? false}
               disliked={dislikedIds.has(post.id) ?? false}
               saved={savedIds.has(post.id)}
-              onLike={() => void handleLike(post.id, post.user_id, likedIds.has(post.id) ?? false)}
+              onLike={() => void handleLike(post.id, likedIds.has(post.id) ?? false)}
               onDislike={() => void handleDislike(post.id, dislikedIds.has(post.id) ?? false)}
               onSave={() => void handleSave(post.id, savedIds.has(post.id))}
               onShare={() => void handleShare(post.id)}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ type NotificationRow = {
   kind: string | null;
   actor_id: string | null;
   target_id: string | null;
+  action_url: string | null;
 };
 
 function notificationIcon(kind: string | null): string {
@@ -31,6 +33,7 @@ function notificationIcon(kind: string | null): string {
 
 export function NotificationBell() {
   const { session } = useAuth();
+  const navigate = useNavigate();
   const viewerId = session?.user.id ?? null;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -42,7 +45,7 @@ export function NotificationBell() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("notifications")
-        .select("id,title,body,read,created_at,kind,actor_id,target_id")
+        .select("id,title,body,read,created_at,kind,actor_id,target_id,action_url")
         .eq("user_id", viewerId!)
         .order("created_at", { ascending: false })
         .limit(30);
@@ -87,7 +90,7 @@ export function NotificationBell() {
                 icon: localStorage.getItem("cupido-app-logo") || "/favicon.ico",
                 badge: "/favicon.ico",
                 tag: `cupido-${row.id}`,
-                data: { url: row.target_id ? `/?post=${encodeURIComponent(row.target_id)}` : "/" },
+                data: { url: row.action_url ?? (row.target_id ? `/?post=${encodeURIComponent(row.target_id)}` : "/") },
                 ...(soundEnabled ? { vibrate: [120, 80, 120] } : {}),
               } as NotificationOptions));
             }
@@ -112,6 +115,14 @@ export function NotificationBell() {
     if (error) return;
     void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
     void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
+  };
+
+  const openNotification = (row: NotificationRow) => {
+    void markRead(row);
+    setOpen(false);
+    if (row.kind === "live" && row.target_id) {
+      void navigate({ to: "/directo", search: { liveId: row.target_id } });
+    }
   };
 
   return (
@@ -139,7 +150,7 @@ export function NotificationBell() {
             <button
               key={row.id}
               type="button"
-              onClick={() => void markRead(row)}
+              onClick={() => openNotification(row)}
               className={`flex w-full gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.06] ${row.read ? "" : "bg-pink-500/10"}`}
             >
               <span className="text-lg">{notificationIcon(row.kind)}</span>

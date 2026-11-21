@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag } from "@/lib/cupido";
-import { SUPREME_ADMIN_EMAIL, notifyUser } from "@/lib/posts";
+import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export const Route = createFileRoute("/comunidad")({
   head: () => ({ meta: [{ title: "Comunidad — Cupido Leudy ❤️" }] }),
@@ -115,6 +115,12 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
         void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_follower_count_events" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
       })
@@ -130,7 +136,7 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
         supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", viewerId!),
         supabase.from("follows").select("following_id").eq("follower_id", viewerId!),
         supabase
-          .from("cupido_friends")
+          .from("friend_requests")
           .select("requester_id,addressee_id,status")
           .or(`requester_id.eq.${viewerId},addressee_id.eq.${viewerId}`),
         supabase
@@ -198,18 +204,8 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
       });
       if (error) throw error;
     },
-    onSuccess: (_result, variables) => {
+    onSuccess: () => {
       toast.success("Preferencia guardada ❤️");
-      if (variables.kind === "interested" && viewerId) {
-        void notifyUser({
-          userId: variables.targetId,
-          title: "A alguien le gusta tu perfil",
-          body: "Revisa quién mostró interés en tu perfil.",
-          kind: "interest",
-          actorId: viewerId,
-          targetId: viewerId,
-        });
-      }
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
     },
     onError: () => toast.error("No se pudo guardar tu interés."),
@@ -260,11 +256,11 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
       } else {
         const { error } = await supabase.from("follows").insert({ follower_id: viewerId, following_id: targetId });
         if (error) throw error;
-        void notifyUser({ userId: targetId, title: "Nuevo seguidor", body: "Alguien empezó a seguirte.", kind: "follow", actorId: viewerId, targetId: viewerId });
       }
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
     },
     onError: () => toast.error("No se pudo actualizar el seguidor."),
   });
@@ -272,16 +268,17 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
   const friend = useMutation({
     mutationFn: async (targetId: string) => {
       if (!viewerId) return requireLogin();
-      const { error } = await supabase
-        .from("cupido_friends")
-        .insert({ requester_id: viewerId, addressee_id: targetId, status: "pending" });
+      const { error } = await supabase.from("friend_requests").upsert(
+        { requester_id: viewerId, addressee_id: targetId, status: "pending" },
+        { onConflict: "requester_id,addressee_id", ignoreDuplicates: true },
+      );
       if (error) throw error;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
       toast.success("Solicitud de amistad enviada ❤️");
     },
-    onError: () => toast.error("No se pudo enviar la solicitud."),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar la solicitud."),
   });
 
   return (

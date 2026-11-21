@@ -94,6 +94,7 @@ function ChatPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
+  const [openingConversation, setOpeningConversation] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [incoming, setIncoming] = useState<{ call: CupidoCall; profile: ChatProfile | null } | null>(null);
   const openedRef = useRef<string | null>(null);
@@ -136,16 +137,62 @@ function ChatPage() {
 
   useEffect(() => {
     if (!viewerId || !searchUserId || openedRef.current === searchUserId) return;
-    openedRef.current = searchUserId;
+    let cancelled = false;
+    setOpeningConversation(true);
     void (async () => {
-      const { data, error } = await supabase.rpc("cupido_open_conversation", { _other: searchUserId });
-      if (error) {
-        toast.error("No se pudo abrir la conversación.");
-        return;
+      try {
+        if (viewerId === searchUserId) throw new Error("No puedes abrir un chat contigo mismo.");
+        const { data, error } = await supabase.rpc("cupido_open_conversation", { _other: searchUserId });
+        if (error) throw error;
+        const conversationId = typeof data === "string" ? data : "";
+        if (!conversationId) throw new Error("Supabase no devolvió el id de la conversación.");
+
+        const [conversationResult, profileResult] = await Promise.all([
+          supabase
+            .from("cupido_conversations")
+            .select("id,participant_a,participant_b,created_at")
+            .eq("id", conversationId)
+            .maybeSingle(),
+          supabase
+            .from("cupido_public_profiles")
+            .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+            .eq("id", searchUserId)
+            .maybeSingle(),
+        ]);
+        if (conversationResult.error) throw conversationResult.error;
+        if (profileResult.error) throw profileResult.error;
+        if (!conversationResult.data) throw new Error("La conversación se creó, pero no se pudo cargar.");
+
+        const person = profileResult.data;
+        const row: ConversationRow = {
+          ...conversationResult.data,
+          other: person
+            ? ({
+                ...person,
+                email: person.is_official || person.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
+              } as ChatProfile)
+            : null,
+        };
+        if (cancelled) return;
+        queryClient.setQueryData<ConversationRow[]>(["cupido-conversations", viewerId], (current) => [
+          row,
+          ...(current ?? []).filter((item) => item.id !== row.id),
+        ]);
+        openedRef.current = searchUserId;
+        setActiveId(conversationId);
+        void queryClient.invalidateQueries({ queryKey: ["cupido-conversations", viewerId] });
+      } catch (error) {
+        if (!cancelled) {
+          openedRef.current = null;
+          toast.error(error instanceof Error ? error.message : "No se pudo abrir la conversación.");
+        }
+      } finally {
+        if (!cancelled) setOpeningConversation(false);
       }
-      setActiveId(data as string);
-      void queryClient.invalidateQueries({ queryKey: ["cupido-conversations", viewerId] });
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [searchUserId, viewerId, queryClient]);
 
   useEffect(() => {
@@ -283,7 +330,7 @@ function ChatPage() {
       void playCupidoSound("message-sent", viewerId);
       void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
     },
-    onError: () => toast.error("No se pudo enviar el mensaje."),
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar el mensaje."),
   });
 
   const uploadVoice = async (blob: Blob) => {
@@ -463,9 +510,16 @@ function ChatPage() {
             Conversaciones
           </div>
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
-          {!conversations.isLoading && !conversations.data?.length && (
+          {conversations.isError && (
+            <div className="space-y-2 p-4 text-sm text-red-200">
+              <p>{conversations.error instanceof Error ? conversations.error.message : "No se pudieron cargar las conversaciones."}</p>
+              <Button variant="outline" size="sm" onClick={() => void conversations.refetch()}>Reintentar</Button>
+            </div>
+          )}
+          {!conversations.isLoading && !conversations.isError && !conversations.data?.length && !openingConversation && (
             <p className="p-4 text-sm text-muted-foreground">Aún no tienes conversaciones. Busca personas en Comunidad.</p>
           )}
+          {openingConversation && <p className="p-4 text-sm text-muted-foreground">Abriendo conversación…</p>}
           {conversations.data?.map((row) => (
             <button
               key={row.id}
