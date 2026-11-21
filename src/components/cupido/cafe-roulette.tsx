@@ -17,7 +17,7 @@ export function CafeRoulette() {
   const account = useAccount();
   const { session } = useAuth();
   const queryClient = useQueryClient();
-  const [wheelAngle, setWheelAngle] = useState(0);
+  const [wheelRotation, setWheelRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [adOpen, setAdOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -37,9 +37,8 @@ export function CafeRoulette() {
     try {
       const result = await spinRoulette();
       const index = Math.max(0, Math.min(ROULETTE_PRIZES.length - 1, result.index));
-      const target = (((360 - (index + 0.5) * SEGMENT_SIZE) % 360) + 360) % 360;
-      const baseAngle = wheelAngle - (wheelAngle % 360);
-      setWheelAngle(baseAngle + 360 * 5 + target);
+      const targetAngle = (((360 - (index + 0.5) * SEGMENT_SIZE) % 360) + 360) % 360;
+      setWheelRotation((current) => current + 1800 + targetAngle);
       toast[result.awarded ? "success" : "info"](
         result.awarded
           ? `La ruleta Café te dio +${result.awarded} monedas ✨`
@@ -72,7 +71,7 @@ export function CafeRoulette() {
         <div
           className="size-full rounded-full border-4 border-amber-200/70 shadow-[0_0_30px_rgba(236,72,153,0.35)]"
           style={{
-            transform: `rotate(${wheelAngle}deg)`,
+            transform: `rotate(${wheelRotation}deg)`,
             transition: "transform 3.5s cubic-bezier(0.17, 0.67, 0.12, 0.99)",
             background:
               "conic-gradient(#ec4899 0 45deg,#8b5cf6 45deg 90deg,#f59e0b 90deg 135deg,#f43f5e 135deg 180deg,#ec4899 180deg 225deg,#8b5cf6 225deg 270deg,#f59e0b 270deg 315deg,#f43f5e 315deg 360deg)",

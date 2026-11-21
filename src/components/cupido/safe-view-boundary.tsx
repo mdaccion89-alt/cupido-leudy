@@ -21,6 +21,9 @@ export class SafeViewBoundary extends Component<Props, State> {
       <main className="flex min-h-[60vh] items-center justify-center px-5">
         <div className="panel grain max-w-md p-8 text-center">
           <h1 className="text-xl font-semibold">No se pudo mostrar {this.props.label}</h1>
+          <pre className="mt-2 break-words whitespace-pre-wrap text-left font-mono text-xs text-red-300">
+            {this.state.error?.message ?? String(this.state.error ?? "Error desconocido")}
+          </pre>
           <p className="mt-2 text-sm text-muted-foreground">
             Tus datos siguen guardados. Intenta cargar la vista de nuevo.
           </p>

@@ -192,33 +192,20 @@ export async function fetchFeed(options: {
 }
 
 export async function createPost(input: { userId: string; caption: string; url: string; isVideo: boolean }): Promise<string> {
-  const common = {
-    user_id: input.userId,
-    caption: input.caption.trim(),
-    moderation_status: "approved",
-  };
-  const payloads = [
-    {
-      ...common,
+  const result = await db
+    .from("cupido_posts")
+    .insert({
+      user_id: input.userId,
+      caption: input.caption.trim(),
       media_url: input.url,
       media_type: input.isVideo ? "video" : "image",
-      media_path: input.url,
       kind: input.isVideo ? "video" : "photo",
-    },
-    { ...common, media_path: input.url, kind: input.isVideo ? "video" : "photo" },
-    { user_id: input.userId, caption: input.caption.trim(), media_path: input.url, kind: input.isVideo ? "video" : "photo" },
-  ];
-  let lastError: { message: string } | null = null;
-  for (const payload of payloads) {
-    const result = await db
-      .from("cupido_posts")
-      .insert(payload)
-      .select("id,media_path,kind,caption")
-      .maybeSingle();
-    if (!result.error && result.data?.id) return String(result.data.id);
-    lastError = result.error;
-  }
-  throw lastError ?? new Error("No se pudo guardar la publicación.");
+    })
+    .select("id")
+    .maybeSingle();
+  if (result.error) throw result.error;
+  if (!result.data?.id) throw new Error("No se pudo guardar la publicación.");
+  return String(result.data.id);
 }
 
 export async function togglePostLike(postId: string, liked: boolean): Promise<boolean> {

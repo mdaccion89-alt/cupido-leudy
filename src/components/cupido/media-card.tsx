@@ -65,7 +65,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       .channel(`cupido-comments-${postId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${media.id}` },
+        { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${postId}` },
         () => {
           void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
         },

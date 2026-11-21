@@ -24,7 +24,7 @@ import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
 import { notifyUser } from "@/lib/posts";
 import { extraField, saveAvatarDirect, saveProfileDirect } from "@/lib/profile-write";
-import { compressImageFile, uploadPublicImage } from "@/lib/storage";
+import { compressImageFile } from "@/lib/storage";
 
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string }) => search,
@@ -46,6 +46,15 @@ function safeText(value: unknown, fallback = ""): string {
 function safeCount(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function errorMessage(value: unknown, fallback: string): string {
+  if (value instanceof Error) return value.message || fallback;
+  if (value && typeof value === "object" && "message" in value) {
+    const message = String((value as { message?: unknown }).message ?? "");
+    if (message) return message;
+  }
+  return fallback;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -173,7 +182,7 @@ function ProfilePage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
       toast.success("Perfil actualizado ❤️");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo guardar."),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo guardar.")),
   });
 
   const avatarUpload = useMutation({
@@ -186,7 +195,15 @@ function ProfilePage() {
       const verdict = await moderatePhoto({ data: { dataUrl } });
       if (!verdict.ok) throw new Error(verdict.message);
       if (!verdict.safe && !verdict.needsReview) throw new Error(verdict.reason);
-      const { url } = await uploadPublicImage(viewerId, uploadFile, "avatars", extensionOf(uploadFile, "jpg"));
+      const path = `${viewerId}/${Date.now()}.${extensionOf(uploadFile, "jpg")}`;
+      const { error: uploadError } = await supabase.storage.from("media").upload(path, uploadFile, {
+        contentType: uploadFile.type || "image/jpeg",
+        upsert: true,
+      });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data: publicData } = supabase.storage.from("media").getPublicUrl(path);
+      const url = publicData?.publicUrl ?? "";
+      if (!url) throw new Error("No se pudo obtener la URL pública de la imagen.");
       await saveAvatarDirect(viewerId, url, verdict.needsReview ? "pending" : "approved");
       return verdict;
     },
@@ -195,7 +212,7 @@ function ProfilePage() {
       if (verdict.needsReview) toast.info("Foto subida. El Admin Supremo la revisará.");
       else toast.success("Foto aprobada y actualizada ❤️");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo subir la foto."),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo subir la foto.")),
   });
 
   const liveVerification = useMutation({
@@ -220,7 +237,7 @@ function ProfilePage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
       toast.success("3 capturas enviadas. El Admin Supremo revisará tu verificación ❤️");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar la verificación."),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo enviar la verificación.")),
   });
 
   const toggleFollow = useMutation({
@@ -291,6 +308,9 @@ function ProfilePage() {
       <main className="flex min-h-[60vh] items-center justify-center px-5">
         <div className="panel grain max-w-md p-8 text-center">
           <h1 className="text-xl font-semibold">No se pudo cargar este perfil</h1>
+          <pre className="mt-2 break-words whitespace-pre-wrap text-left font-mono text-xs text-red-300">
+            {errorMessage(profile.error, "Error desconocido al cargar el perfil.")}
+          </pre>
           <p className="mt-2 text-sm text-muted-foreground">Intenta recargar la página en unos segundos.</p>
           <Button className="mt-5" onClick={() => void profile.refetch()}>Reintentar</Button>
         </div>

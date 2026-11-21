@@ -23,13 +23,17 @@ async function writeRow(table: "profiles" | "creator_profiles", id: string, full
     if (Object.keys(current).length > 0) attempts.push({ ...current });
   }
 
+  let lastError = "";
   for (const payload of attempts) {
     const record = { id, ...payload } as never;
-    const upsert = await supabase.from(table).upsert(record, { onConflict: "id" });
-    if (!upsert.error) return true;
     const update = await supabase.from(table).update(payload as never).eq("id", id);
     if (!update.error) return true;
+    lastError = lastError || update.error.message;
+    const upsert = await supabase.from(table).upsert(record, { onConflict: "id" });
+    if (!upsert.error) return true;
+    lastError = lastError || upsert.error.message;
   }
+  if (lastError) throw new Error(lastError);
   return false;
 }
 
@@ -65,18 +69,18 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
     },
     ["gender", "age", "looking_for", "has_kids", "drinks", "country_code", "bio"],
   );
-  if (!profilesWritten && !creatorWritten) throw new Error("No se pudo guardar el perfil.");
+  if (!profilesWritten || !creatorWritten) throw new Error("No se pudo guardar el perfil.");
 }
 
 export async function saveAvatarDirect(id: string, url: string, moderation: "approved" | "pending"): Promise<void> {
+  const profilesWritten = await writeRow("profiles", id, { avatar_url: url }, []);
   const creatorWritten = await writeRow(
     "creator_profiles",
     id,
     { avatar_url: url, moderation_status: moderation },
     ["moderation_status"],
   );
-  const profilesWritten = await writeRow("profiles", id, { avatar_url: url }, []);
-  if (!creatorWritten && !profilesWritten) throw new Error("No se pudo guardar la foto.");
+  if (!profilesWritten || !creatorWritten) throw new Error("No se pudo guardar la foto.");
 }
 
 export function extraField(row: unknown, key: "age" | "gender" | "avatar_url" | "bio"): Cell | undefined {

@@ -53,10 +53,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          Esta página no cargó
+          Error técnico
         </h1>
+        <pre className="mt-2 max-w-full break-words whitespace-pre-wrap text-left font-mono text-xs text-red-300">
+          {error instanceof Error ? error.message : String(error)}
+        </pre>
         <p className="mt-2 text-sm text-muted-foreground">
-          Algo salió mal. Intenta recargar o vuelve al inicio.
+          Intenta recargar o vuelve al inicio.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button

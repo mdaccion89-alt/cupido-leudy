@@ -15,10 +15,19 @@ import {
   togglePostLike,
   togglePostSave,
 } from "@/lib/posts";
-import { compressImageFile, readVideoDuration, safeExtension, uploadPublicImage } from "@/lib/storage";
+import { compressImageFile, readVideoDuration, safeExtension } from "@/lib/storage";
 
 const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "m4v"];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
+
+function errorMessage(value: unknown, fallback: string): string {
+  if (value instanceof Error) return value.message || fallback;
+  if (value && typeof value === "object" && "message" in value) {
+    const message = String((value as { message?: unknown }).message ?? "");
+    if (message) return message;
+  }
+  return fallback;
+}
 
 type WallFeedProps = {
   videoOnly?: boolean;
@@ -177,7 +186,7 @@ export function WallFeed({
     }
 
     setUploading(true);
-    let uploaded: { bucket: string; path: string; url: string } | null = null;
+    let uploadedPath: string | null = null;
     try {
       let uploadFile = file;
       if (isVideo) {
@@ -186,17 +195,27 @@ export function WallFeed({
       } else {
         uploadFile = await compressImageFile(file, 200 * 1024);
       }
-      uploaded = await uploadPublicImage(viewerId, uploadFile, "posts", safeExtension(uploadFile.name, extension));
-      await createPost({ userId: viewerId, caption, url: uploaded.url, isVideo });
+      const finalExtension = safeExtension(uploadFile.name, extension);
+      const path = `${viewerId}/${Date.now()}.${finalExtension}`;
+      const { error: storageError } = await supabase.storage.from("media").upload(path, uploadFile, {
+        contentType: uploadFile.type || (isVideo ? "video/mp4" : "image/jpeg"),
+        upsert: true,
+      });
+      if (storageError) throw storageError;
+      uploadedPath = path;
+      const { data: publicData } = supabase.storage.from("media").getPublicUrl(path);
+      const url = publicData?.publicUrl ?? "";
+      if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
+      await createPost({ userId: viewerId, caption, url, isVideo });
       setCaption("");
       toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
     } catch (error) {
-      if (uploaded) {
-        void supabase.storage.from(uploaded.bucket).remove([uploaded.path]);
+      if (uploadedPath) {
+        void supabase.storage.from("media").remove([uploadedPath]);
       }
-      toast.error(error instanceof Error ? error.message : "No se pudo publicar. Inténtalo de nuevo.");
+      toast.error(errorMessage(error, "No se pudo publicar. Inténtalo de nuevo."));
     } finally {
       if (fileRef.current) fileRef.current.value = "";
       setUploading(false);
