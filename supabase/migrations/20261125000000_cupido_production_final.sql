@@ -273,7 +273,6 @@ RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
   sender UUID := auth.uid();
   gift public.cupido_gifts%ROWTYPE;
-  remaining BIGINT;
   payout NUMERIC(12,3);
   send_id UUID;
 BEGIN
@@ -284,8 +283,8 @@ BEGIN
   IF _room IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM public.cupido_live_rooms WHERE id = _room AND host_id = _receiver AND is_live
   ) THEN RAISE EXCEPTION 'LIVE_NOT_ACTIVE'; END IF;
-  remaining := public.consume_credits(gift.credits, 'Regalo Cupido: ' || gift.name);
-  payout := CASE WHEN remaining = -1 THEN 0 ELSE gift.cash END;
+  PERFORM public.consume_credits(gift.credits, 'Regalo Cupido: ' || gift.name);
+  payout := gift.cash;
   INSERT INTO public.cupido_gift_sends (sender_id, receiver_id, gift_id, credits, cash_value)
   VALUES (sender, _receiver, gift.id, gift.credits, payout) RETURNING id INTO send_id;
   IF payout > 0 THEN
