@@ -26,11 +26,22 @@ function AjustesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("email,phone")
+        .select("*")
         .eq("id", userId!)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      const preferences = data as (NonNullable<typeof data> & {
+        show_live_previews?: boolean | null;
+        pip_enabled?: boolean | null;
+        preferred_gender?: string | null;
+      }) | null;
+      return {
+        email: preferences?.email ?? null,
+        phone: preferences?.phone ?? null,
+        show_live_previews: preferences?.show_live_previews ?? true,
+        pip_enabled: preferences?.pip_enabled ?? true,
+        preferred_gender: preferences?.preferred_gender ?? "Ambos",
+      };
     },
   });
 

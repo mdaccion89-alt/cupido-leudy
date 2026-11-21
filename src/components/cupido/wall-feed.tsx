@@ -50,16 +50,24 @@ export function WallFeed({
   const fileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [loadingPosts, setLoadingPosts] = useState(false);
 
   const feed = useQuery({
     queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly],
-    queryFn: () =>
-      fetchFeed({ viewerId, limit: videoOnly ? 30 : 24, videoOnly, onlyUserId, savedOnly }),
+    queryFn: async () => {
+      setLoadingPosts(true);
+      try {
+        return await fetchFeed({ viewerId, limit: videoOnly ? 30 : 24, videoOnly, onlyUserId, savedOnly });
+      } finally {
+        setLoadingPosts(false);
+      }
+    },
   });
 
   useEffect(() => {
+    const channelName = `cupido-wall-live-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel("cupido-wall-live")
+      .channel(channelName)
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
@@ -82,7 +90,7 @@ export function WallFeed({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [queryClient, viewerId]);
 
   const requireSession = () => {
     if (viewerId) return true;
@@ -262,7 +270,7 @@ export function WallFeed({
         </div>
       )}
 
-      {feed.isLoading ? (
+      {feed.isLoading || loadingPosts ? (
         <p className="text-sm text-muted-foreground">Cargando publicaciones reales…</p>
       ) : posts.length ? (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
