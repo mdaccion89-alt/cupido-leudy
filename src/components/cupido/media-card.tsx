@@ -10,6 +10,12 @@ import { addComment, displayedMetrics, fetchComments, registerPostView, type Fee
 
 export type CupidoMedia = FeedPost;
 
+function safeText(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
+
 type MediaCardProps = {
   media: FeedPost;
   liked: boolean;
@@ -28,43 +34,49 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const [commentText, setCommentText] = useState("");
   const [sending, setSending] = useState(false);
   const metrics = displayedMetrics(media, now);
+  const postId = safeText(media?.id);
+  const mediaUrl = safeText(media?.media_url);
+  const caption = safeText(media?.caption);
+  const authorName = safeText(media?.display_name, "Miembro de Cupido");
+  const authorEmail = safeText(media?.email) || undefined;
 
   useEffect(() => {
-    void registerPostView(media.id).catch(() => undefined);
+    if (postId) void registerPostView(postId).catch(() => undefined);
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
-  }, [media.id]);
+  }, [postId]);
 
   const comments = useQuery({
-    queryKey: ["cupido-post-comments", media.id],
-    enabled: commentsOpen,
-    queryFn: () => fetchComments(media.id),
+    queryKey: ["cupido-post-comments", postId],
+    enabled: commentsOpen && Boolean(postId),
+    queryFn: () => fetchComments(postId),
   });
 
   useEffect(() => {
     if (!commentsOpen) return;
     const channel = supabase
-      .channel(`cupido-comments-${media.id}`)
+      .channel(`cupido-comments-${postId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${media.id}` },
         () => {
-          void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", media.id] });
+          void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
         },
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [commentsOpen, media.id, queryClient]);
+  }, [commentsOpen, postId, queryClient]);
 
   const submitComment = async () => {
     if (!commentText.trim()) return;
     setSending(true);
     try {
-      await addComment(media.id, commentText);
+      if (!postId) return;
+      await addComment(postId, commentText);
       setCommentText("");
-      await queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", media.id] });
+      await queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
       await queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       await queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
     } catch (error) {
@@ -77,30 +89,30 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   return (
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
-        {media.kind === "video" ? (
-          <video src={media.media_url ?? ""} controls playsInline loop muted className="h-full w-full object-cover" />
+        {media?.kind === "video" ? (
+          <video src={mediaUrl} controls playsInline loop muted className="h-full w-full object-cover" />
         ) : (
-          <img src={media.media_url ?? ""} alt={media.caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
+          <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}
         <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
-          {media.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : <ImageIcon className="mr-1 inline h-3 w-3" />}
-          {media.kind === "video" ? "Short" : "Foto"}
+          {media?.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : <ImageIcon className="mr-1 inline h-3 w-3" />}
+          {media?.kind === "video" ? "Short" : "Foto"}
         </span>
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10 border border-pink-400/40">
-            <AvatarImage src={media.avatar_url ?? ""} alt={media.display_name ?? "Miembro de Cupido"} />
+            <AvatarImage src={safeText(media?.avatar_url)} alt={authorName} />
             <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
-              {(media.display_name ?? "Miembro de Cupido").slice(0, 2).toUpperCase()}
+              {authorName.slice(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
-              {media.display_name ?? "Miembro de Cupido"}
-              <VerifiedBadge email={media.email} verified={Boolean(media.is_verified_blue)} className="ml-1 inline size-4" />
+              {authorName}
+              <VerifiedBadge email={authorEmail} verified={Boolean(media?.is_verified_blue)} className="ml-1 inline size-4" />
             </p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">{media.caption || "Momento en Cupido Leudy ❤️"}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
           <div className="shrink-0 text-right text-xs text-pink-200">
             <p className="font-semibold">{metrics.likes} ❤️</p>
@@ -158,17 +170,17 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {!comments.isLoading && !comments.data?.length && (
                 <p className="text-xs text-muted-foreground">Sé la primera persona en comentar.</p>
               )}
-              {comments.data?.map((comment) => (
+              {Array.isArray(comments.data) && comments.data.map((comment) => (
                 <div key={comment.id} className="flex gap-2 text-xs">
                   <Avatar className="size-6">
-                    <AvatarImage src={comment.avatar_url ?? ""} alt={comment.display_name ?? "Miembro"} />
+                    <AvatarImage src={safeText(comment?.avatar_url)} alt={safeText(comment?.display_name, "Miembro")} />
                     <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">
-                      {(comment.display_name ?? "Miembro").slice(0, 2).toUpperCase()}
+                      {safeText(comment?.display_name, "Miembro").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <p className="min-w-0 flex-1 text-white">
-                    <span className="mr-1 font-medium">{comment.display_name ?? "Miembro"}</span>
-                    <span className="text-muted-foreground">{comment.body ?? ""}</span>
+                    <span className="mr-1 font-medium">{safeText(comment?.display_name, "Miembro")}</span>
+                    <span className="text-muted-foreground">{safeText(comment?.body)}</span>
                   </p>
                 </div>
               ))}

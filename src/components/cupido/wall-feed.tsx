@@ -202,10 +202,11 @@ export function WallFeed({
     }
   };
 
-  const posts = feed.data?.posts ?? [];
-  const likedIds = feed.data?.liked;
-  const dislikedIds = feed.data?.disliked;
-  const savedIds = feed.data?.saved;
+  const postsRaw = feed.data?.posts;
+  const posts = Array.isArray(postsRaw) ? postsRaw : [];
+  const likedIds = feed.data?.liked instanceof Set ? feed.data.liked : new Set<string>();
+  const dislikedIds = feed.data?.disliked instanceof Set ? feed.data.disliked : new Set<string>();
+  const savedIds = feed.data?.saved instanceof Set ? feed.data.saved : new Set<string>();
 
   return (
     <div className="space-y-5">
@@ -249,12 +250,12 @@ export function WallFeed({
             <MediaCard
               key={post.id}
               media={post}
-              liked={likedIds?.has(post.id) ?? false}
-              disliked={dislikedIds?.has(post.id) ?? false}
-              saved={savedIds?.has(post.id) ?? false}
-              onLike={() => void handleLike(post.id, post.user_id, likedIds?.has(post.id) ?? false)}
-              onDislike={() => void handleDislike(post.id, dislikedIds?.has(post.id) ?? false)}
-              onSave={() => void handleSave(post.id, savedIds?.has(post.id) ?? false)}
+              liked={likedIds.has(post.id) ?? false}
+              disliked={dislikedIds.has(post.id) ?? false}
+              saved={savedIds.has(post.id)}
+              onLike={() => void handleLike(post.id, post.user_id, likedIds.has(post.id) ?? false)}
+              onDislike={() => void handleDislike(post.id, dislikedIds.has(post.id) ?? false)}
+              onSave={() => void handleSave(post.id, savedIds.has(post.id))}
               onShare={() => void handleShare(post.id)}
             />
           ))}

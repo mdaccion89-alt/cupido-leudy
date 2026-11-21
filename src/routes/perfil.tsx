@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { InviteButton } from "@/components/cupido/invite-button";
 import { LiveFaceVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
+import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,8 +29,24 @@ import { compressImageFile, uploadPublicImage } from "@/lib/storage";
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string }) => search,
   head: () => ({ meta: [{ title: "Perfil — Cupido Leudy ❤️" }] }),
-  component: ProfilePage,
+  component: () => (
+    <SafeViewBoundary label="tu perfil">
+      <ProfilePage />
+    </SafeViewBoundary>
+  ),
 });
+
+function safeText(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
+
+function safeCount(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -56,8 +73,9 @@ function ProfilePage() {
   const { session, loading: authLoading } = useAuth();
   const account = useAccount();
   const { userId: searchId } = Route.useSearch();
-  const viewerId = session?.user.id ?? null;
-  const profileId = searchId ?? viewerId;
+  const viewerId = safeText(session?.user.id) || null;
+  const searchProfileId = safeText(searchId);
+  const profileId = searchProfileId || viewerId;
   const queryClient = useQueryClient();
   const avatarInput = useRef<HTMLInputElement>(null);
   const moderatePhoto = useServerFn(moderateCupidoPhoto);
@@ -122,14 +140,14 @@ function ProfilePage() {
 
   useEffect(() => {
     const creator = profile.data?.creator;
-    setDisplayName(creator?.display_name ?? profile.data?.privateProfile?.display_name ?? "");
-    setFullName(profile.data?.privateProfile?.full_name ?? "");
     const privateProfile = profile.data?.privateProfile;
-    setBio(creator?.bio ?? privateProfile?.bio ?? "");
-    setAge(String(extraField(creator, "age") ?? privateProfile?.age ?? ""));
-    setGender(String(extraField(creator, "gender") ?? privateProfile?.gender ?? ""));
-    setCountryCode(creator?.country_code ?? privateProfile?.country_code ?? "DO");
-    setLookingFor(creator?.looking_for ?? privateProfile?.looking_for ?? "amistad");
+    setDisplayName(safeText(creator?.display_name, safeText(privateProfile?.display_name)));
+    setFullName(safeText(privateProfile?.full_name));
+    setBio(safeText(creator?.bio, safeText(privateProfile?.bio)));
+    setAge(safeText(extraField(creator, "age"), safeText(privateProfile?.age)));
+    setGender(safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)));
+    setCountryCode(safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO");
+    setLookingFor(safeText(creator?.looking_for, safeText(privateProfile?.looking_for, "amistad")) || "amistad");
     setDrinks(Boolean(creator?.drinks ?? privateProfile?.drinks));
     setHasKids(Boolean(creator?.has_kids ?? privateProfile?.has_kids));
   }, [profile.data]);
@@ -208,7 +226,7 @@ function ProfilePage() {
   const toggleFollow = useMutation({
     mutationFn: async () => {
       if (!viewerId || !profileId) return;
-      if (profile.data?.following) {
+      if (Boolean(profile.data?.following)) {
         const { error } = await supabase
           .from("follows")
           .delete()
@@ -223,7 +241,7 @@ function ProfilePage() {
       }
     },
     onSuccess: () => {
-      if (profileId && viewerId && !profile.data?.following) {
+      if (profileId && viewerId && !Boolean(profile.data?.following)) {
         void notifyUser({
           userId: profileId,
           title: "👀 Nueva persona que te sigue",
@@ -298,12 +316,16 @@ function ProfilePage() {
 
   const creator = profile.data?.creator ?? null;
   const privateProfile = profile.data?.privateProfile ?? null;
-  const own = viewerId === profileId;
+  const own = Boolean(viewerId && viewerId === profileId);
   const isAdmin = Boolean(account.isAdmin) && own;
   const verified = Boolean(creator?.is_verified_blue);
-  const followers = Math.max(0, Number(creator?.follower_count) || 0);
-  const friends = Math.max(0, Number(creator?.friend_count) || 0);
-  const countryForDisplay = typeof creator?.country_code === "string" ? creator.country_code : (privateProfile?.country_code ?? "DO");
+  const followers = safeCount(creator?.follower_count);
+  const friends = safeCount(creator?.friend_count);
+  const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
+  const profileEmail = safeText(privateProfile?.email) || undefined;
+  const avatarUrl = safeText(creator?.avatar_url).trim();
+  const publicAge = safeText(extraField(creator, "age"), safeText(privateProfile?.age)) || "—";
+  const publicGender = safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)) || "—";
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
@@ -312,8 +334,8 @@ function ProfilePage() {
         <div className="px-6 pb-8">
           <div className="-mt-12 flex items-end gap-4">
             <div className="flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold">
-              {creator?.avatar_url ? (
-                <img src={creator.avatar_url} alt={displayName || "Perfil"} className="size-full object-cover" />
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
               ) : (
                 (displayName || "C").slice(0, 1).toUpperCase()
               )}
@@ -322,15 +344,15 @@ function ProfilePage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="font-display text-2xl text-white">{displayName || "Miembro de Cupido"}</h1>
                 <VerifiedBadge
-                  email={profile.data?.privateProfile?.email}
+                  email={profileEmail}
                   verified={
                     verified ||
                     Boolean(creator?.is_official) ||
-                    isSupremeAdminEmail(profile.data?.privateProfile?.email)
+                    isSupremeAdminEmail(profileEmail)
                   }
                   className="size-6"
                 />
-                {creator?.is_official && (
+                {Boolean(creator?.is_official) && (
                   <Badge className="gap-1 bg-gradient-to-r from-pink-500 to-violet-500">
                     <VerifiedBadge verified className="size-3.5" /> Cuenta Oficial
                   </Badge>
@@ -340,8 +362,8 @@ function ProfilePage() {
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}
-                {extraField(creator, "age") ?? privateProfile?.age ?? "—"} años ·{" "}
-                {extraField(creator, "gender") ?? privateProfile?.gender ?? "—"} ·{" "}
+                {publicAge} años ·{" "}
+                {publicGender} ·{" "}
                 {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
               </p>
             </div>
@@ -363,9 +385,9 @@ function ProfilePage() {
               <Button onClick={() => setEditing((value) => !value)}>{editing ? "Cancelar" : "Editar perfil"}</Button>
             ) : viewerId ? (
               <>
-                <Button variant={profile.data?.following ? "outline" : "default"} onClick={() => toggleFollow.mutate()} disabled={toggleFollow.isPending}>
+                <Button variant={Boolean(profile.data?.following) ? "outline" : "default"} onClick={() => toggleFollow.mutate()} disabled={toggleFollow.isPending}>
                   {toggleFollow.isPending && <Loader2 className="animate-spin" />}
-                  {profile.data?.following ? "Dejar de seguir" : "Seguir"}
+                  {Boolean(profile.data?.following) ? "Dejar de seguir" : "Seguir"}
                 </Button>
                 <Button variant="outline" onClick={() => requestFriend.mutate()} disabled={requestFriend.isPending || Boolean(profile.data?.friendStatus)}>
                   <UserPlus /> {profile.data?.friendStatus === "pending" ? "Solicitud enviada" : profile.data?.friendStatus === "accepted" ? "Amigos" : "Agregar amigo"}
@@ -503,8 +525,8 @@ function ProfilePage() {
           {own && viewerId && (
             <div className="mt-6">
               <ProfileSettings
-                email={profile.data?.privateProfile?.email}
-                phone={profile.data?.privateProfile?.phone}
+                email={profileEmail}
+                phone={safeText(privateProfile?.phone) || undefined}
               />
             </div>
           )}

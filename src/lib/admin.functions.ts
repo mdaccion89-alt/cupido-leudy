@@ -126,16 +126,45 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     await assertAdmin(context);
-    const admin = await getAdminClient();
-    const { error } = await admin.from("payment_settings").upsert({
-      id: 1,
-      paypal_email: data.email,
+    const admin = await getAdminClient() as unknown as {
+      from: (table: string) => { upsert: (values: Record<string, unknown>) => Promise<{ error: { message: string } | null }> };
+    };
+    const config = {
+      business_name: data.businessName,
       paypal_business_name: data.businessName,
+      paypal_email: data.email,
+      admin_paypal_email: data.email,
       paypal_client_id: data.clientId,
       paypal_secret: data.secret,
       paypal_mode: data.mode,
-    });
-    if (error) throw error;
+    };
+    const paymentBase = { id: 1, ...config };
+    let paymentSaved = false;
+    for (const payload of [
+      paymentBase,
+      { id: 1, paypal_email: data.email, paypal_business_name: data.businessName, paypal_client_id: data.clientId, paypal_secret: data.secret, paypal_mode: data.mode },
+    ]) {
+      const { error } = await admin.from("payment_settings").upsert(payload);
+      if (!error) {
+        paymentSaved = true;
+        break;
+      }
+    }
+    if (!paymentSaved) throw new Error("No se pudo guardar PayPal Business en payment_settings.");
+
+    let appSaved = false;
+    for (const payload of [
+      { id: 1, ...config, config },
+      { id: 1, paypal_email: data.email, config },
+      { id: 1, ...config },
+    ]) {
+      const { error } = await admin.from("app_settings").upsert(payload);
+      if (!error) {
+        appSaved = true;
+        break;
+      }
+    }
+    if (!appSaved) throw new Error("No se pudo guardar PayPal Business en app_settings.");
     return { ok: true };
   });
 

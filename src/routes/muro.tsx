@@ -1,17 +1,22 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
+import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/muro")({
   head: () => ({ meta: [{ title: "Muro — Cupido Leudy ❤️" }] }),
-  component: MuroPage,
+  component: () => (
+    <SafeViewBoundary label="el muro">
+      <MuroPage />
+    </SafeViewBoundary>
+  ),
 });
 
 function MuroPage() {
   const { session } = useAuth();
-  const viewerId = session?.user.id ?? null;
+  const viewerId = typeof session?.user.id === "string" ? session.user.id : null;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-8">

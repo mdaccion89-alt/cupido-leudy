@@ -36,6 +36,30 @@ import {
 } from "@/lib/payments.functions";
 import { notifyUser } from "@/lib/posts";
 
+type CheckoutConfig = {
+  email?: string | null;
+  paypalMeLink?: string | null;
+  businessName?: string | null;
+};
+
+function fallbackCheckoutUrl(config: CheckoutConfig | undefined, credits: number, price: number, packId: string): string {
+  const concept = encodeURIComponent(`Cupido Leudy - ${credits.toLocaleString("es")} monedas (${packId})`);
+  const amount = Number(price).toFixed(2);
+  const meLink = config?.paypalMeLink?.trim();
+  if (meLink) return `${meLink.replace(/\/$/, "")}/${amount}/USD?text=${concept}`;
+  const email = config?.email?.trim();
+  if (!email) return "";
+  const params = new URLSearchParams({
+    cmd: "_xclick",
+    business: email,
+    item_name: `Cupido Leudy - ${credits.toLocaleString("es")} monedas`,
+    amount,
+    currency_code: "USD",
+    custom: packId,
+  });
+  return `https://www.paypal.com/cgi-bin/webscr?${params.toString()}`;
+}
+
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
   head: () => ({ meta: [{ title: "Tienda — Cupido Leudy ❤️" }] }),
@@ -294,42 +318,62 @@ function StorePage() {
           <h2 className="font-display text-xl text-white">Paquetes de monedas brillantes</h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {CREDIT_PACKAGES.map((pack) => (
-            <article
-              key={pack.id}
-              className={`relative flex flex-col rounded-3xl border p-5 ${
-                "featured" in pack && pack.featured ? "border-pink-400/60 bg-pink-500/10" : "border-white/10 bg-white/[0.04]"
-              }`}
-            >
-              {"featured" in pack && pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
-              <p className="text-sm text-muted-foreground">{pack.label}</p>
-              <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
-              <p className="text-xs text-muted-foreground">monedas brillantes</p>
-              <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
-              {paypalConfig.data?.configured && paypalConfig.data.clientId ? (
-                <PayPalCheckoutButtons
-                  clientId={paypalConfig.data.clientId}
-                  packageId={pack.id}
-                  disabled={buy.isPending}
-                  onSuccess={(credits) => {
-                    toast.success(`Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
-                    account.refresh();
-                    void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
-                  }}
-                  onError={(message) => toast.error(message)}
-                />
-              ) : (
-                <Button className="mt-5" disabled>
-                  <CreditCard /> Configura PayPal Business en /admin
-                </Button>
-              )}
-            </article>
-          ))}
+          {CREDIT_PACKAGES.map((pack) => {
+            const config = paypalConfig.data;
+            const officialCheckout = Boolean(config?.configured && config.clientId);
+            const fallbackUrl = fallbackCheckoutUrl(config, pack.credits, pack.price, pack.id);
+            return (
+              <article
+                key={pack.id}
+                className={`relative flex flex-col rounded-3xl border p-5 ${
+                  "featured" in pack && pack.featured ? "border-pink-400/60 bg-pink-500/10" : "border-white/10 bg-white/[0.04]"
+                }`}
+              >
+                {"featured" in pack && pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
+                <p className="text-sm text-muted-foreground">{pack.label}</p>
+                <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
+                <p className="text-xs text-muted-foreground">monedas brillantes</p>
+                <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
+                <p className="mt-5 text-center text-xs font-semibold uppercase tracking-wide text-pink-200/80">
+                  Comprar con PayPal / Tarjeta
+                </p>
+                {officialCheckout && config?.clientId ? (
+                  <PayPalCheckoutButtons
+                    clientId={config.clientId}
+                    packageId={pack.id}
+                    disabled={buy.isPending}
+                    onSuccess={(credits) => {
+                      toast.success(`Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
+                      account.refresh();
+                      void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+                    }}
+                    onError={(message) => toast.error(message)}
+                  />
+                ) : paypalConfig.isLoading ? (
+                  <Button className="mt-2 h-12 w-full text-base" disabled>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Comprar con PayPal / Tarjeta
+                  </Button>
+                ) : fallbackUrl ? (
+                  <Button asChild className="mt-2 h-12 w-full text-base">
+                    <a href={fallbackUrl} target="_blank" rel="noreferrer">
+                      <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
+                    </a>
+                  </Button>
+                ) : (
+                  <Button className="mt-2 h-12 w-full text-base" disabled>
+                    <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
+                  </Button>
+                )}
+              </article>
+            );
+          })}
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
           {paypalConfig.data?.configured && paypalConfig.data.clientId
             ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
-            : "El Admin Supremo debe guardar correo, Client ID y Secret de PayPal Business en /admin para habilitar el checkout real."}
+            : paypalConfig.data?.email
+              ? `Pago directo seguro a la cuenta PayPal del administrador (${paypalConfig.data.email}). Envía el comprobante por chat para acreditar tus monedas.`
+              : "El Admin Supremo debe guardar correo, Client ID y Secret de PayPal Business en /admin para habilitar el pago directo."}
         </p>
       </section>
 

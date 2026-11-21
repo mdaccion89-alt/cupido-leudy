@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { countryFlag, countryName } from "@/lib/cupido";
+import { savePaypalBusinessSettings as savePaypalBusinessSettingsServer } from "@/lib/admin.functions";
 import { loadPaypalBusinessSettings, savePaypalBusinessSettings } from "@/lib/paypal-settings";
 
 const LIVE_POSES = ["Frente", "Derecha", "Izquierda"];
@@ -55,6 +57,7 @@ type GiftRow = {
 
 export function CupidoAdminPanel() {
   const queryClient = useQueryClient();
+  const savePaypalServer = useServerFn(savePaypalBusinessSettingsServer);
   const [paypalConfig, setPaypalConfig] = useState<PaypalBusinessInput>({
     email: "",
     businessName: "",
@@ -164,14 +167,31 @@ export function CupidoAdminPanel() {
 
   const savePaypalConfig = useMutation({
     mutationFn: async () => {
-      await savePaypalBusinessSettings({
+      const input = {
         businessName: paypalConfig.businessName,
         email: paypalConfig.email,
         businessEmail: paypalConfig.email,
         clientId: paypalConfig.clientId,
         secret: paypalConfig.secret,
         mode: paypalConfig.mode,
-      });
+      };
+      try {
+        await savePaypalServer({
+          data: {
+            email: input.email,
+            businessName: input.businessName,
+            clientId: input.clientId,
+            secret: input.secret,
+            mode: input.mode,
+          },
+        });
+      } catch (serverError) {
+        try {
+          await savePaypalBusinessSettings(input);
+        } catch {
+          throw serverError;
+        }
+      }
     },
     onSuccess: () => {
       setPaypalSaved(true);
