@@ -4,6 +4,7 @@ import {
   Link,
   createRootRouteWithContext,
   useRouter,
+  useRouterState,
   HeadContent,
   Scripts,
   type ErrorComponentProps,
@@ -17,6 +18,7 @@ import { SiteHeader } from "@/components/studio/site-header";
 import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { Toaster } from "@/components/ui/sonner";
+import { hideFeedBanner, initializeAdMob, showFeedBanner } from "@/lib/admob";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { supabase } from "@/integrations/supabase/client";
 import { BRAND, SLOGAN } from "@/lib/cupido";
@@ -167,6 +169,31 @@ function ReferralTracker() {
   return null;
 }
 
+function AdController() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  useEffect(() => {
+    void initializeAdMob();
+  }, []);
+
+  useEffect(() => {
+    const inFeed =
+      pathname.startsWith("/muro") || pathname.startsWith("/comunidad") || pathname.startsWith("/siguiendo");
+    const hidden = pathname.startsWith("/llamadas") || pathname.startsWith("/chat");
+    if (inFeed && !hidden) void showFeedBanner();
+    else void hideFeedBanner();
+  }, [pathname]);
+
+  useEffect(
+    () => () => {
+      void hideFeedBanner();
+    },
+    [],
+  );
+
+  return null;
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -177,6 +204,7 @@ function RootComponent() {
       <AuthProvider>
         <ThemeSync onThemeChange={setTheme} />
         <SystemNotificationSetup />
+        <AdController />
         <ReferralTracker />
         <div className="flex min-h-screen flex-col pb-20">
           <SiteHeader />

@@ -1,4 +1,4 @@
-package com.leudyia.adobe;
+package com.cupidoleudy.app;
 
 import com.getcapacitor.BridgeActivity;
 

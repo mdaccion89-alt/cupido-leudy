@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Cupido Leudy ❤️</string>
-    <string name="title_activity_main">Cupido Leudy ❤️</string>
-    <string name="package_name">com.leudyia.adobe</string>
-    <string name="custom_url_scheme">com.leudyia.adobe</string>
+    <string name="app_name">Cupido Leudy</string>
+    <string name="title_activity_main">Cupido Leudy</string>
+    <string name="package_name">com.cupidoleudy.app</string>
+    <string name="custom_url_scheme">com.cupidoleudy.app</string>
 </resources>

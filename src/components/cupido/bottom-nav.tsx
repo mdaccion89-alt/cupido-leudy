@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Compass, Heart, MessageCircle, Phone, UserRound } from "lucide-react";
+import { showInterstitialAd } from "@/lib/admob";
 
 const TABS = [
   { to: "/llamadas", label: "Llamar", icon: Phone, match: (path: string) => path.startsWith("/llamadas") },
@@ -11,6 +13,18 @@ const TABS = [
 
 export function BottomNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const previousPath = useRef(pathname);
+  const tabChanges = useRef(0);
+
+  useEffect(() => {
+    if (previousPath.current === pathname) return;
+    previousPath.current = pathname;
+    if (!TABS.some((tab) => tab.match(pathname))) return;
+    tabChanges.current += 1;
+    if (tabChanges.current < 4) return;
+    tabChanges.current = 0;
+    void showInterstitialAd();
+  }, [pathname]);
 
   return (
     <nav

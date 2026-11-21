@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "start": "node server.js",
+    "android:apk": "npm run build && npx cap sync android && cd android && ./gradlew assembleDebug",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
@@ -18,9 +19,11 @@
     "rolldown": "1.2.1"
   },
   "dependencies": {
+    "@capacitor-community/admob": "^8.4.2",
     "@capacitor/android": "^8.6.2",
     "@capacitor/cli": "^8.6.2",
     "@capacitor/core": "^8.6.2",
+    "@capacitor/push-notifications": "^8.1.3",
     "@gradio/client": "^2.8.0",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",

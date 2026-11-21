@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
+import { CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
@@ -77,6 +78,7 @@ function StorePage() {
   const captureOrder = useServerFn(capturePaypalOrder);
   const capturedRef = useRef<string | null>(null);
 
+  const [adOpen, setAdOpen] = useState(false);
   const [amount, setAmount] = useState("20");
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
@@ -271,6 +273,21 @@ function StorePage() {
           </p>
         </div>
       </header>
+
+      <section className="mb-8 rounded-3xl border border-amber-300/25 bg-amber-400/[0.06] p-5 sm:flex sm:items-center sm:justify-between sm:gap-4">
+        <div>
+          <p className="flex items-center gap-2 font-display text-lg text-white">
+            <Play className="size-5 fill-current text-amber-200" /> Monedas gratis con anuncios
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Mira un anuncio real y recibe +25 monedas brillantes. Máximo 5 al día.
+          </p>
+        </div>
+        <Button variant="outline" className="mt-4 gap-2 border-amber-200/30 sm:mt-0" onClick={() => setAdOpen(true)}>
+          <Play className="size-4 fill-current" /> Ver anuncio (+25 monedas gratis)
+        </Button>
+      </section>
+      <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 
       {giftTo && (
         <section className="mb-8 rounded-3xl border border-pink-400/30 bg-pink-500/10 p-5">

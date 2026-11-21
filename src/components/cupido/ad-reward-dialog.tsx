@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,143 +12,97 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAccount } from "@/lib/account";
+import { isNativeAds, showRewardedAd } from "@/lib/admob";
 import { AD_REWARD } from "@/lib/rewards";
 import { claimAdReward } from "@/lib/rewards.functions";
-
-type RewardedListener = { remove: () => void };
-type RewardedPlugin = {
-  setOptions?: (options: Record<string, unknown>) => void | Promise<void>;
-  prepare?: () => void | Promise<void>;
-  show?: () => void | Promise<void>;
-  addListener?: (event: string, callback: () => void) => RewardedListener | Promise<RewardedListener>;
-};
-
-function rewardedPlugin(): RewardedPlugin | null {
-  if (typeof window === "undefined") return null;
-  const bridge = window as unknown as {
-    Capacitor?: { isNative?: boolean; Plugins?: { AdMobRewarded?: RewardedPlugin } };
-    AdMobRewarded?: RewardedPlugin;
-  };
-  return bridge.Capacitor?.Plugins?.AdMobRewarded ?? bridge.AdMobRewarded ?? null;
-}
 
 export function AdRewardDialog({
   open,
   onOpenChange,
+  onRewarded,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onRewarded?: () => void;
 }) {
-  const [seconds, setSeconds] = useState(15);
-  const [nativeAd, setNativeAd] = useState(false);
-  const claimed = useRef(false);
+  const [playing, setPlaying] = useState(false);
+  const started = useRef(false);
   const account = useAccount();
   const queryClient = useQueryClient();
   const claim = useServerFn(claimAdReward);
+  const claimRef = useRef(claim);
+  const accountRef = useRef(account);
+  const queryClientRef = useRef(queryClient);
+  const onRewardedRef = useRef(onRewarded);
 
-  const mutation = useMutation({
-    mutationFn: () => claim(),
-    onSuccess: (result) => {
-      toast.success(`Anuncio completado: +${result.awarded} monedas 🎬`);
-      void queryClient.invalidateQueries({ queryKey: ["account"] });
-      account.refresh();
-      onOpenChange(false);
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "No se pudo completar el anuncio.");
-      claimed.current = false;
-      onOpenChange(false);
-    },
-  });
-
-  const finishAd = () => {
-    if (claimed.current) return;
-    claimed.current = true;
-    mutation.mutate();
-  };
+  claimRef.current = claim;
+  accountRef.current = account;
+  queryClientRef.current = queryClient;
+  onRewardedRef.current = onRewarded;
 
   useEffect(() => {
     if (!open) return;
-    setSeconds(15);
-    claimed.current = false;
+    started.current = false;
 
-    const plugin = rewardedPlugin();
-    if (plugin && (plugin.show || plugin.prepare)) {
-      setNativeAd(true);
-      let cancelled = false;
-      let listener: RewardedListener | undefined;
-
-      const startNativeAd = async () => {
-        try {
-          const adUnitId = import.meta.env["VITE_ADMOB_REWARDED_ID"];
-          if (adUnitId && plugin.setOptions) await plugin.setOptions({ adUnitId });
-          if (plugin.addListener) {
-            const registered = plugin.addListener("rewarded", () => {
-              if (!cancelled) finishAd();
-            });
-            listener = registered instanceof Promise ? await registered : registered;
-          }
-          if (plugin.prepare) await plugin.prepare();
-          if (plugin.show) await plugin.show();
-        } catch {
-          if (!cancelled) {
-            toast.error("No se pudo cargar el anuncio de AdMob.");
-            onOpenChange(false);
-          }
-        }
-      };
-      void startNativeAd();
-
-      return () => {
-        cancelled = true;
-        listener?.remove();
-      };
+    if (!isNativeAds()) {
+      toast.info("Los anuncios en video están disponibles en la App Android oficial de Cupido Leudy ❤️.");
+      onOpenChange(false);
+      return;
     }
 
-    setNativeAd(false);
-    const timer = window.setInterval(() => setSeconds((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [open, onOpenChange]);
+    if (started.current) return;
+    started.current = true;
+    setPlaying(true);
 
-  useEffect(() => {
-    if (!open || nativeAd || seconds > 0 || claimed.current) return;
-    finishAd();
-  }, [open, nativeAd, seconds]);
+    const grant = async () => {
+      try {
+        const result = await claimRef.current();
+        toast.success(`Anuncio completado: +${result.awarded} monedas 🎬`);
+        void queryClientRef.current.invalidateQueries({ queryKey: ["account"] });
+        accountRef.current.refresh();
+        onRewardedRef.current?.();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "No se pudo acreditar la recompensa.");
+      }
+    };
+
+    void showRewardedAd(grant)
+      .then((result) => {
+        if (result === "dismissed") {
+          toast.info("Anuncio cerrado antes de completarse. No se acreditaron monedas.");
+        }
+      })
+      .finally(() => {
+        setPlaying(false);
+        started.current = false;
+        onOpenChange(false);
+      });
+  }, [open, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm border-pink-400/30 bg-[#1b1020] text-white">
         <DialogHeader>
           <DialogTitle>Anuncio patrocinado</DialogTitle>
-          <DialogDescription>
-            Mira el anuncio completo y recibe +{AD_REWARD} monedas brillantes.
-          </DialogDescription>
+          <DialogDescription>Mira el anuncio completo y recibe +{AD_REWARD} monedas brillantes.</DialogDescription>
         </DialogHeader>
 
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-pink-600/40 via-fuchsia-600/20 to-amber-500/20 p-8 text-center">
+        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-pink-600/40 via-fuchsia-600/20 to-amber-500/20 p-8 text-center">
           <span className="rounded-full bg-black/30 px-3 py-1 text-[10px] uppercase tracking-widest text-white/70">
             Publicidad
           </span>
-          <p className="mt-6 font-display text-2xl text-white">Cupido Leudy ❤️</p>
-          <p className="mt-1 text-xs text-pink-100/80">Conecta con personas reales</p>
-
-          {nativeAd ? (
-            <p className="mt-6 flex items-center justify-center gap-2 text-sm text-amber-100">
-              <Loader2 className="size-4 animate-spin" /> Reproduciendo anuncio de AdMob…
-            </p>
-          ) : (
-            <>
-              <p className="mt-6 font-display text-5xl text-amber-200">{seconds}s</p>
-              <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-pink-500 to-amber-400 transition-all duration-1000 ease-linear"
-                  style={{ width: `${((15 - seconds) / 15) * 100}%` }}
-                />
-              </div>
-            </>
-          )}
+          <p className="mt-6 flex items-center justify-center gap-2 text-sm text-amber-100">
+            {playing ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> Reproduciendo anuncio de AdMob…
+              </>
+            ) : (
+              <>
+                <Play className="size-4 fill-current" /> Anuncio listo
+              </>
+            )}
+          </p>
         </div>
-
 
         <p className="text-center text-[11px] text-white/60">Máximo 5 anuncios por día.</p>
       </DialogContent>

@@ -6,6 +6,7 @@ import { GiftGrid } from "@/components/cupido/gift-grid";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAccount } from "@/lib/account";
+import { showInterstitialAd } from "@/lib/admob";
 import { canSendGift, FREE_GIFT_MAX_CREDITS, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
@@ -273,14 +274,22 @@ export function LiveRoom({
     setMicMuted(next);
   };
 
+  const exitLive = () => {
+    void showInterstitialAd();
+    onClose();
+  };
+
   const endLive = async () => {
     const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
     if (error) toast.error("No se pudo finalizar el Live.");
-    else onEnded();
+    else {
+      void showInterstitialAd();
+      onEnded();
+    }
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && exitLive()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -322,7 +331,7 @@ export function LiveRoom({
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
           {role === "viewer" ? (
-            <Button variant="destructive" onClick={onClose} className="gap-2">
+            <Button variant="destructive" onClick={exitLive} className="gap-2">
               <X className="size-4" /> Salir
             </Button>
           ) : (
