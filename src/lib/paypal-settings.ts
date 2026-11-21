@@ -59,7 +59,7 @@ function text(row: AnyRow | null, keys: string[]): string {
 }
 
 function configText(row: AnyRow | null, keys: string[]): string {
-  const config = row?.config;
+  const config = row?.["config"];
   if (!config || typeof config !== "object") return "";
   return text(config as AnyRow, keys);
 }
@@ -160,8 +160,8 @@ export async function savePaypalBusinessSettings(input: PaypalBusinessSettings):
 
   const currentApp = await db.from("app_settings").select("config").eq("id", 1).maybeSingle();
   const existingConfig =
-    currentApp.data?.config && typeof currentApp.data.config === "object"
-      ? (currentApp.data.config as AnyRow)
+    currentApp.data?.["config"] && typeof currentApp.data["config"] === "object"
+      ? (currentApp.data["config"] as AnyRow)
       : {};
   const config = {
     ...existingConfig,

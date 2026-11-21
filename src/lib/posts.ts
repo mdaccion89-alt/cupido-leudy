@@ -39,7 +39,31 @@ export type PostComment = {
   avatar_url: string;
 };
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, any> & {
+  id?: any;
+  post_id?: any;
+  following_id?: any;
+  kind?: any;
+  media_type?: any;
+  user_id?: any;
+  email?: any;
+  is_cupido_active?: any;
+  is_super_admin?: any;
+  media_url?: any;
+  media_path?: any;
+  caption?: any;
+  likes_count?: any;
+  dislikes_count?: any;
+  comments_count?: any;
+  saves_count?: any;
+  views_count?: any;
+  shares_count?: any;
+  created_at?: any;
+  display_name?: any;
+  avatar_url?: any;
+  is_verified_blue?: any;
+  body?: any;
+};
 
 type AnyQueryClient = {
   from: (table: string) => any;
@@ -81,10 +105,10 @@ export function displayedMetrics(post?: FeedPost | null, now = Date.now()): { li
   if (!isSupremePost(post?.email, post?.is_super_admin))
     return { likes: formatCount(realLikes), views: formatCount(realViews) };
 
-  const seed = postSeed(post.id);
+  const seed = postSeed(post?.id);
   const baseLikes = 12_400 + (seed % 56_501);
   const baseViews = 19_200 + ((seed >>> 7) % 75_301);
-  const published = Date.parse(String(post.created_at ?? ""));
+  const published = Date.parse(String(post?.created_at ?? ""));
   const minutes = Number.isFinite(published) ? Math.max(0, Math.floor((now - published) / 60_000) - 2) : 0;
   const likeGrowth = minutes * (2 + (seed % 5));
   const viewGrowth = minutes * (12 + ((seed >>> 4) % 19));
@@ -94,19 +118,27 @@ export function displayedMetrics(post?: FeedPost | null, now = Date.now()): { li
   };
 }
 
-async function selectPosts(limit: number, onlyUserId?: string | null, savedOnly = false, viewerId?: string | null) {
+async function selectPosts(
+  limit: number,
+  onlyUserId?: string | null,
+  savedOnly = false,
+  viewerId?: string | null,
+  onlyUserIds?: string[] | null,
+) {
+  if (onlyUserIds && onlyUserIds.length === 0) return [];
   let savedIds: string[] | null = null;
   if (savedOnly) {
     if (!viewerId) return [];
     const { data } = await db.from("cupido_post_saves").select("post_id").eq("user_id", viewerId);
     savedIds = (data ?? []).map((row: AnyRow) => row.post_id as string);
-    if (!savedIds.length) return [];
+    if (!savedIds?.length) return [];
   }
 
   let error: { message: string } | null = null;
   for (const columns of POST_COLUMN_SETS) {
     let query = db.from("cupido_posts").select(columns).order("created_at", { ascending: false }).limit(limit);
     if (onlyUserId) query = query.eq("user_id", onlyUserId);
+    if (onlyUserIds) query = query.in("user_id", onlyUserIds);
     if (savedIds) query = query.in("id", savedIds);
     const result = await query;
     if (!result.error) return (result.data ?? []) as AnyRow[];
@@ -142,9 +174,19 @@ export async function fetchFeed(options: {
   videoOnly?: boolean;
   onlyUserId?: string | null;
   savedOnly?: boolean;
+  followingOnly?: boolean;
 }): Promise<FeedResult> {
-  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false } = options;
-  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId);
+  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, followingOnly = false } = options;
+  if (followingOnly && !viewerId) {
+    return { posts: [], liked: new Set(), disliked: new Set(), saved: new Set() };
+  }
+  let followedIds: string[] | null = null;
+  if (followingOnly && viewerId) {
+    const { data, error } = await db.from("follows").select("following_id").eq("follower_id", viewerId);
+    if (error) throw error;
+    followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
+  }
+  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds);
   const filtered = videoOnly ? rows.filter((row) => row.kind === "video" || row.media_type === "video") : rows;
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
   const [creatorRows, emailRows] = await Promise.all([

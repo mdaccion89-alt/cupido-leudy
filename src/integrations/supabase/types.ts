@@ -463,6 +463,7 @@ export type Database = {
           plan_expires_at: string | null;
           referred_by: string | null;
           terms_accepted_at: string | null;
+          updated_at: string;
         };
         Insert: {
           age?: number | null;
@@ -493,6 +494,7 @@ export type Database = {
           plan_expires_at?: string | null;
           referred_by?: string | null;
           terms_accepted_at?: string | null;
+          updated_at?: string;
         };
         Update: {
           age?: number | null;
@@ -523,6 +525,7 @@ export type Database = {
           plan_expires_at?: string | null;
           referred_by?: string | null;
           terms_accepted_at?: string | null;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -760,6 +763,7 @@ export type Database = {
         id: string;
         mode: string;
         status: string;
+        video: boolean;
       };
       Insert: {
         callee_id: string;
@@ -769,6 +773,7 @@ export type Database = {
         id?: string;
         mode: string;
         status?: string;
+        video?: boolean;
       };
       Update: {
         callee_id?: string;
@@ -778,6 +783,7 @@ export type Database = {
         id?: string;
         mode?: string;
         status?: string;
+        video?: boolean;
       };
       Relationships: [];
     };
@@ -1074,6 +1080,10 @@ export type Database = {
     };
     Functions: {
       cupido_count_followers: { Args: { _following: string }; Returns: number };
+      cupido_count_followers_batch: {
+        Args: { _following: string[] };
+        Returns: { following_id: string; follower_count: number }[];
+      };
       cupido_list_followers: {
         Args: { _following: string };
         Returns: { avatar_url: string; display_name: string; follower_id: string }[];
@@ -1164,7 +1174,7 @@ export type Database = {
     cupido_set_like: { Args: { _kind: string; _remove: boolean; _target: string }; Returns: undefined };
     cupido_start_live_room: { Args: { _title: string }; Returns: string };
     cupido_toggle_post_like: { Args: { _post: string }; Returns: boolean };
-    cupido_start_call: { Args: { _callee: string; _mode: string }; Returns: string };
+    cupido_start_call: { Args: { _callee: string; _mode: string; _video: boolean }; Returns: string };
     cupido_submit_live_verification: { Args: { _frames: string[] }; Returns: undefined };
     cupido_submit_selfie: { Args: { _path: string }; Returns: undefined };
     cupido_answer_call: { Args: { _accept: boolean; _id: string }; Returns: undefined };

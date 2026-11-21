@@ -355,8 +355,9 @@ function ProfilePage() {
   const isAdmin = Boolean(account.isAdmin) && own;
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
+  const displayLabel = isSupremeAdminEmail(profileEmail) ? "Cupido Leudy Cuenta Oficial" : displayName || "Miembro de Cupido";
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
-  const followers = isSupremeAdminEmail(profileEmail) ? 40_000 + actualFollowerCount : safeCount(creator?.follower_count);
+  const followers = actualFollowerCount;
   const friends = safeCount(creator?.friend_count);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();
@@ -378,7 +379,7 @@ function ProfilePage() {
             </div>
             <div className="pb-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="font-display text-2xl text-white">{displayName || "Miembro de Cupido"}</h1>
+                <h1 className="font-display text-2xl text-white">{displayLabel}</h1>
                 <VerifiedBadge
                   email={profileEmail}
                   verified={
@@ -400,7 +401,7 @@ function ProfilePage() {
                 {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}
                 {publicAge} años ·{" "}
                 {publicGender} ·{" "}
-                {isSupremeAdminEmail(profileEmail) ? `40.0K + ${actualFollowerCount.toLocaleString("es")} reales` : `${followers.toLocaleString("es")} seguidores`} · {friends.toLocaleString("es")} amigos
+                {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
               </p>              <Button variant="link" className="mt-1 h-auto px-0 text-xs text-pink-300" onClick={() => setFollowersOpen(true)}>
                 Ver quién sigue este perfil ({actualFollowerCount.toLocaleString("es")})
               </Button>

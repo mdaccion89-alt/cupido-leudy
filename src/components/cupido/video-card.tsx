@@ -2,6 +2,7 @@ import { Heart, Play } from "lucide-react";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { CupidoVideoPlayer } from "@/components/cupido/video-player";
 
 export type CupidoVideo = {
   id: string;
@@ -24,15 +25,7 @@ export function VideoCard({ video, liked, onLike }: VideoCardProps) {
   return (
     <article className="overflow-hidden rounded-3xl border border-white/10 bg-black/40">
       <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
-        <video
-          src={video.media_url}
-          controls
-          playsInline
-          loop
-          muted
-          className="h-full w-full object-cover"
-          poster=""
-        />
+        <CupidoVideoPlayer src={video.media_url} controls loop className="h-full w-full object-cover" />
         <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
           <Play className="mr-1 inline h-3 w-3 fill-white" /> Short
         </span>

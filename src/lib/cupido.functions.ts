@@ -8,24 +8,9 @@ type EscudoInput = {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
-export type EscudoResult =
-  | { ok: true; reply: string; source: "gemini" | "offline" }
-  | { ok: false; message: string };
+export type EscudoResult = { ok: true; reply: string; source: "gemini" } | { ok: false; message: string };
 
-const ESCUDO_SYSTEM = `Eres El Escudo de ${BRAND}, el guardián de seguridad de una app de citas real. Hablas español cálido y directo. Ayudas a detectar perfiles falsos, estafas románticas y riesgos en citas. Nunca pides datos privados, contraseñas ni dinero. No necesitas inventar APIs. Da consejos prácticos: revisar fotos, verificar insignia azul, no enviar dinero fuera de PayPal, no compartir códigos, reunirse en lugares públicos, bloquear y denunciar. Responde en máximo 120 palabras.`;
-
-function offlineEscudoReply(message: string): string {
-  const text = message.toLowerCase();
-  if (/estafa|dinero|pago|transferencia|inversi[oó]n|cripto/.test(text))
-    return "🚩 Posible estafa. Nunca envíes dinero ni datos bancarios fuera de PayPal. Si te piden una transferencia, inversión o códigos, bloquea y denuncia el perfil desde el chat.";
-  if (/falso|verif|insignia|foto|suplant/.test(text))
-    return "Revisa que el perfil tenga la insignia azul verificada por el Admin Supremo. Compara la selfie con las fotos, desconfía de imágenes demasiado perfectas y denuncia si algo no cuadra.";
-  if (/cita|salir|conocer|reuni/.test(text))
-    return "Para una primera cita elige un lugar público y concurrido, avisa a alguien de confianza y no compartas tu dirección hasta haber ganado confianza. Tu seguridad va primero ❤️.";
-  if (/desnud|sexual|nude|foto intima/.test(text))
-    return "No envíes ni aceptes fotos íntimas. En Cupido Leudy están prohibidas y el Escudo puede suspender esas cuentas. Pide respeto o bloquea al usuario.";
-  return "Confía en tu instinto: si algo te incomoda, pausa la conversación. Usa la insignia azul como señal de confianza, nunca compartas contraseñas y denuncia cualquier comportamiento sospechoso. El Escudo está contigo ❤️.";
-}
+const ESCUDO_SYSTEM = `Eres Escudo Cupido, el asistente conversacional de ${BRAND}. Hablas en español natural, cercano, cálido y respetuoso. Responde a la pregunta concreta usando los últimos mensajes como contexto; evita saludos repetidos, frases robóticas y respuestas genéricas. Explica con claridad que cada cuenta nueva recibe 500 créditos gratis de bienvenida y que esos créditos solo permiten enviar regalos de hasta 100 monedas; los regalos de más de 100 monedas y las llamadas requieren recargar. Las recargas se hacen mediante PayPal dentro de la sección Tienda; nunca sugieras pagos por fuera de la app ni inventes precios, comisiones o plazos. La verificación azul requiere una comprobación facial en vivo con tres poses: de frente, giro a la derecha y giro a la izquierda; la insignia azul aparece tras la aprobación. Explica cómo mirar y emitir transmisiones en vivo (Lives), enviar regalos y usar reportes y bloqueos. Recomienda no compartir contraseñas, códigos, información bancaria ni datos privados; para una primera cita, un lugar público y avisar a alguien de confianza. Para soporte, dirige a los canales oficiales dentro de la app o al chat con Cupido Leudy Cuenta Oficial; no inventes correos, enlaces ni contactos. Nunca pidas dinero, claves o códigos. Responde en hasta 140 palabras y pregunta solo lo necesario.`;
 
 export const escudoCupido = createServerFn({ method: "POST" })
   .middleware([])
@@ -44,9 +29,13 @@ export const escudoCupido = createServerFn({ method: "POST" })
       ESCUDO_SYSTEM,
       data.message,
       data.history.filter((item) => item.content.length > 0),
+      "gemini-2.5-flash",
     );
     if (result.ok) return { ok: true, reply: result.text, source: "gemini" };
-    return { ok: true, reply: offlineEscudoReply(data.message), source: "offline" };
+    return {
+      ok: false,
+      message: "El Escudo no pudo conectarse con Gemini en este momento. Inténtalo de nuevo en unos segundos.",
+    };
   });
 
 type ModerationInput = { dataUrl: string };

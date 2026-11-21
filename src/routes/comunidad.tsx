@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, SlidersHorizontal, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
+import { WallFeed } from "@/components/cupido/wall-feed";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +21,7 @@ export const Route = createFileRoute("/comunidad")({
 
 type FriendMap = Map<string, string>;
 
-function CommunityPage() {
+export function CommunityPage() {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const navigate = useNavigate();
@@ -36,50 +37,82 @@ function CommunityPage() {
       const officialProfile = await supabase.from("profiles").select("id,email").eq("email", SUPREME_ADMIN_EMAIL).maybeSingle();
       if (officialProfile.error) throw officialProfile.error;
 
-      let query = supabase
-        .from("creator_profiles")
-        .select("*")
-        .eq("is_cupido_active", true)
-        .order("is_verified_blue", { ascending: false })
-        .order("follower_count", { ascending: false })
-        .limit(200);
-      if (country !== "all") query = query.eq("country_code", country);
-      if (looking !== "all") query = query.eq("looking_for", looking);
-      if (verifiedOnly) query = query.eq("is_verified_blue", true);
-      if (search.trim()) query = query.ilike("display_name", `%${search.trim()}%`);
-      const { data, error } = await query;
-      if (error) throw error;
+      const loadPage = async (from: number) => {
+        let query = supabase
+          .from("creator_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .eq("is_cupido_active", true)
+          .order("is_verified_blue", { ascending: false })
+          .order("follower_count", { ascending: false });
+        if (country !== "all") query = query.eq("country_code", country);
+        if (looking !== "all") query = query.eq("looking_for", looking);
+        if (verifiedOnly) query = query.eq("is_verified_blue", true);
+        if (search.trim()) query = query.ilike("display_name", `%${search.trim()}%`);
+        const { data, error } = await query.range(from, from + 999);
+        if (error) throw error;
+        return data ?? [];
+      };
+      let rows = [];
+      for (let from = 0; ; from += 1000) {
+        const page = await loadPage(from);
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
 
       const officialId = officialProfile.data?.id ?? null;
-      let rows = data ?? [];
       if (officialId && !rows.some((row) => row.id === officialId)) {
-        const official = await supabase.from("creator_profiles").select("*").eq("id", officialId).maybeSingle();
+        const official = await supabase
+          .from("creator_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .eq("id", officialId)
+          .maybeSingle();
         if (official.error) throw official.error;
         if (official.data) rows = [...rows, official.data];
       }
       const ids = [...new Set(rows.map((row) => row.id))];
       const [emails, followers] = await Promise.all([
         ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [], error: null }),
-        officialId ? supabase.rpc("cupido_count_followers", { _following: officialId }) : Promise.resolve({ data: 0, error: null }),
+        ids.length ? supabase.rpc("cupido_count_followers_batch", { _following: ids }) : Promise.resolve({ data: [], error: null }),
       ]);
       if (emails.error) throw emails.error;
       if (followers.error) throw followers.error;
       const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
+      const followerMap = new Map((followers.data ?? []).map((row) => [row.following_id, row.follower_count]));
       const candidates = rows.map((row) => {
         const official = row.id === officialId;
+        const realFollowers = followerMap.get(row.id) ?? 0;
         return {
           ...row,
           email: emailMap.get(row.id) ?? (official ? officialProfile.data?.email : null),
           is_cupido_active: Boolean(row.is_cupido_active) || official,
-          follower_count: official ? 40_000 + (followers.data ?? 0) : row.follower_count,
+          follower_count: realFollowers,
         };
       });
       const official = candidates.filter((row) => row.id === officialId);
       const verified = candidates.filter((row) => row.id !== officialId && row.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
-      const newcomers = candidates.filter((row) => row.id !== officialId && !row.is_verified_blue).sort(() => Math.random() - 0.5);
+      const newcomers = candidates
+        .filter((row) => row.id !== officialId && !row.is_verified_blue)
+        .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
       return [...official, ...verified, ...newcomers];
     },
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`cupido-discovery-live-${viewerId ?? "guest"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
 
   const relations = useQuery({
     queryKey: ["cupido-relations", viewerId],
@@ -126,11 +159,11 @@ function CommunityPage() {
     () =>
       (people.data ?? []).map((person) => ({
         id: person.id,
-        display_name: person.display_name ?? "Miembro",
+        display_name: person.email?.toLowerCase() === SUPREME_ADMIN_EMAIL ? "Cupido Leudy Cuenta Oficial" : person.display_name ?? "Miembro",
         avatar_url: person.avatar_url ?? "",
         bio: person.bio ?? "",
         country_code: person.country_code ?? "",
-        email: person.email,
+        email: person.email ?? null,
         looking_for: person.looking_for ?? "amistad",
         drinks: Boolean(person.drinks),
         has_kids: Boolean(person.has_kids),
@@ -262,6 +295,14 @@ function CommunityPage() {
           </Link>
         </div>
       )}
+
+      <section className="mb-8 space-y-4" aria-label="Publicaciones recientes">
+        <div>
+          <h2 className="font-display text-2xl text-white">Muro público</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Sube una foto o video y descubre las publicaciones nuevas de la comunidad.</p>
+        </div>
+        <WallFeed emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️" />
+      </section>
 
       <section className="mb-6 grid gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-2">

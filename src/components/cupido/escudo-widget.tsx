@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { MessageCircle, Send, ShieldCheck, X } from "lucide-react";
 import { escudoCupido } from "@/lib/cupido.functions";
-import { BRAND } from "@/lib/cupido";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -17,13 +16,7 @@ export function EscudoWidget() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 0,
-      role: "assistant",
-      content: `¡Hola! Soy el Escudo de ${BRAND} ❤️. Pregúntame sobre perfiles falsos, estafas o cómo cuidarte en una cita.`,
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const send = async (text: string) => {
     const message = text.trim();
@@ -36,7 +29,6 @@ export function EscudoWidget() {
     ]);
     try {
       const history = messages
-        .filter((item) => item.id !== 0)
         .slice(-10)
         .map((item) => ({ role: item.role, content: item.content }));
       const result = await escudoCupido({ data: { message, history } });
@@ -87,6 +79,7 @@ export function EscudoWidget() {
             </div>
           </div>
           <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+            {!messages.length && <p className="text-xs text-slate-300">Consulta sobre monedas, verificación, Lives o seguridad.</p>}
             {messages.map((item) => (
               <div
                 key={item.id}
@@ -100,7 +93,7 @@ export function EscudoWidget() {
               </div>
             ))}
             {busy && <p className="text-xs text-muted-foreground">El Escudo está escribiendo…</p>}
-            {messages.length === 1 && (
+            {messages.length === 0 && (
               <div className="flex flex-wrap gap-2 pt-2">
                 {SUGGESTIONS.map((suggestion) => (
                   <button

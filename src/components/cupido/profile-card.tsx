@@ -4,7 +4,6 @@ import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export type CupidoProfile = {
   id: string;
@@ -78,9 +77,7 @@ export function ProfileCard({
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}
           </p>
           <p className="mt-1 text-xs text-pink-300/80">
-            {profile.email?.toLowerCase() === SUPREME_ADMIN_EMAIL
-              ? `40.0K + ${Math.max(0, profile.follower_count - 40_000).toLocaleString("es")} reales`
-              : `${profile.follower_count} seguidores`} · {profile.friend_count} amigos
+            {profile.follower_count.toLocaleString("es")} seguidores · {profile.friend_count.toLocaleString("es")} amigos
           </p>
         </div>
       </div>

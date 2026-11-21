@@ -42,7 +42,7 @@ type CheckoutConfig = {
   businessName?: string | null;
 };
 
-function fallbackCheckoutUrl(config: CheckoutConfig | undefined, credits: number, price: number, packId: string): string {
+function fallbackCheckoutUrl(config: CheckoutConfig | undefined, credits: number, price: string, packId: string): string {
   const concept = encodeURIComponent(`Cupido Leudy - ${credits.toLocaleString("es")} monedas (${packId})`);
   const amount = Number(price).toFixed(2);
   const meLink = config?.paypalMeLink?.trim();

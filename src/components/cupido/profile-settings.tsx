@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
+import { updateCupidoSoundPreference } from "@/lib/cupido-sounds";
 
 type ProfileSettingsProps = { email?: string | null | undefined; phone?: string | null | undefined };
 type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sounds_enabled: boolean };
@@ -66,7 +67,10 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       return;
     }
     localStorage.setItem(key === "theme_mode" ? "cupido-dark" : key === "notifications_enabled" ? "cupido-notifications" : "cupido-sounds", String(value));
-    if (key === "sounds_enabled") void queryClient.invalidateQueries({ queryKey: ["cupido-sound-preference", userId] });
+    if (key === "sounds_enabled") {
+      updateCupidoSoundPreference(userId, value === true);
+      void queryClient.invalidateQueries({ queryKey: ["cupido-sound-preference", userId] });
+    }
   };
 
   const darkMode = preferences.data?.theme_mode !== "light";

@@ -6,8 +6,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MediaComposer } from "@/components/cupido/media-composer";
+import { CupidoVideoPlayer } from "@/components/cupido/video-player";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { playCupidoSound } from "@/lib/cupido-sounds";
 import { notifyUser } from "@/lib/posts";
 import { compressImageFile, safeExtension } from "@/lib/storage";
 import type { MediaFilterId } from "@/lib/media-filters";
@@ -124,6 +126,7 @@ export function StoryFeed() {
       const message = `Respuesta a tu historia: ${body.slice(0, 500)}`;
       const { error } = await supabase.from("cupido_messages").insert({ conversation_id: conversationId, sender_id: viewerId, body: message });
       if (error) throw error;
+      void playCupidoSound("message-sent", viewerId);
       void notifyUser({ userId: story.user_id, title: "Respuesta a tu historia", body: body.slice(0, 120), kind: "story_reply", actorId: viewerId, targetId: story.id });
       return story.id;
     },
@@ -155,7 +158,7 @@ export function StoryFeed() {
               <Avatar className="size-10 border border-pink-400/50"><AvatarImage src={story.avatar_url} alt={story.display_name} /><AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback></Avatar>
               <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-white">{story.display_name}</p><p className="text-[11px] text-muted-foreground">Vence {new Date(story.expires_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</p></div>
             </div>
-            {story.media_type === "video" ? <video src={story.media_url} controls playsInline className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" />}
+            {story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" />}
             {story.caption && <p className="px-3 pt-3 text-sm text-foreground/90">{story.caption}</p>}
             {viewerId && viewerId !== story.user_id && (
               <div className="flex gap-2 p-3">

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Heart, Image as ImageIcon, MessageCircle, Play, Send, Share2, ThumbsDown } from "lucide-react";
 import { toast } from "sonner";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { CupidoVideoPlayer } from "@/components/cupido/video-player";
 import { supabase } from "@/integrations/supabase/client";
 import {
   addComment,
@@ -36,6 +37,7 @@ type MediaCardProps = {
 
 export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare }: MediaCardProps) {
   const queryClient = useQueryClient();
+  const visibilityRef = useRef<HTMLElement>(null);
   const [now, setNow] = useState(() => Date.now());
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
@@ -48,9 +50,35 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const authorEmail = safeText(media?.email) || undefined;
 
   useEffect(() => {
-    if (postId) void registerPostView(postId).catch(() => undefined);
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
+    const element = visibilityRef.current;
+    if (!postId || !element || typeof IntersectionObserver === "undefined") return;
+    let timer: number | null = null;
+    let recorded = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (recorded) return;
+        if (entry?.isIntersecting && entry.intersectionRatio >= 0.6) {
+          if (timer === null) {
+            timer = window.setTimeout(() => {
+              recorded = true;
+              observer.disconnect();
+              void registerPostView(postId).catch(() => undefined);
+            }, 1000);
+          }
+        } else if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+      },
+      { threshold: [0, 0.6, 1] },
+    );
+    observer.observe(element);
+    const intervalTimer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      observer.disconnect();
+      if (timer !== null) window.clearTimeout(timer);
+      window.clearInterval(intervalTimer);
+    };
   }, [postId]);
 
   const comments = useQuery({
@@ -94,10 +122,10 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   };
 
   return (
-    <article className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
+    <article ref={visibilityRef} className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
         {media?.kind === "video" ? (
-          <video src={mediaUrl} controls playsInline loop muted className="h-full w-full object-cover" />
+          <CupidoVideoPlayer src={mediaUrl} controls loop className="h-full w-full object-cover" />
         ) : (
           <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}

@@ -12,6 +12,7 @@ import {
   PhoneOff,
   Send,
   Square,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
@@ -26,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { notifyUser } from "@/lib/posts";
+import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import {
   CALL_COSTS,
   callErrorMessage,
@@ -63,6 +65,7 @@ type CupidoCall = {
   caller_id: string;
   callee_id: string;
   mode: "hot" | "cafe";
+  video?: boolean;
   status: "ringing" | "active" | "ended" | "rejected";
   credits_spent: number;
 };
@@ -73,6 +76,7 @@ type ActiveCall = {
   otherId: string;
   otherName: string;
   role: "caller" | "callee";
+  video: boolean;
 };
 
 type SignalPayload =
@@ -182,7 +186,11 @@ function ChatPage() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "cupido_messages", filter: `conversation_id=eq.${activeId}` },
-        () => {
+        (payload) => {
+          const inserted = payload.new as { sender_id?: string };
+          if (inserted.sender_id && inserted.sender_id !== viewerId) {
+            void playCupidoSound("message-received", viewerId);
+          }
           void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
         },
       )
@@ -190,7 +198,7 @@ function ChatPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [activeId, queryClient]);
+  }, [activeId, queryClient, viewerId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -216,11 +224,24 @@ function ChatPage() {
           })();
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "cupido_calls", filter: `callee_id=eq.${viewerId}` },
+        (payload) => {
+          const row = payload.new as CupidoCall;
+          if (row.status !== "ringing") setIncoming((current) => (current?.call.id === row.id ? null : current));
+        },
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
   }, [viewerId, call]);
+
+  useEffect(() => {
+    if (!incoming) return;
+    return startCupidoRingtone("incoming-call", viewerId);
+  }, [incoming?.call.id, viewerId]);
 
   useEffect(() => {
     if (!call) return;
@@ -264,6 +285,7 @@ function ChatPage() {
     },
     onSuccess: () => {
       setText("");
+      void playCupidoSound("message-sent", viewerId);
       void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
     },
     onError: () => toast.error("No se pudo enviar el mensaje."),
@@ -288,6 +310,7 @@ function ChatPage() {
       toast.error("No se pudo enviar la nota de voz.");
       return;
     }
+    void playCupidoSound("message-sent", viewerId);
     void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
   };
 
@@ -323,7 +346,7 @@ function ChatPage() {
   };
 
   const startCall = useMutation({
-    mutationFn: async (mode: "hot" | "cafe") => {
+    mutationFn: async ({ mode, video = false }: { mode: "hot" | "cafe"; video?: boolean }) => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canStartCall(mode, account))
         throw new Error(
@@ -334,6 +357,7 @@ function ChatPage() {
       const { data, error } = await supabase.rpc("cupido_start_call", {
         _callee: activeConversation.other.id,
         _mode: mode,
+        _video: video,
       });
       if (error) throw error;
       return {
@@ -342,6 +366,7 @@ function ChatPage() {
         otherId: activeConversation.other.id,
         otherName: activeConversation.other.display_name,
         role: "caller" as const,
+        video,
       };
     },
     onSuccess: (data) => setCall(data),
@@ -399,6 +424,7 @@ function ChatPage() {
         otherId: incoming.call.caller_id,
         otherName: incoming.profile?.display_name ?? "Alguien",
         role: "callee",
+        video: Boolean(incoming.call.video),
       });
     }
     setIncoming(null);
@@ -498,7 +524,7 @@ function ChatPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => startCall.mutate("cafe")}
+                  onClick={() => startCall.mutate({ mode: "cafe" })}
                   disabled={startCall.isPending}
                   title={`${CALL_COSTS.cafe} monedas brillantes`}
                 >
@@ -506,11 +532,20 @@ function ChatPage() {
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => startCall.mutate("hot")}
+                  onClick={() => startCall.mutate({ mode: "hot" })}
                   disabled={startCall.isPending}
                   title={`${CALL_COSTS.hot} monedas brillantes`}
                 >
                   <Flame /> Hot
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => startCall.mutate({ mode: "cafe", video: true })}
+                  disabled={startCall.isPending}
+                  title={`${CALL_COSTS.cafe} monedas brillantes`}
+                >
+                  <Video /> Video
                 </Button>
               </header>
 
@@ -591,7 +626,9 @@ function ChatPage() {
       <Dialog open={Boolean(incoming)} onOpenChange={(open) => !open && void answerCall(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Llamada {incoming?.call.mode === "hot" ? "Hot" : "Café"} entrante</DialogTitle>
+            <DialogTitle>
+              {incoming?.call.video ? "Videollamada" : `Llamada ${incoming?.call.mode === "hot" ? "Hot" : "Café"}`} entrante
+            </DialogTitle>
             <DialogDescription>
               {incoming?.profile?.display_name ?? "Alguien"} quiere hablar contigo.
             </DialogDescription>
@@ -604,9 +641,11 @@ function ChatPage() {
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 text-sm text-muted-foreground">
-              {incoming?.call.mode === "hot"
-                ? "Llamada Hot con audio privado."
-                : "Llamada Café para conocer mejor a la persona."}
+              {incoming?.call.video
+                ? "Videollamada entrante con audio y cámara."
+                : incoming?.call.mode === "hot"
+                  ? "Llamada Hot con audio privado."
+                  : "Llamada Café para conocer mejor a la persona."}
             </div>
           </div>
           <div className="mt-2 flex gap-2">
@@ -642,8 +681,10 @@ function ChatPage() {
         <CallRoom
           callId={call.id}
           mode={call.mode}
+          video={call.video}
           otherName={call.otherName}
           role={call.role}
+          viewerId={viewerId}
           onClose={() => setCall(null)}
         />
       )}
@@ -668,30 +709,46 @@ function VoiceBubble({ path }: { path: string }) {
 function CallRoom({
   callId,
   mode,
+  video: videoCall,
   otherName,
   role,
+  viewerId,
   onClose,
 }: {
   callId: string;
   mode: "hot" | "cafe";
+  video: boolean;
   otherName: string;
   role: "caller" | "callee";
+  viewerId: string;
   onClose: () => void;
 }) {
   const [status, setStatus] = useState("Conectando…");
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const closedRef = useRef(false);
+  const stopRingRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (role !== "caller") return;
+    stopRingRef.current = startCupidoRingtone("outgoing-call", viewerId);
+    return () => {
+      stopRingRef.current?.();
+      stopRingRef.current = null;
+    };
+  }, [callId, role, viewerId]);
 
   useEffect(() => {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
@@ -721,11 +778,18 @@ function CallRoom({
     };
 
     pc.ontrack = (event) => {
-      const stream = event.streams[0];
-      if (stream && remoteAudioRef.current) {
+      stopRingRef.current?.();
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      if (videoCall && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream;
+        remoteVideoRef.current.volume = 1;
+        void remoteVideoRef.current.play().catch(() => undefined);
+      } else if (event.track.kind === "audio" && remoteAudioRef.current) {
         remoteAudioRef.current.srcObject = stream;
-        setStatus("En llamada");
+        remoteAudioRef.current.volume = 1;
+        void remoteAudioRef.current.play().catch(() => undefined);
       }
+      if (event.track.kind === "audio") setStatus("En llamada");
     };
 
     channel.on("broadcast", { event: "ready" }, (message) => {
@@ -746,6 +810,7 @@ function CallRoom({
           await pc.setLocalDescription(answer);
           await sendSignal({ kind: "answer", sdp: answer });
         } else if (payload.kind === "answer") {
+          stopRingRef.current?.();
           await pc.setRemoteDescription(payload.sdp);
           await flushCandidates();
         } else if (payload.kind === "ice") {
@@ -757,21 +822,26 @@ function CallRoom({
 
     void (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoCall });
         if (closedRef.current) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
         localStreamRef.current = stream;
-        stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+        if (videoCall && localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          void localVideoRef.current.play().catch(() => undefined);
+        }
+        stream.getAudioTracks().forEach((track) => pc.addTrack(track, stream));
+        stream.getVideoTracks().forEach((track) => pc.addTrack(track, stream));
         channel.subscribe((state) => {
           if (state === "SUBSCRIBED") {
             void channel.send({ type: "broadcast", event: "ready", payload: { role } });
           }
         });
       } catch {
-        setStatus("Micrófono no disponible");
-        toast.error("No se pudo acceder al micrófono para la llamada.");
+        setStatus(videoCall ? "Cámara o micrófono no disponible" : "Micrófono no disponible");
+        toast.error(videoCall ? "No se pudo acceder a la cámara y el micrófono para la videollamada." : "No se pudo acceder al micrófono para la llamada.");
       }
     })();
 
@@ -781,7 +851,7 @@ function CallRoom({
       pc.close();
       void supabase.removeChannel(channel);
     };
-  }, [callId, role]);
+  }, [callId, role, videoCall]);
 
   const endCall = async () => {
     await supabase.rpc("cupido_end_call", { _id: callId, _status: "ended" });
@@ -804,22 +874,29 @@ function CallRoom({
 
   return (
     <Dialog open onOpenChange={(open) => !open && void endCall()}>
-      <DialogContent className="max-w-sm text-center">
+      <DialogContent className={`${videoCall ? "max-w-2xl" : "max-w-sm"} text-center`}>
         <DialogHeader>
           <DialogTitle className="flex items-center justify-center gap-2">
-            {mode === "hot" ? <Flame className="text-pink-400" /> : <Coffee className="text-amber-300" />}
-            Llamada {mode === "hot" ? "Hot" : "Café"}
+            {videoCall ? <Video className="text-pink-300" /> : mode === "hot" ? <Flame className="text-pink-400" /> : <Coffee className="text-amber-300" />}
+            {videoCall ? "Videollamada" : `Llamada ${mode === "hot" ? "Hot" : "Café"}`}
           </DialogTitle>
           <DialogDescription>Con {otherName}</DialogDescription>
         </DialogHeader>
-        <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/20 text-3xl">
-          {otherName.slice(0, 1).toUpperCase()}
-        </div>
+        {videoCall ? (
+          <div className="relative overflow-hidden rounded-2xl bg-black">
+            <video ref={remoteVideoRef} autoPlay playsInline muted={false} className="aspect-video w-full object-cover" />
+            <video ref={localVideoRef} autoPlay playsInline muted className="absolute bottom-3 right-3 aspect-video w-28 rounded-xl border border-white/30 object-cover sm:w-40" />
+          </div>
+        ) : (
+          <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/20 text-3xl">
+            {otherName.slice(0, 1).toUpperCase()}
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">{status}</p>
         <p className="font-mono text-lg text-white">
           {minutes}:{remainder}
         </p>
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        {!videoCall && <audio ref={remoteAudioRef} autoPlay playsInline muted={false} className="hidden" />}
         <div className="flex justify-center gap-3">
           <Button variant={muted ? "destructive" : "outline"} size="icon" onClick={toggleMute} aria-label="Silenciar">
             {muted ? <MicOff /> : <Mic />}

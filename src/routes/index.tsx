@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
-import { fetchFeed, notifyUser, togglePostLike } from "@/lib/posts";
+import { fetchFeed, notifyUser, SUPREME_ADMIN_EMAIL, togglePostLike } from "@/lib/posts";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -42,18 +42,53 @@ function CupidoHome() {
   const profilesQuery = useQuery({
     queryKey: ["cupido-profiles", userId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("creator_profiles")
-        .select(
-          "id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,friend_count,follower_count",
-        )
-        .order("created_at", { ascending: false })
-        .limit(48);
-      if (error) throw error;
-      if (!data?.length) return [] as CupidoProfile[];
-      const { data: emails } = await supabase.from("profiles").select("id,email").in("id", data.map((row) => row.id));
-      const emailMap = new Map((emails ?? []).map((row) => [row.id, row.email]));
-      return data.map((row) => ({ ...row, email: emailMap.get(row.id) ?? null })) as CupidoProfile[];
+      const officialProfile = await supabase.from("profiles").select("id,email").eq("email", SUPREME_ADMIN_EMAIL).maybeSingle();
+      if (officialProfile.error) throw officialProfile.error;
+      const loadPage = async (from: number) => {
+        const { data, error } = await supabase
+          .from("creator_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .eq("is_cupido_active", true)
+          .order("is_verified_blue", { ascending: false })
+          .order("follower_count", { ascending: false })
+          .range(from, from + 999);
+        if (error) throw error;
+        return data ?? [];
+      };
+      const rows = [];
+      for (let from = 0; ; from += 1000) {
+        const page = await loadPage(from);
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
+      const officialId = officialProfile.data?.id ?? null;
+      if (officialId && !rows.some((row) => row.id === officialId)) {
+        const { data, error } = await supabase.from("creator_profiles").select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at").eq("id", officialId).maybeSingle();
+        if (error) throw error;
+        if (data) rows.push(data);
+      }
+      const ids = [...new Set(rows.map((row) => row.id))];
+      const [emails, followerCounts] = await Promise.all([
+        ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [], error: null }),
+        ids.length ? supabase.rpc("cupido_count_followers_batch", { _following: ids }) : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (emails.error) throw emails.error;
+      if (followerCounts.error) throw followerCounts.error;
+      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
+      const followerMap = new Map((followerCounts.data ?? []).map((row) => [row.following_id, row.follower_count]));
+      const people = rows.map((row) => ({
+        ...row,
+        email: emailMap.get(row.id) ?? (row.id === officialId ? officialProfile.data?.email : null),
+        display_name: row.id === officialId ? "Cupido Leudy Cuenta Oficial" : row.display_name ?? "Miembro",
+        is_cupido_active: Boolean(row.is_cupido_active) || row.id === officialId,
+        follower_count: followerMap.get(row.id) ?? 0,
+      }));
+      const official = people.filter((person) => person.id === officialId);
+      const verified = people.filter((person) => person.id !== officialId && person.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
+      const newcomers = people
+        .filter((person) => person.id !== officialId && !person.is_verified_blue)
+        .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
+      return [...official, ...verified, ...newcomers] as CupidoProfile[];
     },
   });
 
@@ -119,15 +154,26 @@ function CupidoHome() {
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profiles", userId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profiles", userId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-follows", userId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [queryClient, userId]);
 
-  const profiles = (profilesQuery.data ?? []).filter(
-    (profile) => profile.id !== userId && !passed.includes(profile.id),
-  );
+  const profiles = (profilesQuery.data ?? []).filter((profile) => {
+    const official = profile.email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
+    return (profile.id !== userId || official) && (official || !passed.includes(profile.id));
+  });
 
   const requireSession = () => {
     if (userId) return true;
@@ -300,6 +346,9 @@ function CupidoHome() {
         </TabsList>
 
         <TabsContent value="people" className="mt-5">
+          <div className="mb-7">
+            <WallFeed />
+          </div>
           {profilesQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Cargando perfiles reales…</p>
           ) : profiles.length ? (
@@ -334,7 +383,7 @@ function CupidoHome() {
         </TabsContent>
 
         <TabsContent value="videos" className="mt-5">
-          <WallFeed />
+          <WallFeed videoOnly />
         </TabsContent>
       </Tabs>
     </main>

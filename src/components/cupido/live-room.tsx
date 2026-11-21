@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, Gift, Loader2, PhoneOff, Radio, Users, X } from "lucide-react";
+import { CreditCard, Gift, Loader2, Mic, MicOff, PhoneOff, Radio, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -48,7 +48,10 @@ export function LiveRoom({
   const pendingJoinsRef = useRef<string[]>([]);
   const [ready, setReady] = useState(false);
   const [sendingGift, setSendingGift] = useState(false);
+  const [liveMuted, setLiveMuted] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   const sendSignal = useCallback(
     async (signal: LiveSignal) => {
@@ -68,7 +71,14 @@ export function LiveRoom({
     async (peerId: string) => {
       if (!localStreamRef.current || peersRef.current.has(peerId)) return;
       const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-      localStreamRef.current.getTracks().forEach((track) => peer.addTrack(track, localStreamRef.current!));
+      [...localStreamRef.current.getAudioTracks(), ...localStreamRef.current.getVideoTracks()].forEach((track) => {
+        peer.addTrack(track, localStreamRef.current!);
+      });
+      peer.ontrack = (event) => {
+        if (role !== "host" || event.track.kind !== "audio" || !remoteAudioRef.current) return;
+        remoteAudioRef.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+        void remoteAudioRef.current.play().catch(() => undefined);
+      };
       peer.onicecandidate = (event) => {
         if (event.candidate) {
           void sendSignal({ kind: "ice", sender: viewerId, receiver: peerId, candidate: event.candidate.toJSON() });
@@ -79,7 +89,7 @@ export function LiveRoom({
       await peer.setLocalDescription(offer);
       await sendSignal({ kind: "offer", sender: viewerId, receiver: peerId, sdp: offer });
     },
-    [sendSignal, viewerId],
+    [role, sendSignal, viewerId],
   );
 
   useEffect(() => {
@@ -98,12 +108,18 @@ export function LiveRoom({
           for (const peerId of pendingJoinsRef.current) await createHostPeer(peerId);
           pendingJoinsRef.current = [];
         } else {
+          const viewerStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }).catch(() => null);
+          if (viewerStream) localStreamRef.current = viewerStream;
+          else toast.info("El Live se reproducirá sin micrófono. Puedes revisar los permisos del dispositivo.");
           await supabase.from("cupido_live_viewers").upsert({ room_id: roomId, user_id: viewerId });
           const offerPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
           peersRef.current.set(hostId, offerPeer);
           offerPeer.ontrack = (event) => {
-            if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0] ?? null;
+            if (!remoteVideoRef.current) return;
+            remoteVideoRef.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+            void remoteVideoRef.current.play().catch(() => undefined);
           };
+          viewerStream?.getAudioTracks().forEach((track) => offerPeer.addTrack(track, viewerStream));
           offerPeer.onicecandidate = (event) => {
             if (event.candidate) {
               void sendSignal({ kind: "ice", sender: viewerId, receiver: hostId, candidate: event.candidate.toJSON() });
@@ -251,6 +267,12 @@ export function LiveRoom({
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
 
+  const toggleMicrophone = () => {
+    const next = !micMuted;
+    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
+    setMicMuted(next);
+  };
+
   const endLive = async () => {
     const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
     if (error) toast.error("No se pudo finalizar el Live.");
@@ -276,14 +298,29 @@ export function LiveRoom({
             ref={role === "host" ? localVideoRef : remoteVideoRef}
             autoPlay
             playsInline
-            muted={role === "host"}
+            muted={role === "host" || liveMuted}
             className="h-full w-full object-cover"
           />
+          {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            aria-label={liveMuted ? "Activar sonido del Live" : "Silenciar Live"}
+            title={liveMuted ? "Activar sonido" : "Silenciar"}
+            onClick={() => setLiveMuted((value) => !value)}
+            className="absolute right-3 top-3 rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+          >
+            {liveMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+          </Button>
           <span className="absolute left-3 top-3 rounded-full bg-pink-600 px-2.5 py-1 text-xs font-bold text-white">
             ● EN VIVO
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"}>
+            {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          </Button>
           {role === "viewer" ? (
             <Button variant="destructive" onClick={onClose} className="gap-2">
               <X className="size-4" /> Salir

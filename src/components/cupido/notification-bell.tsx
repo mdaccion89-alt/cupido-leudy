@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { playCupidoSound } from "@/lib/cupido-sounds";
 
 type NotificationRow = {
   id: string;
@@ -65,16 +66,6 @@ export function NotificationBell() {
     },
   });
 
-  const sounds = useQuery({
-    queryKey: ["cupido-sound-preference", viewerId],
-    enabled: Boolean(viewerId),
-    queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("sounds_enabled").eq("id", viewerId!).maybeSingle();
-      if (error) throw error;
-      return data?.sounds_enabled !== false;
-    },
-  });
-
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
@@ -85,29 +76,14 @@ export function NotificationBell() {
         (payload) => {
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
-          if (payload.eventType === "INSERT" && sounds.data !== false) {
-            try {
-              const audio = new AudioContext();
-              const oscillator = audio.createOscillator();
-              const gain = audio.createGain();
-              oscillator.frequency.value = 880;
-              gain.gain.value = 0.035;
-              oscillator.connect(gain);
-              gain.connect(audio.destination);
-              oscillator.start();
-              oscillator.stop(audio.currentTime + 0.12);
-              window.setTimeout(() => void audio.close(), 250);
-            } catch {
-              // Audio can be blocked until the user interacts with the page.
-            }
-          }
+          if (payload.eventType === "INSERT") void playCupidoSound("notification", viewerId);
         },
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [viewerId, queryClient, sounds.data]);
+  }, [viewerId, queryClient]);
 
   const unread = unreadCount.data ?? (notifications.data ?? []).filter((row) => !row.read).length;
 

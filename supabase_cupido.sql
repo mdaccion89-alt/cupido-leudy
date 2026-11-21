@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS public.cupido_calls (
   caller_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   callee_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   mode TEXT NOT NULL CHECK (mode IN ('hot', 'cafe')),
+  video BOOLEAN NOT NULL DEFAULT FALSE,
   status TEXT NOT NULL DEFAULT 'ringing' CHECK (status IN ('ringing', 'active', 'ended', 'rejected')),
   credits_spent INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -330,7 +331,8 @@ BEGIN
   );
 END $$;
 
-CREATE OR REPLACE FUNCTION public.cupido_start_call(_callee UUID, _mode TEXT)
+DROP FUNCTION IF EXISTS public.cupido_start_call(UUID, TEXT);
+CREATE OR REPLACE FUNCTION public.cupido_start_call(_callee UUID, _mode TEXT, _video BOOLEAN DEFAULT FALSE)
 RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE cost INTEGER; cid UUID;
 BEGIN
@@ -342,8 +344,8 @@ BEGIN
   ELSE
     cost := 0;
   END IF;
-  INSERT INTO public.cupido_calls (caller_id, callee_id, mode, credits_spent)
-    VALUES (auth.uid(), _callee, _mode, cost) RETURNING id INTO cid;
+  INSERT INTO public.cupido_calls (caller_id, callee_id, mode, video, credits_spent)
+    VALUES (auth.uid(), _callee, _mode, _video, cost) RETURNING id INTO cid;
   RETURN cid;
 END $$;
 
@@ -445,7 +447,7 @@ GRANT EXECUTE ON FUNCTION public.cupido_can_access_conversation(UUID) TO authent
 GRANT EXECUTE ON FUNCTION public.cupido_send_gift(UUID, TEXT, INTEGER, NUMERIC) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_request_withdrawal(NUMERIC, TEXT, TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_review_withdrawal(UUID, BOOLEAN) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.cupido_start_call(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cupido_start_call(UUID, TEXT, BOOLEAN) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_end_call(UUID, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_answer_call(UUID, BOOLEAN) TO authenticated;
 
@@ -539,7 +541,10 @@ CREATE POLICY "cupido private delete" ON storage.objects FOR DELETE TO authentic
 DO $$
 DECLARE t TEXT;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['cupido_messages', 'cupido_conversations', 'cupido_posts', 'cupido_friends', 'cupido_calls']
+  FOREACH t IN ARRAY ARRAY[
+    'cupido_messages', 'cupido_conversations', 'cupido_posts', 'cupido_friends', 'cupido_calls',
+    'cupido_post_likes', 'creator_profiles', 'follows', 'notifications'
+  ]
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_publication_tables
@@ -682,6 +687,15 @@ RETURNS BIGINT LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS 
   SELECT count(*) FROM public.follows WHERE following_id = _following;
 $$;
 
+CREATE OR REPLACE FUNCTION public.cupido_count_followers_batch(_following UUID[])
+RETURNS TABLE(following_id UUID, follower_count BIGINT)
+LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT requested.following_id, count(f.follower_id)::BIGINT
+  FROM unnest(_following) AS requested(following_id)
+  LEFT JOIN public.follows f ON f.following_id = requested.following_id
+  GROUP BY requested.following_id;
+$$;
+
 CREATE OR REPLACE FUNCTION public.cupido_list_followers(_following UUID)
 RETURNS TABLE(follower_id UUID, display_name TEXT, avatar_url TEXT)
 LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -693,6 +707,7 @@ LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS $$
   LIMIT 200;
 $$;
 GRANT EXECUTE ON FUNCTION public.cupido_count_followers(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cupido_count_followers_batch(UUID[]) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_list_followers(UUID) TO anon, authenticated;
 
 INSERT INTO storage.buckets (id, name, public) VALUES

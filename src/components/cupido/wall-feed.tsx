@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, Upload } from "lucide-react";
+import { Globe2, Play, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { MediaCard } from "@/components/cupido/media-card";
 import { MediaComposer } from "@/components/cupido/media-composer";
@@ -37,6 +37,8 @@ type WallFeedProps = {
   savedOnly?: boolean;
   hideUpload?: boolean;
   emptyText?: string;
+  initialFollowingOnly?: boolean;
+  showScopeTabs?: boolean;
 };
 
 export function WallFeed({
@@ -45,6 +47,8 @@ export function WallFeed({
   savedOnly = false,
   hideUpload = false,
   emptyText,
+  initialFollowingOnly = false,
+  showScopeTabs = true,
 }: WallFeedProps) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
@@ -52,20 +56,34 @@ export function WallFeed({
   const fileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState("");
   const [mediaFilter, setMediaFilter] = useState<MediaFilterId>("normal");
+  const [draft, setDraft] = useState<{ file: File; alreadyFiltered: boolean } | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [followingOnly, setFollowingOnly] = useState(initialFollowingOnly);
+  const [feedLimit, setFeedLimit] = useState(24);
   const [uploading, setUploading] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
   const feed = useQuery({
-    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly],
+    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit],
     queryFn: async () => {
       setLoadingPosts(true);
       try {
-        return await fetchFeed({ viewerId, limit: videoOnly ? 30 : 24, videoOnly, onlyUserId, savedOnly });
+        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly });
       } finally {
         setLoadingPosts(false);
       }
     },
   });
+
+  useEffect(() => {
+    if (!draft) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(draft.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draft]);
 
   useEffect(() => {
     const channelName = `cupido-wall-live-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -87,6 +105,9 @@ export function WallFeed({
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_comments" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `follower_id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
       .subscribe();
@@ -165,6 +186,18 @@ export function WallFeed({
     }
   };
 
+  const handlePick = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const filtered = await applyMediaFilter(file, mediaFilter);
+      setDraft({ file: filtered, alreadyFiltered: true });
+    } catch (error) {
+      toast.error(errorMessage(error, "No se pudo preparar la vista previa."));
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
   const handleUpload = async (file: File | null, alreadyFiltered = false) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
@@ -204,7 +237,7 @@ export function WallFeed({
         const duration = await readVideoDuration(uploadFile);
         if (duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
       } else {
-        uploadFile = await compressImageFile(file, 200 * 1024);
+        uploadFile = await compressImageFile(uploadFile, 200 * 1024);
       }
       const finalExtension = safeExtension(uploadFile.name, extension);
       const path = `${viewerId}/${Date.now()}.${finalExtension}`;
@@ -219,6 +252,7 @@ export function WallFeed({
       if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
       await createPost({ userId: viewerId, caption, url, isVideo });
       setCaption("");
+      setDraft(null);
       toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -238,6 +272,7 @@ export function WallFeed({
   const likedIds = feed.data?.liked instanceof Set ? feed.data.liked : new Set<string>();
   const dislikedIds = feed.data?.disliked instanceof Set ? feed.data.disliked : new Set<string>();
   const savedIds = feed.data?.saved instanceof Set ? feed.data.saved : new Set<string>();
+  const showTabs = showScopeTabs && !videoOnly && !onlyUserId && !savedOnly;
 
   return (
     <div className="space-y-5">
@@ -264,18 +299,60 @@ export function WallFeed({
             type="file"
             accept={videoOnly ? "video/mp4,video/webm,video/quicktime" : "image/*,video/mp4,video/webm,video/quicktime"}
             className="hidden"
-            onChange={(event) => void handleUpload(event.target.files?.[0] ?? null)}
+            onChange={(event) => void handlePick(event.target.files?.[0] ?? null)}
           />
           <MediaComposer
             cameraOnly
             disabled={uploading}
             onFilterChange={setMediaFilter}
-            onFile={(file) => handleUpload(file, true)}
+            onFile={(file) => setDraft({ file, alreadyFiltered: true })}
           />
-          <Button onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-2">
+          <Button onClick={() => fileRef.current?.click()} disabled={uploading} variant="outline" className="gap-2">
             <Upload className="h-4 w-4" />
-            {uploading ? "Subiendo…" : videoOnly ? "Subir video" : "Subir foto o video"}
+            {videoOnly ? "Elegir video" : "Elegir foto o video"}
           </Button>
+        </div>
+      )}
+
+      {draft && previewUrl && !hideUpload && (
+        <div className="rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
+          <p className="mb-3 text-sm font-semibold text-white">Vista previa</p>
+          {draft.file.type.startsWith("video/") ? (
+            <video src={previewUrl} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" />
+          ) : (
+            <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" />
+          )}
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setDraft(null)} disabled={uploading}>
+              Quitar
+            </Button>
+            <Button type="button" onClick={() => void handleUpload(draft.file, draft.alreadyFiltered)} disabled={uploading} className="gap-2">
+              <Upload className="size-4" /> {uploading ? "Publicando…" : "Publicar en el muro"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showTabs && (
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filtrar publicaciones">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!followingOnly}
+            onClick={() => { setFollowingOnly(false); setFeedLimit(24); }}
+            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${!followingOnly ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+          >
+            <Globe2 className="size-4" /> Para ti
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={followingOnly}
+            onClick={() => { setFollowingOnly(true); setFeedLimit(24); }}
+            className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${followingOnly ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+          >
+            <Users className="size-4" /> Siguiendo
+          </button>
         </div>
       )}
 
@@ -300,8 +377,17 @@ export function WallFeed({
       ) : (
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-8 text-center">
           <p className="text-sm text-muted-foreground">
-            {emptyText ?? "Sé la primera persona en publicar una foto o video ❤️"}
+            {followingOnly
+              ? viewerId ? "Las personas que sigues todavía no han publicado." : "Inicia sesión para ver publicaciones de las personas que sigues."
+              : emptyText ?? "Sé la primera persona en publicar una foto o video ❤️"}
           </p>
+        </div>
+      )}
+      {posts.length >= feedLimit && (
+        <div className="flex justify-center">
+          <Button type="button" variant="outline" onClick={() => setFeedLimit((current) => current + 24)}>
+            Cargar más publicaciones
+          </Button>
         </div>
       )}
     </div>
