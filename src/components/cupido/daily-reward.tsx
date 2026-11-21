@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { Coins, Gift, Loader2 } from "lucide-react";
+import { Coins, Gift, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -15,6 +16,7 @@ export function DailyReward() {
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
   const [claiming, setClaiming] = useState(false);
+  const [adOpen, setAdOpen] = useState(false);
   const claimDaily = useServerFn(claimDailyReward);
 
   useEffect(() => {
@@ -75,14 +77,16 @@ export function DailyReward() {
           );
         })}
       </div>
-      <Button className="mt-3 w-full gap-2" disabled={locked} onClick={() => void claim()}>
-        {claiming ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
-        {claiming
-          ? "Reclamando…"
-          : locked
-            ? `Vuelve en ${formatCountdown(waitingMs)} ❤️`
-            : `Reclamar día ${nextDay}`}
-      </Button>
+      <div className="mt-3 grid gap-2">
+        <Button className="w-full gap-2" disabled={locked} onClick={() => void claim()}>
+          {claiming ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
+          {claiming ? "Reclamando…" : locked ? `Vuelve en ${formatCountdown(waitingMs)}` : `Reclamar día ${nextDay}`}
+        </Button>
+        <Button variant="outline" className="w-full gap-2 border-amber-200/25" onClick={() => setAdOpen(true)}>
+          <Play className="size-4 fill-current" /> Ver Anuncio y Ganar +25 Monedas
+        </Button>
+      </div>
+      <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
     </section>
   );
 }

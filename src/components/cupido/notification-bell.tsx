@@ -65,6 +65,16 @@ export function NotificationBell() {
     },
   });
 
+  const sounds = useQuery({
+    queryKey: ["cupido-sound-preference", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("sounds_enabled").eq("id", viewerId!).maybeSingle();
+      if (error) throw error;
+      return data?.sounds_enabled !== false;
+    },
+  });
+
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
@@ -72,16 +82,32 @@ export function NotificationBell() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${viewerId}` },
-        () => {
+        (payload) => {
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
+          if (payload.eventType === "INSERT" && sounds.data !== false) {
+            try {
+              const audio = new AudioContext();
+              const oscillator = audio.createOscillator();
+              const gain = audio.createGain();
+              oscillator.frequency.value = 880;
+              gain.gain.value = 0.035;
+              oscillator.connect(gain);
+              gain.connect(audio.destination);
+              oscillator.start();
+              oscillator.stop(audio.currentTime + 0.12);
+              window.setTimeout(() => void audio.close(), 250);
+            } catch {
+              // Audio can be blocked until the user interacts with the page.
+            }
+          }
         },
       )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [viewerId, queryClient]);
+  }, [viewerId, queryClient, sounds.data]);
 
   const unread = unreadCount.data ?? (notifications.data ?? []).filter((row) => !row.read).length;
 

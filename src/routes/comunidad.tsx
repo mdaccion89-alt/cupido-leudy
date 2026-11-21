@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag } from "@/lib/cupido";
+import { SUPREME_ADMIN_EMAIL, notifyUser } from "@/lib/posts";
 
 export const Route = createFileRoute("/comunidad")({
   head: () => ({ meta: [{ title: "Comunidad — Cupido Leudy ❤️" }] }),
@@ -32,25 +33,51 @@ function CommunityPage() {
   const people = useQuery({
     queryKey: ["cupido-people", search, country, looking, verifiedOnly],
     queryFn: async () => {
+      const officialProfile = await supabase.from("profiles").select("id,email").eq("email", SUPREME_ADMIN_EMAIL).maybeSingle();
+      if (officialProfile.error) throw officialProfile.error;
+
       let query = supabase
         .from("creator_profiles")
         .select("*")
+        .eq("is_cupido_active", true)
         .order("is_verified_blue", { ascending: false })
         .order("follower_count", { ascending: false })
-        .limit(60);
+        .limit(200);
       if (country !== "all") query = query.eq("country_code", country);
       if (looking !== "all") query = query.eq("looking_for", looking);
       if (verifiedOnly) query = query.eq("is_verified_blue", true);
       if (search.trim()) query = query.ilike("display_name", `%${search.trim()}%`);
       const { data, error } = await query;
       if (error) throw error;
-      if (!data?.length) return [];
-      const { data: emails } = await supabase
-        .from("profiles")
-        .select("id,email")
-        .in("id", data.map((row) => row.id));
-      const emailMap = new Map((emails ?? []).map((row) => [row.id, row.email]));
-      return data.map((row) => ({ ...row, email: emailMap.get(row.id) ?? null }));
+
+      const officialId = officialProfile.data?.id ?? null;
+      let rows = data ?? [];
+      if (officialId && !rows.some((row) => row.id === officialId)) {
+        const official = await supabase.from("creator_profiles").select("*").eq("id", officialId).maybeSingle();
+        if (official.error) throw official.error;
+        if (official.data) rows = [...rows, official.data];
+      }
+      const ids = [...new Set(rows.map((row) => row.id))];
+      const [emails, followers] = await Promise.all([
+        ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [], error: null }),
+        officialId ? supabase.rpc("cupido_count_followers", { _following: officialId }) : Promise.resolve({ data: 0, error: null }),
+      ]);
+      if (emails.error) throw emails.error;
+      if (followers.error) throw followers.error;
+      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
+      const candidates = rows.map((row) => {
+        const official = row.id === officialId;
+        return {
+          ...row,
+          email: emailMap.get(row.id) ?? (official ? officialProfile.data?.email : null),
+          is_cupido_active: Boolean(row.is_cupido_active) || official,
+          follower_count: official ? 40_000 + (followers.data ?? 0) : row.follower_count,
+        };
+      });
+      const official = candidates.filter((row) => row.id === officialId);
+      const verified = candidates.filter((row) => row.id !== officialId && row.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
+      const newcomers = candidates.filter((row) => row.id !== officialId && !row.is_verified_blue).sort(() => Math.random() - 0.5);
+      return [...official, ...verified, ...newcomers];
     },
   });
 
@@ -129,8 +156,18 @@ function CommunityPage() {
       });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       toast.success("Preferencia guardada ❤️");
+      if (variables.kind === "interested" && viewerId) {
+        void notifyUser({
+          userId: variables.targetId,
+          title: "A alguien le gusta tu perfil",
+          body: "Revisa quién mostró interés en tu perfil.",
+          kind: "interest",
+          actorId: viewerId,
+          targetId: viewerId,
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
     },
     onError: () => toast.error("No se pudo guardar tu interés."),
@@ -181,6 +218,7 @@ function CommunityPage() {
       } else {
         const { error } = await supabase.from("follows").insert({ follower_id: viewerId, following_id: targetId });
         if (error) throw error;
+        void notifyUser({ userId: targetId, title: "Nuevo seguidor", body: "Alguien empezó a seguirte.", kind: "follow", actorId: viewerId, targetId: viewerId });
       }
     },
     onSuccess: () => {

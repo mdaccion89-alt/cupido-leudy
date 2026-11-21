@@ -9,6 +9,9 @@ create extension if not exists pgcrypto;
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS phone TEXT,
   ADD COLUMN IF NOT EXISTS country_code TEXT,
+  ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT 'dark' CHECK (theme_mode IN ('dark', 'light')),
+  ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS sounds_enabled BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
 
 ALTER TABLE public.creator_profiles
@@ -24,6 +27,7 @@ ALTER TABLE public.creator_profiles
     CHECK (moderation_status IN ('pending', 'approved', 'rejected')),
   ADD COLUMN IF NOT EXISTS is_verified_blue BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_cupido_active BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS friend_count INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS shares_count INTEGER NOT NULL DEFAULT 0;
 
@@ -612,6 +616,8 @@ BEGIN
   SELECT uid, CASE WHEN admin_email THEN 'Cupido Leudy Cuenta Oficial' ELSE left(split_part(COALESCE(user_name, user_email), '@', 1), 60) END, admin_email, admin_email
   WHERE NOT EXISTS (SELECT 1 FROM public.creator_profiles WHERE id = uid);
 
+  UPDATE public.creator_profiles SET is_cupido_active = true WHERE id = uid;
+
   INSERT INTO public.user_credits (user_id, balance, daily_reset_at)
   VALUES (uid, CASE WHEN admin_email THEN -1 ELSE 500 END, now())
   ON CONFLICT (user_id) DO NOTHING;
@@ -622,7 +628,7 @@ BEGIN
     INSERT INTO public.user_roles (user_id, role) VALUES (uid, 'admin_supremo') ON CONFLICT DO NOTHING;
     UPDATE public.user_credits SET balance = -1, updated_at = now() WHERE user_id = uid;
     UPDATE public.profiles SET credits = -1, plan = 'premium', plan_expires_at = NULL, is_admin = true WHERE id = uid;
-    UPDATE public.creator_profiles SET is_official = true, is_premium = true WHERE id = uid;
+    UPDATE public.creator_profiles SET is_official = true, is_premium = true, is_cupido_active = true WHERE id = uid;
   END IF;
 END;
 $$;
@@ -637,9 +643,57 @@ BEGIN
     UPDATE public.profiles SET terms_accepted_at = now() WHERE id = admin_id;
     UPDATE public.profiles SET display_name = 'Cupido Leudy Cuenta Oficial' WHERE id = admin_id;
     UPDATE public.creator_profiles SET display_name = 'Cupido Leudy Cuenta Oficial', is_verified_blue = true, verification_status = 'approved',
-      moderation_status = 'approved', is_official = true, is_premium = true WHERE id = admin_id;
+      moderation_status = 'approved', is_official = true, is_premium = true, is_cupido_active = true WHERE id = admin_id;
   END IF;
 END $$;
+
+-- Historias auténticas: visibles durante 24 horas, con respuesta por el chat existente.
+CREATE TABLE IF NOT EXISTS public.cupido_stories (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  media_url TEXT NOT NULL,
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  caption TEXT NOT NULL DEFAULT '',
+  filter_name TEXT NOT NULL DEFAULT 'normal',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '24 hours')
+);
+
+CREATE INDEX IF NOT EXISTS cupido_stories_active_idx ON public.cupido_stories (expires_at DESC);
+ALTER TABLE public.cupido_stories ENABLE ROW LEVEL SECURITY;
+GRANT SELECT ON public.cupido_stories TO anon, authenticated;
+GRANT INSERT, DELETE ON public.cupido_stories TO authenticated;
+DROP POLICY IF EXISTS "cupido stories live read" ON public.cupido_stories;
+CREATE POLICY "cupido stories live read" ON public.cupido_stories FOR SELECT TO anon, authenticated
+  USING (expires_at > now() AND (SELECT is_cupido_active FROM public.creator_profiles WHERE id = user_id));
+DROP POLICY IF EXISTS "cupido stories own insert" ON public.cupido_stories;
+CREATE POLICY "cupido stories own insert" ON public.cupido_stories FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "cupido stories own delete" ON public.cupido_stories;
+CREATE POLICY "cupido stories own delete" ON public.cupido_stories FOR DELETE TO authenticated
+  USING (auth.uid() = user_id OR public.has_role(auth.uid(), 'admin'));
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.cupido_stories;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.cupido_count_followers(_following UUID)
+RETURNS BIGINT LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT count(*) FROM public.follows WHERE following_id = _following;
+$$;
+
+CREATE OR REPLACE FUNCTION public.cupido_list_followers(_following UUID)
+RETURNS TABLE(follower_id UUID, display_name TEXT, avatar_url TEXT)
+LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT f.follower_id, coalesce(cp.display_name, 'Miembro de Cupido'), coalesce(cp.avatar_url, '')
+  FROM public.follows f
+  JOIN public.creator_profiles cp ON cp.id = f.follower_id AND cp.is_cupido_active = true
+  WHERE f.following_id = _following
+  ORDER BY f.created_at DESC
+  LIMIT 200;
+$$;
+GRANT EXECUTE ON FUNCTION public.cupido_count_followers(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.cupido_list_followers(UUID) TO anon, authenticated;
 
 INSERT INTO storage.buckets (id, name, public) VALUES
   ('cupido-private', 'cupido-private', false)

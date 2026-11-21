@@ -8,8 +8,6 @@ import {
   AD_REWARD,
   DAILY_REWARDS,
   DAY_MS,
-  HOUR_MS,
-  ROULETTE_PRIZES,
   nextDailyDay,
 } from "@/lib/rewards";
 
@@ -29,13 +27,12 @@ async function recordClaim(admin: Db, userId: string, rewardType: string, key: s
 async function readRewardProfile(admin: Db, userId: string) {
   const { data } = await admin
     .from("profiles")
-    .select("daily_streak,last_daily_claim,last_wheel_spin")
+    .select("daily_streak,last_daily_claim")
     .eq("id", userId)
     .maybeSingle();
   return {
     streak: Math.max(0, data?.daily_streak ?? 0),
     lastDaily: data?.last_daily_claim ? Date.parse(data.last_daily_claim) : 0,
-    lastWheel: data?.last_wheel_spin ? Date.parse(data.last_wheel_spin) : 0,
   };
 }
 
@@ -126,29 +123,4 @@ export const claimAdReward = createServerFn({ method: "POST" })
     return { awarded: AD_REWARD, remaining: AD_LIMIT - watched - 1 };
   });
 
-export const spinCafeRoulette = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const admin = await getAdminClient();
-    const profile = await readRewardProfile(admin, context.userId);
-    const now = Date.now();
-
-    if (profile.lastWheel && now - profile.lastWheel < HOUR_MS) {
-      const minutes = Math.ceil((HOUR_MS - (now - profile.lastWheel)) / 60_000);
-      throw new Error(`La ruleta se reinicia en ${minutes} min ☕`);
-    }
-
-    const index = Math.floor(Math.random() * ROULETTE_PRIZES.length);
-    const amount = ROULETTE_PRIZES[index] ?? 0;
-    const { error: profileError } = await admin
-      .from("profiles")
-      .update({ last_wheel_spin: new Date(now).toISOString() })
-      .eq("id", context.userId);
-    if (profileError) throw profileError;
-
-    await recordClaim(admin, context.userId, "roulette", `${dayKey()}-${now}`);
-    await creditCoins(admin, context.userId, amount, `Ruleta Café Cupido Leudy · premio ${amount}`);
-    return { awarded: amount, index };
-  });
-
-export const cupidoRewards = { DAILY_REWARDS, AD_REWARD, ROULETTE_PRIZES };
+export const cupidoRewards = { DAILY_REWARDS, AD_REWARD };

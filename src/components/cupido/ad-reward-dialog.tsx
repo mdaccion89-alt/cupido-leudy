@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Play } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -149,12 +149,7 @@ export function AdRewardDialog({
           )}
         </div>
 
-        {nativeAd && (
-          <Button variant="secondary" className="gap-2" onClick={finishAd} disabled={mutation.isPending}>
-            {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-            Ya vi el anuncio · +{AD_REWARD}
-          </Button>
-        )}
+
         <p className="text-center text-[11px] text-white/60">Máximo 5 anuncios por día.</p>
       </DialogContent>
     </Dialog>

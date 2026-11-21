@@ -1,28 +1,77 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { Bell, Crown, Link2, LogOut, Moon, Trash2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bell, Crown, Link2, LogOut, Moon, Sun, Trash2, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
+import { useAuth } from "@/lib/auth-context";
 
 type ProfileSettingsProps = { email?: string | null | undefined; phone?: string | null | undefined };
+type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sounds_enabled: boolean };
 
 export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   const account = useAccount();
+  const { session } = useAuth();
   const queryClient = useQueryClient();
-  const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(true);
-  const [sounds, setSounds] = useState(true);
+  const userId = session?.user.id ?? null;
+  const [busy, setBusy] = useState(false);
+  const preferences = useQuery({
+    queryKey: ["cupido-preferences", userId],
+    enabled: Boolean(userId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("theme_mode,notifications_enabled,sounds_enabled")
+        .eq("id", userId!)
+        .maybeSingle();
+      if (error) throw error;
+      return {
+        theme_mode: data?.theme_mode === "light" ? "light" as const : "dark" as const,
+        notifications_enabled: data?.notifications_enabled !== false,
+        sounds_enabled: data?.sounds_enabled !== false,
+      };
+    },
+  });
 
   useEffect(() => {
-    setNotifications(localStorage.getItem("cupido-notifications") !== "false");
-    setDarkMode(localStorage.getItem("cupido-dark") !== "false");
-    setSounds(localStorage.getItem("cupido-sounds") !== "false");
-  }, []);
+    if (!preferences.data) return;
+    localStorage.setItem("cupido-notifications", String(preferences.data.notifications_enabled));
+    localStorage.setItem("cupido-sounds", String(preferences.data.sounds_enabled));
+    localStorage.setItem("cupido-dark", String(preferences.data.theme_mode === "dark"));
+  }, [preferences.data]);
 
-  const persist = (key: string, value: boolean) => localStorage.setItem(key, String(value));
+  const savePreference = async (key: keyof Preferences, value: Preferences[keyof Preferences]) => {
+    if (!userId) return;
+    const previous = preferences.data;
+    const next = { ...(previous ?? { theme_mode: "dark" as const, notifications_enabled: true, sounds_enabled: true }), [key]: value } as Preferences;
+    queryClient.setQueryData(["cupido-preferences", userId], next);
+    if (key === "theme_mode") {
+      const mode = value === "light" ? "light" : "dark";
+      document.documentElement.dataset["theme"] = mode;
+      document.documentElement.classList.toggle("dark", mode === "dark");
+      localStorage.setItem("cupido-dark", String(mode === "dark"));
+    }
+    setBusy(true);
+    const { error } = await supabase.from("profiles").update({ [key]: value } as never).eq("id", userId);
+    setBusy(false);
+    if (error) {
+      queryClient.setQueryData(["cupido-preferences", userId], previous);
+      if (previous?.theme_mode) {
+        document.documentElement.dataset["theme"] = previous.theme_mode;
+        document.documentElement.classList.toggle("dark", previous.theme_mode === "dark");
+      }
+      toast.error("No se pudo guardar este ajuste. Actualiza la migracion de Cupido y vuelve a intentar.");
+      return;
+    }
+    localStorage.setItem(key === "theme_mode" ? "cupido-dark" : key === "notifications_enabled" ? "cupido-notifications" : "cupido-sounds", String(value));
+    if (key === "sounds_enabled") void queryClient.invalidateQueries({ queryKey: ["cupido-sound-preference", userId] });
+  };
+
+  const darkMode = preferences.data?.theme_mode !== "light";
+  const notificationsOn = preferences.data?.notifications_enabled !== false;
+  const soundsOn = preferences.data?.sounds_enabled !== false;
 
   return (
     <section className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -34,9 +83,7 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.06] p-3">
           <p className="text-[11px] text-amber-100/70">Monedas brillantes</p>
-          <p className="font-display text-xl text-amber-200">
-            {Number.isFinite(account.balance) ? account.balance.toLocaleString("es") : "∞"}
-          </p>
+          <p className="font-display text-xl text-amber-200">{Number.isFinite(account.balance) ? account.balance.toLocaleString("es") : "∞"}</p>
         </div>
         <div className="rounded-xl border border-violet-300/20 bg-violet-400/[0.06] p-3">
           <p className="text-[11px] text-violet-100/70">Plan actual</p>
@@ -52,56 +99,24 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       <div className="mt-4 grid gap-2 text-sm">
         <label className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2">
           <span className="flex items-center gap-2"><Bell className="size-4" /> Notificaciones</span>
-          <input
-            type="checkbox"
-            checked={notifications}
-            onChange={(event) => {
-              setNotifications(event.target.checked);
-              persist("cupido-notifications", event.target.checked);
-            }}
-          />
+          <input type="checkbox" checked={notificationsOn} disabled={busy} onChange={(event) => void savePreference("notifications_enabled", event.target.checked)} />
         </label>
         <label className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2">
-          <span className="flex items-center gap-2"><Moon className="size-4" /> Modo oscuro Café</span>
-          <input
-            type="checkbox"
-            checked={darkMode}
-            onChange={(event) => {
-              setDarkMode(event.target.checked);
-              persist("cupido-dark", event.target.checked);
-              document.documentElement.dataset["theme"] = event.target.checked ? "dark" : "light";
-            }}
-          />
+          <span className="flex items-center gap-2">{darkMode ? <Moon className="size-4" /> : <Sun className="size-4" />} Modo oscuro / modo claro</span>
+          <input type="checkbox" checked={darkMode} disabled={busy} onChange={(event) => void savePreference("theme_mode", event.target.checked ? "dark" : "light")} />
         </label>
         <label className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2">
-          <span className="flex items-center gap-2"><Bell className="size-4" /> Sonidos</span>
-          <input
-            type="checkbox"
-            checked={sounds}
-            onChange={(event) => {
-              setSounds(event.target.checked);
-              persist("cupido-sounds", event.target.checked);
-            }}
-          />
+          <span className="flex items-center gap-2"><Volume2 className="size-4" /> Sonidos</span>
+          <input type="checkbox" checked={soundsOn} disabled={busy} onChange={(event) => void savePreference("sounds_enabled", event.target.checked)} />
         </label>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button asChild variant="secondary">
-          <Link to="/tienda">Hacerme Premium</Link>
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => {
-            queryClient.clear();
-            toast.success("Caché local borrada.");
-          }}
-        >
+        <Button asChild variant="secondary"><Link to="/tienda">Hacerme Premium</Link></Button>
+        <Button variant="outline" onClick={() => { queryClient.clear(); toast.success("Caché local borrada."); }}>
           <Trash2 className="size-4" /> Borrar caché
         </Button>
-        <Button variant="destructive" onClick={() => void supabase.auth.signOut()}>
-          <LogOut className="size-4" /> Cerrar sesión
-        </Button>
+        <Button variant="destructive" onClick={() => void supabase.auth.signOut()}><LogOut className="size-4" /> Cerrar sesión</Button>
       </div>
     </section>
   );

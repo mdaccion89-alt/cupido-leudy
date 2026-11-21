@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { MediaCard } from "@/components/cupido/media-card";
+import { MediaComposer } from "@/components/cupido/media-composer";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -16,6 +17,7 @@ import {
   togglePostSave,
 } from "@/lib/posts";
 import { compressImageFile, readVideoDuration, safeExtension } from "@/lib/storage";
+import { applyMediaFilter, type MediaFilterId } from "@/lib/media-filters";
 
 const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "m4v"];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
@@ -49,6 +51,7 @@ export function WallFeed({
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState("");
+  const [mediaFilter, setMediaFilter] = useState<MediaFilterId>("normal");
   const [uploading, setUploading] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
 
@@ -162,7 +165,7 @@ export function WallFeed({
     }
   };
 
-  const handleUpload = async (file: File | null) => {
+  const handleUpload = async (file: File | null, alreadyFiltered = false) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
     const isVideo = file.type.startsWith("video/");
@@ -196,9 +199,9 @@ export function WallFeed({
     setUploading(true);
     let uploadedPath: string | null = null;
     try {
-      let uploadFile = file;
+      let uploadFile = alreadyFiltered ? file : await applyMediaFilter(file, mediaFilter);
       if (isVideo) {
-        const duration = await readVideoDuration(file);
+        const duration = await readVideoDuration(uploadFile);
         if (duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
       } else {
         uploadFile = await compressImageFile(file, 200 * 1024);
@@ -262,6 +265,12 @@ export function WallFeed({
             accept={videoOnly ? "video/mp4,video/webm,video/quicktime" : "image/*,video/mp4,video/webm,video/quicktime"}
             className="hidden"
             onChange={(event) => void handleUpload(event.target.files?.[0] ?? null)}
+          />
+          <MediaComposer
+            cameraOnly
+            disabled={uploading}
+            onFilterChange={setMediaFilter}
+            onFile={(file) => handleUpload(file, true)}
           />
           <Button onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-2">
             <Upload className="h-4 w-4" />

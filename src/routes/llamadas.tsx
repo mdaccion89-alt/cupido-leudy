@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
 import { toast } from "sonner";
-import { CafeRoulette } from "@/components/cupido/cafe-roulette";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { DailyReward } from "@/components/cupido/daily-reward";
 import { LiveRoom } from "@/components/cupido/live-room";
@@ -236,9 +235,8 @@ function CallsPage() {
         </div>
       </header>
 
-      <section className="mt-6 grid gap-4 lg:grid-cols-2">
+      <section className="mt-6 max-w-xl">
         <DailyReward />
-        <CafeRoulette />
       </section>
 
       <section className="mt-6 rounded-3xl border border-pink-400/25 bg-pink-500/[0.07] p-6">

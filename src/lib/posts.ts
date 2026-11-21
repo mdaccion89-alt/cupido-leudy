@@ -151,17 +151,22 @@ export async function fetchFeed(options: {
     ids.length
       ? supabase
           .from("creator_profiles")
-          .select("id,display_name,avatar_url,is_verified_blue,is_super_admin")
+          .select("id,display_name,avatar_url,is_verified_blue,is_super_admin,is_cupido_active")
           .in("id", ids)
       : Promise.resolve({ data: [] }),
     ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [] }),
   ]);
   const creators = new Map(((creatorRows.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
   const emails = new Map(((emailRows.data ?? []) as AnyRow[]).map((row) => [row.id as string, row.email as string | null]));
-  const postIds = filtered.map((row) => row.id as string);
+  const publicRows = filtered.filter((row) => {
+    const creator = creators.get(row.user_id);
+    const email = emails.get(row.user_id) ?? null;
+    return Boolean(creator?.is_cupido_active) || isSupremePost(email, Boolean(creator?.is_super_admin));
+  });
+  const postIds = publicRows.map((row) => row.id as string);
   const engagement = await fetchEngagement(postIds, viewerId);
 
-  const posts: FeedPost[] = filtered.flatMap((row): FeedPost[] => {
+  const posts: FeedPost[] = publicRows.flatMap((row): FeedPost[] => {
     if (!row || typeof row !== "object") return [];
     const url = String(row.media_url ?? row.media_path ?? "");
     if (!url) return [];
@@ -319,6 +324,12 @@ export async function notifyUser(input: {
 }): Promise<void> {
   if (!input.userId) return;
   try {
+    const preference = await db
+      .from("profiles")
+      .select("notifications_enabled")
+      .eq("id", input.userId)
+      .maybeSingle();
+    if (!preference.error && preference.data?.notifications_enabled === false) return;
     const rpc = await db.rpc("cupido_create_notification", {
       p_user: input.userId,
       p_title: input.title,

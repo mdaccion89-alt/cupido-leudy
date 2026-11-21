@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -8,17 +8,17 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import appCss from "../styles.css?url";
 import { BottomNav } from "@/components/cupido/bottom-nav";
 import { SiteHeader } from "@/components/studio/site-header";
-import { SiteFooter } from "@/components/cupido/site-footer";
 import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { supabase } from "@/integrations/supabase/client";
 import { BRAND, SLOGAN } from "@/lib/cupido";
 import { registerCupidoReferral } from "@/lib/referral.functions";
 import { captureReferralFromUrl, clearStoredReferral, getStoredReferral } from "@/lib/referral";
@@ -169,24 +169,58 @@ function ReferralTracker() {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
+        <ThemeSync onThemeChange={setTheme} />
         <ReferralTracker />
-        <div className="flex min-h-screen flex-col pb-20 lg:pb-0">
+        <div className="flex min-h-screen flex-col pb-20">
           <SiteHeader />
           <div className="flex-1">
             <Outlet />
           </div>
-          <SiteFooter />
           <BottomNav />
         </div>
         <EscudoWidget />
         <TermsModal />
-        <Toaster theme="dark" position="top-center" />
+        <Toaster theme={theme} position="top-center" />
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light") => void }) {
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+  const preference = useQuery({
+    queryKey: ["cupido-preferences", userId],
+    enabled: Boolean(userId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("theme_mode,notifications_enabled,sounds_enabled")
+        .eq("id", userId!)
+        .maybeSingle();
+      if (error) throw error;
+      return {
+        theme_mode: data?.theme_mode === "light" ? "light" as const : "dark" as const,
+        notifications_enabled: data?.notifications_enabled !== false,
+        sounds_enabled: data?.sounds_enabled !== false,
+      };
+    },
+  });
+
+  useEffect(() => {
+    const mode = preference.data?.theme_mode ?? (localStorage.getItem("cupido-dark") === "false" ? "light" : "dark");
+    const root = document.documentElement;
+    root.dataset["theme"] = mode;
+    root.classList.toggle("dark", mode === "dark");
+    localStorage.setItem("cupido-dark", String(mode === "dark"));
+    onThemeChange(mode);
+  }, [preference.data, onThemeChange]);
+
+  return null;
 }

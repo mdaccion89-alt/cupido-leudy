@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InviteButton } from "@/components/cupido/invite-button";
@@ -99,12 +101,13 @@ function ProfilePage() {
   const [lookingFor, setLookingFor] = useState("amistad");
   const [drinks, setDrinks] = useState(false);
   const [hasKids, setHasKids] = useState(false);
+  const [followersOpen, setFollowersOpen] = useState(false);
 
   const profile = useQuery({
     queryKey: ["cupido-profile", profileId, viewerId],
     enabled: Boolean(profileId),
     queryFn: async () => {
-      const [creator, privateProfile, follow, friendA, friendB] = await Promise.all([
+      const [creator, privateProfile, follow, friendA, friendB, followerTotal] = await Promise.all([
         supabase.from("creator_profiles").select("*").eq("id", profileId!).maybeSingle(),
         supabase
           .from("profiles")
@@ -137,13 +140,25 @@ function ProfilePage() {
               .eq("addressee_id", viewerId)
               .maybeSingle()
           : Promise.resolve({ data: null }),
+        supabase.rpc("cupido_count_followers", { _following: profileId! }),
       ]);
       return {
         creator: creator.data,
         privateProfile: privateProfile.data,
         following: Boolean(follow.data),
+        actualFollowerCount: followerTotal.data ?? 0,
         friendStatus: friendA.data?.status ?? friendB.data?.status ?? null,
       };
+    },
+  });
+
+  const followersList = useQuery({
+    queryKey: ["cupido-followers", profileId],
+    enabled: Boolean(profileId && followersOpen),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_list_followers", { _following: profileId! });
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
@@ -339,10 +354,11 @@ function ProfilePage() {
   const own = Boolean(viewerId && viewerId === profileId);
   const isAdmin = Boolean(account.isAdmin) && own;
   const verified = Boolean(creator?.is_verified_blue);
-  const followers = safeCount(creator?.follower_count);
+  const profileEmail = safeText(privateProfile?.email) || undefined;
+  const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
+  const followers = isSupremeAdminEmail(profileEmail) ? 40_000 + actualFollowerCount : safeCount(creator?.follower_count);
   const friends = safeCount(creator?.friend_count);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
-  const profileEmail = safeText(privateProfile?.email) || undefined;
   const avatarUrl = safeText(creator?.avatar_url).trim();
   const publicAge = safeText(extraField(creator, "age"), safeText(privateProfile?.age)) || "—";
   const publicGender = safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)) || "—";
@@ -384,11 +400,29 @@ function ProfilePage() {
                 {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}
                 {publicAge} años ·{" "}
                 {publicGender} ·{" "}
-                {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
-              </p>
+                {isSupremeAdminEmail(profileEmail) ? `40.0K + ${actualFollowerCount.toLocaleString("es")} reales` : `${followers.toLocaleString("es")} seguidores`} · {friends.toLocaleString("es")} amigos
+              </p>              <Button variant="link" className="mt-1 h-auto px-0 text-xs text-pink-300" onClick={() => setFollowersOpen(true)}>
+                Ver quién sigue este perfil ({actualFollowerCount.toLocaleString("es")})
+              </Button>
+
             </div>
           </div>
 
+          <Dialog open={followersOpen} onOpenChange={setFollowersOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader><DialogTitle>Seguidores reales</DialogTitle></DialogHeader>
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {followersList.isLoading ? <p className="py-6 text-center text-sm text-muted-foreground">Cargando seguidores...</p> : null}
+                {followersList.data?.map((follower) => (
+                  <Link key={follower.follower_id} to="/perfil" search={{ userId: follower.follower_id }} onClick={() => setFollowersOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent">
+                    <Avatar className="size-10"><AvatarImage src={follower.avatar_url} alt={follower.display_name} /><AvatarFallback>{follower.display_name.slice(0, 1)}</AvatarFallback></Avatar>
+                    <span className="text-sm font-medium">{follower.display_name}</span>
+                  </Link>
+                ))}
+                {!followersList.isLoading && !followersList.data?.length ? <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay seguidores activos.</p> : null}
+              </div>
+            </DialogContent>
+          </Dialog>
           <p className="mt-5 max-w-2xl text-sm text-foreground/80">
             {bio || "Todavía no escribió su biografía."}
           </p>

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { BRAND } from "@/lib/cupido";
 import { geminiGenerate } from "@/lib/server-helpers";
 
@@ -49,14 +50,13 @@ export const escudoCupido = createServerFn({ method: "POST" })
   });
 
 type ModerationInput = { dataUrl: string };
-type LiveVerificationInput = { frames: string[] };
+type LiveVerificationInput = { frame: string; pose: "front" | "right" | "left" };
 
 export type LiveVerificationResult =
-  | { ok: true; passed: boolean; needsReview: boolean; reason: string }
+  | { ok: true; passed: boolean; reason: string }
   | { ok: false; message: string };
 
-const LIVE_VERIFICATION_SYSTEM =
-  'Eres El Escudo de Cupido Leudy. Analizas 3 capturas de cámara en vivo en este orden: 1) mirando de frente, 2) girando el rostro hacia la derecha, 3) girando el rostro hacia la izquierda. Verifica que sea la misma persona real, un rostro humano vivo (no foto impresa, pantalla, máscara ni foto de perfil), que las 3 poses coincidan y que no haya desnudos, menores de edad, armas ni drogas. Devuelve SOLO JSON con la forma {"real_face":true,"poses":["frente","derecha","izquierda"],"reason":"breve motivo en español"}. Usa real_face=false si algo no cuadra.';
+const LIVE_VERIFICATION_SYSTEM = `You are Cupido Shield, a live facial pose validator. Check that the image is a clear, well-lit live human face, not a screen, print, mask, or obscured camera. Validate only the requested pose: front means facing the camera; right means the subject turned their face to their own right; left means the subject turned their face to their own left. Return only JSON: {"real_face":true,"face_visible":true,"pose_correct":true,"pose":"front|right|left","reason":"short Spanish explanation"}. Any covered, dark, unclear, non-human, or incorrect pose must return false.`;
 
 export type ModerationResult =
   | { ok: true; safe: boolean; reason: string; needsReview: boolean }
@@ -159,104 +159,94 @@ export const moderateCupidoPhoto = createServerFn({ method: "POST" })
   });
 
 export const verifyCupidoLiveFace = createServerFn({ method: "POST" })
-  .middleware([])
+  .middleware([requireSupabaseAuth])
   .inputValidator((input: LiveVerificationInput) => ({
-    frames: Array.isArray(input?.frames)
-      ? input.frames.slice(0, 3).map((frame) => (typeof frame === "string" ? frame.slice(0, 3_000_000) : ""))
-      : [],
+    frame: typeof input?.frame === "string" ? input.frame.slice(0, 3_000_000) : "",
+    pose: input?.pose === "right" || input?.pose === "left" ? input.pose : "front",
   }))
   .handler(async ({ data }): Promise<LiveVerificationResult> => {
-    if (data.frames.length !== 3 || data.frames.some((frame) => !frame))
-      return { ok: false, message: "Faltan capturas faciales." };
-    const images = data.frames.map((frame) => /^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/s.exec(frame));
-    if (images.some((match) => !match?.[1])) return { ok: false, message: "Una captura no es válida." };
+    const image = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(data.frame);
+    if (!image?.[2]) return { ok: false, message: "La imagen no es válida." };
     const apiKey = process.env["GEMINI_API_KEY"]?.trim();
-    if (!apiKey)
-      return {
-        ok: true,
-        passed: false,
-        needsReview: true,
-        reason: "Revisión automática no disponible; tus capturas quedan pendientes del Admin Supremo.",
-      };
+    if (!apiKey) return { ok: false, message: "Validación facial no disponible." };
     const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.5-flash";
-    const labels = ["frente", "derecha", "izquierda"];
-    const parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> = [
-      { text: "Analiza estas 3 capturas en orden: frente, derecha, izquierda. Responde solo el JSON." },
-    ];
-    images.forEach((match, index) => {
-      const mime = /^data:(image\/[a-zA-Z0-9.+-]+);base64,/s.exec(data.frames[index] ?? "")?.[1] ?? "image/jpeg";
-      parts.push({ text: `Captura ${index + 1}: ${labels[index]}` });
-      parts.push({ inline_data: { mime_type: mime, data: match![1] ?? "" } });
-    });
     let response: Response;
     try {
-      response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: LIVE_VERIFICATION_SYSTEM }] },
-            contents: [{ role: "user", parts }],
-          }),
-        },
-      );
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: LIVE_VERIFICATION_SYSTEM }] },
+          contents: [{ role: "user", parts: [
+            { text: `Validate this single live camera image for the requested pose "${data.pose}". Return only the specified JSON.` },
+            { inline_data: { mime_type: image[1], data: image[2] } },
+          ] }],
+        }),
+      });
     } catch {
-      return {
-        ok: true,
-        passed: false,
-        needsReview: true,
-        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
-      };
+      return { ok: false, message: "No se pudo validar la imagen." };
     }
-    if (!response.ok)
-      return {
-        ok: true,
-        passed: false,
-        needsReview: true,
-        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
-      };
-    let text = "";
+    if (!response.ok) return { ok: false, message: "No se pudo validar la imagen." };
     try {
-      const json = (await response.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      text = (json.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? "").join("");
-    } catch {
-      text = "";
-    }
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start < 0 || end <= start)
-      return {
-        ok: true,
-        passed: false,
-        needsReview: true,
-        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
-      };
-    try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as {
+      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = (json.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start < 0 || end <= start) return { ok: false, message: "No se pudo validar la imagen." };
+      const result = JSON.parse(text.slice(start, end + 1)) as {
         real_face?: unknown;
+        face_visible?: unknown;
+        pose_correct?: unknown;
+        pose?: unknown;
         reason?: unknown;
       };
-      const passed = parsed.real_face === true;
+      const passed = result.real_face === true && result.face_visible === true && result.pose_correct === true && result.pose === data.pose;
       return {
         ok: true,
         passed,
-        needsReview: true,
-        reason:
-          typeof parsed.reason === "string"
-            ? parsed.reason.slice(0, 200)
-            : passed
-              ? "Rostro real y 3 poses confirmadas. Pendiente de aprobación final."
-              : "No pudimos confirmar las 3 poses. El Admin Supremo revisará tus capturas.",
+        reason: typeof result.reason === "string" ? result.reason.slice(0, 200) : "",
       };
     } catch {
-      return {
-        ok: true,
-        passed: false,
-        needsReview: true,
-        reason: "No se pudo analizar el video; tus capturas quedan pendientes del Admin Supremo.",
-      };
+      return { ok: false, message: "No se pudo validar la imagen." };
+    }
+  });
+
+const LIVE_SEQUENCE_SYSTEM = `You are Cupido Shield. Validate three still frames in order: front, the subject turns to their own right, then the subject turns to their own left. Confirm all frames show the same clearly visible live human person, the lighting is sufficient, and the requested pose order is correct. Return only JSON: {"real_face":true,"same_person":true,"pose_order":true,"reason":"short Spanish explanation"}. Any covered, dark, unclear, non-human, mismatched, or incorrect sequence must return false.`;
+
+export const verifyCupidoFaceSequence = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { frames: string[] }) => ({
+    frames: Array.isArray(input?.frames) ? input.frames.slice(0, 3).map((frame) => typeof frame === "string" ? frame.slice(0, 3_000_000) : "") : [],
+  }))
+  .handler(async ({ data }): Promise<LiveVerificationResult> => {
+    if (data.frames.length !== 3) return { ok: false, message: "Faltan capturas de la secuencia." };
+    const images = data.frames.map((frame) => /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(frame));
+    if (images.some((image) => !image?.[2])) return { ok: false, message: "Captura no válida." };
+    const apiKey = process.env["GEMINI_API_KEY"]?.trim();
+    if (!apiKey) return { ok: false, message: "Validación facial no disponible." };
+    const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.5-flash";
+    const labels = ["frente", "derecha", "izquierda"];
+    const parts: Array<{ text?: string; inline_data?: { mime_type: string; data: string } }> = [];
+    images.forEach((image, index) => {
+      parts.push({ text: `Captura ${index + 1}: ${labels[index]}` });
+      parts.push({ inline_data: { mime_type: image![1]!, data: image![2]! } });
+    });
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: LIVE_SEQUENCE_SYSTEM }] }, contents: [{ role: "user", parts }] }),
+      });
+      if (!response.ok) return { ok: false, message: "No se pudo validar la secuencia." };
+      const json = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = (json.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? "").join("");
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start < 0 || end <= start) return { ok: false, message: "No se pudo validar la secuencia." };
+      const result = JSON.parse(text.slice(start, end + 1)) as { real_face?: unknown; same_person?: unknown; pose_order?: unknown; reason?: unknown };
+      const passed = result.real_face === true && result.same_person === true && result.pose_order === true;
+      return { ok: true, passed, reason: typeof result.reason === "string" ? result.reason.slice(0, 200) : "" };
+    } catch {
+      return { ok: false, message: "No se pudo validar la secuencia." };
     }
   });

@@ -33,7 +33,7 @@ export function useAccount() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("credits,credits_balance,has_purchased,daily_streak,last_daily_claim,last_wheel_spin")
+          .select("credits,credits_balance,has_purchased,daily_streak,last_daily_claim")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -57,7 +57,6 @@ export function useAccount() {
           Boolean(privateProfile.data?.has_purchased) || Boolean(capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
         lastDailyClaim: privateProfile.data?.last_daily_claim ?? null,
-        lastWheelSpin: privateProfile.data?.last_wheel_spin ?? null,
       };
     },
   });
@@ -71,7 +70,6 @@ export function useAccount() {
     hasPurchased: isImmediateAdmin || Boolean(query.data?.hasPurchased),
     dailyStreak: query.data?.dailyStreak ?? 0,
     lastDailyClaim: query.data?.lastDailyClaim ?? null,
-    lastWheelSpin: query.data?.lastWheelSpin ?? null,
     loading: query.isLoading,
     refresh: () => query.refetch(),
   };

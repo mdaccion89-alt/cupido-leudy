@@ -150,6 +150,7 @@ export type Database = {
           has_kids: boolean;
           id: string;
           is_official: boolean;
+          is_cupido_active: boolean;
           is_premium: boolean;
           is_super_admin: boolean;
           is_verified_blue: boolean;
@@ -173,6 +174,7 @@ export type Database = {
           has_kids?: boolean;
           id: string;
           is_official?: boolean;
+          is_cupido_active?: boolean;
           is_premium?: boolean;
           is_super_admin?: boolean;
           is_verified_blue?: boolean;
@@ -196,6 +198,7 @@ export type Database = {
           has_kids?: boolean;
           id?: string;
           is_official?: boolean;
+          is_cupido_active?: boolean;
           is_premium?: boolean;
           is_super_admin?: boolean;
           is_verified_blue?: boolean;
@@ -451,6 +454,9 @@ export type Database = {
           id: string;
           last_daily_claim: string | null;
           last_wheel_spin: string | null;
+          theme_mode: string;
+          notifications_enabled: boolean;
+          sounds_enabled: boolean;
           looking_for: string | null;
           phone: string | null;
           plan: string;
@@ -478,6 +484,9 @@ export type Database = {
           id: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
+          theme_mode?: string;
+          notifications_enabled?: boolean;
+          sounds_enabled?: boolean;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
@@ -505,6 +514,9 @@ export type Database = {
           id?: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
+          theme_mode?: string;
+          notifications_enabled?: boolean;
+          sounds_enabled?: boolean;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
@@ -1061,6 +1073,11 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      cupido_count_followers: { Args: { _following: string }; Returns: number };
+      cupido_list_followers: {
+        Args: { _following: string };
+        Returns: { avatar_url: string; display_name: string; follower_id: string }[];
+      };
       admin_adjust_credits: {
         Args: { _delta: number; _user_id: string };
         Returns: number;
