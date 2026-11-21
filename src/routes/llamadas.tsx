@@ -79,7 +79,7 @@ function CallsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("creator_profiles")
-        .select("display_name,is_verified_blue")
+        .select("display_name,is_verified_blue,is_official,is_super_admin")
         .eq("id", viewerId!)
         .maybeSingle();
       if (error) throw error;

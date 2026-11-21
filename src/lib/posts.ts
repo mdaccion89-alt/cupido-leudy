@@ -35,8 +35,11 @@ export type PostComment = {
   user_id: string;
   body: string;
   created_at: string;
+  parent_comment_id: string | null;
   display_name: string;
   avatar_url: string;
+  likes_count: number;
+  liked: boolean;
 };
 
 type AnyRow = Record<string, any> & {
@@ -63,6 +66,8 @@ type AnyRow = Record<string, any> & {
   avatar_url?: any;
   is_verified_blue?: any;
   body?: any;
+  parent_comment_id?: any;
+  comment_id?: any;
 };
 
 type AnyQueryClient = {
@@ -291,15 +296,29 @@ export async function togglePostSave(postId: string, saved: boolean): Promise<bo
 }
 
 export async function fetchComments(postId: string): Promise<PostComment[]> {
+  const viewerId = await currentUserId();
   const result = await db
     .from("cupido_post_comments")
-    .select("id,post_id,user_id,body,created_at")
+    .select("id,post_id,user_id,body,created_at,parent_comment_id")
     .eq("post_id", postId)
     .order("created_at", { ascending: true })
     .limit(60);
   if (result.error) throw result.error;
   const rows = (result.data ?? []) as AnyRow[];
   const ids = [...new Set(rows.map((row) => row.user_id as string))];
+  const commentIds = rows.map((row) => String(row.id));
+  const likesResult = commentIds.length
+    ? await db.from("cupido_comment_likes").select("comment_id,user_id").in("comment_id", commentIds)
+    : { data: [], error: null };
+  if (likesResult.error) throw likesResult.error;
+  const likes = (likesResult.data ?? []) as AnyRow[];
+  const likeCounts = new Map<string, number>();
+  const likedIds = new Set<string>();
+  for (const like of likes) {
+    const commentId = String(like.comment_id);
+    likeCounts.set(commentId, (likeCounts.get(commentId) ?? 0) + 1);
+    if (like.user_id === viewerId) likedIds.add(commentId);
+  }
   const profiles = ids.length
     ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", ids)
     : { data: [] };
@@ -312,19 +331,37 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
       user_id: row.user_id,
       body: row.body,
       created_at: row.created_at,
+      parent_comment_id: typeof row.parent_comment_id === "string" ? row.parent_comment_id : null,
       display_name: profile?.display_name ?? "Miembro de Cupido",
       avatar_url: profile?.avatar_url ?? "",
+      likes_count: likeCounts.get(String(row.id)) ?? 0,
+      liked: likedIds.has(String(row.id)),
     };
   });
 }
 
-export async function addComment(postId: string, body: string): Promise<void> {
+export async function addComment(postId: string, body: string, parentCommentId: string | null = null): Promise<void> {
   const userId = await currentUserId();
   if (!userId) throw new Error("Inicia sesión.");
   const text = body.trim().slice(0, 500);
   if (!text) throw new Error("Escribe un comentario.");
-  const { error } = await db.from("cupido_post_comments").insert({ post_id: postId, user_id: userId, body: text });
+  const { error } = await db.from("cupido_post_comments").insert({
+    post_id: postId,
+    user_id: userId,
+    body: text,
+    parent_comment_id: parentCommentId,
+  });
   if (error) throw error;
+}
+
+export async function toggleCommentLike(commentId: string): Promise<void> {
+  const result = await db.rpc("cupido_toggle_comment_like", { _comment: commentId });
+  if (result.error) throw result.error;
+}
+
+export async function reportComment(commentId: string, reason = "Comentario ofensivo o spam"): Promise<void> {
+  const result = await db.rpc("cupido_report_comment", { _comment: commentId, _reason: reason });
+  if (result.error) throw result.error;
 }
 
 export async function registerPostView(postId: string): Promise<void> {

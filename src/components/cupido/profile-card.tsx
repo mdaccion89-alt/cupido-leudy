@@ -13,6 +13,7 @@ export type CupidoProfile = {
   bio: string;
   country_code: string;
   email?: string | null;
+  official?: boolean;
   looking_for: string;
   drinks: boolean;
   has_kids: boolean;
@@ -72,7 +73,7 @@ export function ProfileCard({
             >
               {profile.display_name}
             </Link>
-            <VerifiedBadge email={profile.email} verified={profile.is_verified_blue} className="h-5 w-5" />
+            <VerifiedBadge email={profile.email} official={profile.official} verified={profile.is_verified_blue} className="h-5 w-5" />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground" title={countryName(profile.country_code)}>
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}

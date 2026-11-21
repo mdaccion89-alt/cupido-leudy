@@ -24,9 +24,15 @@ function notificationIcon(kind: string | null): string {
   if (kind === "interest" || kind === "interested") return "💘";
   if (kind === "like") return "❤️";
   if (kind === "comment") return "💬";
+  if (kind === "comment_reply") return "↩️";
+  if (kind === "comment_like") return "❤️";
   if (kind === "message") return "💌";
   if (kind === "follow") return "👤";
   if (kind === "friend") return "🤝";
+  if (kind === "friend_accepted") return "💞";
+  if (kind === "support_ticket" || kind === "support_reply") return "🎫";
+  if (kind === "report") return "🚩";
+  if (kind === "verification") return "✅";
   if (kind === "gift" || kind === "live_gift") return "🎁";
   return "🔔";
 }
@@ -122,7 +128,9 @@ export function NotificationBell() {
     setOpen(false);
     if (row.kind === "live" && row.target_id) {
       void navigate({ to: "/directo", search: { liveId: row.target_id } });
+      return;
     }
+    if (row.action_url?.startsWith("/")) void navigate({ to: row.action_url as never });
   };
 
   return (

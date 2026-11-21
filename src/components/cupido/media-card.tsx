@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Heart, Image as ImageIcon, MessageCircle, Play, Send, Share2, ThumbsDown } from "lucide-react";
+import { Bookmark, Flag, Heart, Image as ImageIcon, MessageCircle, Play, Send, Share2, ThumbsDown } from "lucide-react";
 import { toast } from "sonner";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,7 +13,10 @@ import {
   fetchComments,
   formatCount,
   registerPostView,
+  reportComment,
+  toggleCommentLike,
   type FeedPost,
+  type PostComment,
 } from "@/lib/posts";
 
 export type CupidoMedia = FeedPost;
@@ -41,6 +44,8 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const watchPositionRef = useRef(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
   const metrics = displayedMetrics(media);
   const postId = safeText(media?.id);
@@ -110,19 +115,30 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "cupido_comment_likes" },
+        () => { void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] }); },
+      )
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
   }, [commentsOpen, postId, queryClient]);
 
-  const submitComment = async () => {
-    if (!commentText.trim()) return;
+  const submitComment = async (parentCommentId: string | null = null) => {
+    const value = parentCommentId ? replyText : commentText;
+    if (!value.trim()) return;
     setSending(true);
     try {
       if (!postId) return;
-      await addComment(postId, commentText);
-      setCommentText("");
+      await addComment(postId, value, parentCommentId);
+      if (parentCommentId) {
+        setReplyText("");
+        setReplyTarget(null);
+      } else {
+        setCommentText("");
+      }
       await queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
       await queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       await queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
@@ -132,6 +148,39 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       setSending(false);
     }
   };
+
+  const renderComment = (comment: PostComment, depth = 0): ReactNode => (
+    <div key={comment.id} className="space-y-2">
+      <div className="flex gap-2 text-xs" style={{ marginLeft: `${Math.min(depth, 4) * 12}px` }}>
+        <Avatar className="size-6 shrink-0">
+          <AvatarImage src={safeText(comment.avatar_url)} alt={safeText(comment.display_name, "Miembro")} />
+          <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">{safeText(comment.display_name, "Miembro").slice(0, 2).toUpperCase()}</AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-white">
+            <span className="mr-1 font-medium">{safeText(comment.display_name, "Miembro")}</span>
+            <span className="text-muted-foreground">{safeText(comment.body)}</span>
+          </p>
+          <div className="mt-1 flex items-center gap-3 text-[11px]">
+            <button type="button" onClick={() => void toggleCommentLike(comment.id).then(() => queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] })).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "No se pudo reaccionar."))} className={comment.liked ? "text-rose-300" : "text-muted-foreground hover:text-rose-300"} aria-label="Me gusta este comentario">
+              <Heart className={`mr-1 inline size-3 ${comment.liked ? "fill-current" : ""}`} /> {comment.likes_count}
+            </button>
+            <button type="button" onClick={() => { setReplyTarget(replyTarget === comment.id ? null : comment.id); setReplyText(""); }} className="text-muted-foreground hover:text-white">Responder</button>
+            <button type="button" onClick={() => void reportComment(comment.id).then(() => toast.success("Reporte enviado al Administrador.")).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "No se pudo enviar el reporte."))} className="text-muted-foreground hover:text-rose-300" aria-label="Reportar comentario">
+              <Flag className="inline size-3" /> Reportar
+            </button>
+          </div>
+          {replyTarget === comment.id && (
+            <div className="mt-2 flex gap-2">
+              <input value={replyText} onChange={(event) => setReplyText(event.target.value)} maxLength={500} placeholder="Escribe tu respuesta…" className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-xs" />
+              <Button size="sm" className="h-8" disabled={sending || !replyText.trim()} onClick={() => void submitComment(comment.id)}><Send className="size-3" /></Button>
+            </div>
+          )}
+        </div>
+      </div>
+      {(comments.data ?? []).filter((reply) => reply.parent_comment_id === comment.id).map((reply) => renderComment(reply, depth + 1))}
+    </div>
+  );
 
   return (
     <article id={`post-${postId}`} ref={visibilityRef} className="scroll-mt-24 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
@@ -177,7 +226,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
               {authorName}
-              <VerifiedBadge email={authorEmail} verified={Boolean(media?.is_verified_blue)} className="ml-1 inline size-4" />
+              <VerifiedBadge email={authorEmail} official={media.is_super_admin} verified={Boolean(media?.is_verified_blue)} className="ml-1 inline size-4" />
             </p>
             <p className="line-clamp-2 text-xs text-muted-foreground">{media.kind === "text" ? "Publicación de la comunidad" : caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
@@ -238,20 +287,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {!comments.isLoading && !comments.data?.length && (
                 <p className="text-xs text-muted-foreground">Sé la primera persona en comentar.</p>
               )}
-              {Array.isArray(comments.data) && comments.data.map((comment) => (
-                <div key={comment.id} className="flex gap-2 text-xs">
-                  <Avatar className="size-6">
-                    <AvatarImage src={safeText(comment?.avatar_url)} alt={safeText(comment?.display_name, "Miembro")} />
-                    <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">
-                      {safeText(comment?.display_name, "Miembro").slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <p className="min-w-0 flex-1 text-white">
-                    <span className="mr-1 font-medium">{safeText(comment?.display_name, "Miembro")}</span>
-                    <span className="text-muted-foreground">{safeText(comment?.body)}</span>
-                  </p>
-                </div>
-              ))}
+              {Array.isArray(comments.data) && comments.data.filter((comment) => !comment.parent_comment_id).map((comment) => renderComment(comment))}
             </div>
             <div className="mt-3 flex gap-2">
               <input

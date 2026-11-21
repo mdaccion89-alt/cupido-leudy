@@ -44,6 +44,10 @@ function safeText(value: unknown, fallback = ""): string {
   return fallback;
 }
 
+function limitProfileName(value: string): string {
+  return Array.from(value).slice(0, 40).join("");
+}
+
 function safeCount(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
@@ -240,14 +244,19 @@ function ProfilePage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!profileId) return;
+      const publicName = displayName.trim() || fullName.trim();
+      const personalName = fullName.trim() || publicName;
+      if (!publicName || !personalName || Array.from(publicName).length > 40 || Array.from(personalName).length > 40) {
+        throw new Error("Escribe un nombre público y un nombre completo de hasta 40 caracteres.");
+      }
       const birthdayAge = ageFromBirthDate(birthDate);
       if (birthDate && (!birthdayAge || birthdayAge < 18 || birthdayAge > 120)) {
         throw new Error("La fecha de nacimiento debe corresponder a una persona adulta.");
       }
       const parsedAge = birthdayAge ?? Number.parseInt(age, 10);
       await saveProfileDirect(profileId, {
-        displayName: displayName.trim() || "Miembro de Cupido",
-        fullName: fullName.trim(),
+        displayName: publicName,
+        fullName: personalName,
         bio: bio.trim(),
         age: Number.isFinite(parsedAge) && parsedAge >= 18 && parsedAge <= 100 ? parsedAge : null,
         gender: gender.trim() || null,
@@ -457,6 +466,7 @@ function ProfilePage() {
                 <h1 className="font-display text-2xl text-white">{displayLabel}</h1>
                 <VerifiedBadge
                   email={profileEmail}
+                  official={officialProfile}
                   verified={
                     verified ||
                     Boolean(creator?.is_official) ||
@@ -466,7 +476,7 @@ function ProfilePage() {
                 />
                 {officialProfile && (
                   <Badge className="gap-1 bg-gradient-to-r from-pink-500 to-violet-500">
-                    <VerifiedBadge verified className="size-3.5" /> Cuenta Oficial
+                    <VerifiedBadge verified official className="size-3.5" /> Cuenta Oficial
                   </Badge>
                 )}
                 {creator?.verification_status === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
@@ -556,13 +566,12 @@ function ProfilePage() {
                 <Label>{isAdmin ? "Nombre público (Cuenta Oficial)" : "Nombre público"}</Label>
                 <Input
                   value={displayName}
-                  maxLength={60}
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  onChange={(event) => setDisplayName(limitProfileName(event.target.value))}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Nombre completo</Label>
-                <Input value={fullName} maxLength={80} onChange={(event) => setFullName(event.target.value)} />
+                <Input value={fullName} onChange={(event) => setFullName(limitProfileName(event.target.value))} />
               </div>
               <div className="space-y-2">
                 <Label>Fecha de nacimiento (solo visible para ti)</Label>

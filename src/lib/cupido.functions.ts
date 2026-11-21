@@ -13,7 +13,7 @@ export type EscudoResult = { ok: true; reply: string; source: "gemini" } | { ok:
 const ESCUDO_SYSTEM = `Eres Escudo Cupido, el asistente conversacional de ${BRAND}. Hablas en español natural, cercano, cálido y respetuoso. Responde a la pregunta concreta usando los últimos mensajes como contexto; evita saludos repetidos, frases robóticas y respuestas genéricas. Explica con claridad que cada cuenta nueva recibe 500 créditos gratis de bienvenida y que esos créditos solo permiten enviar regalos de hasta 100 monedas; los regalos de más de 100 monedas y las llamadas requieren recargar. Las recargas se hacen mediante PayPal dentro de la sección Tienda; nunca sugieras pagos por fuera de la app ni inventes precios, comisiones o plazos. La verificación azul requiere una comprobación facial en vivo con tres poses: de frente, giro a la derecha y giro a la izquierda; la insignia azul aparece tras la aprobación. Explica cómo mirar y emitir transmisiones en vivo (Lives), enviar regalos y usar reportes y bloqueos. Recomienda no compartir contraseñas, códigos, información bancaria ni datos privados; para una primera cita, un lugar público y avisar a alguien de confianza. Para soporte, dirige a los canales oficiales dentro de la app o al chat con Cupido Leudy Cuenta Oficial; no inventes correos, enlaces ni contactos. Nunca pidas dinero, claves o códigos. Responde en hasta 140 palabras y pregunta solo lo necesario.`;
 
 export const escudoCupido = createServerFn({ method: "POST" })
-  .middleware([])
+  .middleware([requireSupabaseAuth])
   .inputValidator((input: EscudoInput) => ({
     message: typeof input?.message === "string" ? input.message.trim().slice(0, 2000) : "",
     history: Array.isArray(input?.history)
@@ -23,16 +23,29 @@ export const escudoCupido = createServerFn({ method: "POST" })
         }))
       : [],
   }))
-  .handler(async ({ data }): Promise<EscudoResult> => {
+  .handler(async ({ data, context }): Promise<EscudoResult> => {
     if (!data.message) return { ok: false, message: "Escribe tu pregunta." };
+    const [profile, balance, credits, latestWithdrawal] = await Promise.all([
+      context.supabase.from("creator_profiles").select("display_name,verification_status,is_verified_blue").eq("id", context.userId).maybeSingle(),
+      context.supabase.from("cupido_balances").select("balance").eq("user_id", context.userId).maybeSingle(),
+      context.supabase.from("user_credits").select("balance").eq("user_id", context.userId).maybeSingle(),
+      context.supabase.from("cupido_withdrawals").select("status,amount,created_at").eq("user_id", context.userId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+    const accountContext = [
+      `Nombre: ${profile.data?.display_name ?? "Miembro de Cupido"}`,
+      `Monedas disponibles: ${Number(credits.data?.balance ?? 0)}`,
+      `Saldo retirable: $${Number(balance.data?.balance ?? 0).toFixed(2)}`,
+      `Verificación: ${profile.data?.is_verified_blue ? "aprobada e insignia activa" : profile.data?.verification_status ?? "sin solicitud"}`,
+      `Retiro más reciente: ${latestWithdrawal.data ? `${latestWithdrawal.data.status}, $${Number(latestWithdrawal.data.amount).toFixed(2)}` : "no hay retiros"}`,
+    ].join("\n");
     const result = await geminiGenerate(
-      ESCUDO_SYSTEM,
+      `${ESCUDO_SYSTEM}\n\nContexto verificado de esta cuenta (privado; úsalo solo para responder a su titular):\n${accountContext}`,
       data.message,
       data.history.filter((item) => item.content.length > 0),
       "gemini-2.5-flash",
     );
     if (result.ok) return { ok: true, reply: result.text, source: "gemini" };
-    return { ok: true, reply: "Puedo ayudarte con seguridad en Cupido. Protege tus datos, evita pagos fuera de la app y cuéntame qué situación quieres revisar.", source: "gemini" };
+    return { ok: false, message: "No pude preparar una respuesta ahora. Puedes abrir un ticket y el equipo revisará tu caso." };
   });
 
 type ModerationInput = { dataUrl: string };

@@ -22,6 +22,11 @@ import {
 } from "@/lib/admin.functions";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
 
+const moderationDb = supabase as unknown as {
+  from: (table: string) => any;
+  rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
+
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Panel Admin Supremo — Cupido Leudy ❤️" }] }),
   component: AdminPage,
@@ -64,13 +69,14 @@ function AdminDashboard() {
   const bannerInput = useRef<HTMLInputElement>(null);
   const [creditDrafts, setCreditDrafts] = useState<Record<string, number>>({});
   const [planDrafts, setPlanDrafts] = useState<Record<string, "free" | "pro" | "premium">>({});
+  const [ticketReplies, setTicketReplies] = useState<Record<string, string>>({});
 
   const reports = useQuery({
     queryKey: ["cupido-admin", "reports"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await moderationDb
         .from("cupido_reports")
-        .select("id,reason,reported_id,reporter_id,status,created_at")
+        .select("id,reason,reported_id,reporter_id,reported_comment_id,reported_post_id,status,created_at")
         .eq("status", "pending")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -80,7 +86,7 @@ function AdminDashboard() {
 
   const reviewReport = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: "reviewed" | "dismissed" }) => {
-      const { error } = await supabase
+      const { error } = await moderationDb
         .from("cupido_reports")
         .update({ status })
         .eq("id", id);
@@ -91,6 +97,56 @@ function AdminDashboard() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
     },
     onError: () => toast.error("No se pudo actualizar el reporte."),
+  });
+
+  const supportTickets = useQuery({
+    queryKey: ["cupido-admin", "support-tickets"],
+    queryFn: async () => {
+      const { data, error } = await moderationDb.from("cupido_support_tickets")
+        .select("id,user_id,subject,message,status,admin_reply,created_at,updated_at")
+        .in("status", ["open", "responded"])
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; user_id: string; subject: string; message: string; status: string; admin_reply: string; created_at: string }>;
+    },
+  });
+
+  const replySupportTicket = useMutation({
+    mutationFn: async (ticketId: string) => {
+      const reply = ticketReplies[ticketId]?.trim() ?? "";
+      const { error } = await moderationDb.rpc("cupido_reply_support_ticket", { _ticket: ticketId, _reply: reply });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Respuesta enviada al usuario.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "support-tickets"] });
+      setTicketReplies({});
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar la respuesta."),
+  });
+
+  const removeReportedComment = useMutation({
+    mutationFn: async (reportId: string) => {
+      const { error } = await moderationDb.rpc("cupido_admin_remove_reported_comment", { _report: reportId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Comentario eliminado y reporte atendido.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo eliminar el comentario."),
+  });
+
+  const suspendReportedUser = useMutation({
+    mutationFn: async (reportId: string) => {
+      const { error } = await moderationDb.rpc("cupido_admin_suspend_reported_user", { _report: reportId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cuenta suspendida de Cupido.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo suspender la cuenta."),
   });
 
   useEffect(() => {
@@ -106,6 +162,19 @@ function AdminDashboard() {
       });
     }
   }, [snapshot.data]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("cupido-admin-inbox")
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_reports" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_support_tickets" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "support-tickets"] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
 
@@ -409,7 +478,7 @@ function AdminDashboard() {
               {reports.data?.length === 0 && (
                 <p className="text-sm text-muted-foreground">No hay reportes pendientes.</p>
               )}
-              {(reports.data ?? []).map((report) => (
+              {(reports.data ?? []).map((report: { id: string; reason: string; reporter_id: string; reported_id: string; reported_comment_id: string | null; created_at: string }) => (
                 <div
                   key={report.id}
                   className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 p-4"
@@ -419,8 +488,17 @@ function AdminDashboard() {
                     <p className="text-xs text-muted-foreground">
                       {`${report.reporter_id.slice(0, 8)} → ${report.reported_id.slice(0, 8)} · ${new Date(report.created_at).toLocaleString("es")}`}
                     </p>
+                    {report.reported_comment_id && <p className="mt-1 text-xs text-pink-200">Comentario {report.reported_comment_id.slice(0, 8)}</p>}
                   </div>
                   <div className="flex gap-2">
+                    {report.reported_comment_id && (
+                      <Button size="sm" variant="destructive" disabled={removeReportedComment.isPending} onClick={() => removeReportedComment.mutate(report.id)}>
+                        Eliminar comentario
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" disabled={suspendReportedUser.isPending} onClick={() => suspendReportedUser.mutate(report.id)}>
+                      Suspender cuenta
+                    </Button>
                     <Button
                       size="sm"
                       variant="hero"
@@ -439,6 +517,29 @@ function AdminDashboard() {
                     </Button>
                   </div>
                 </div>
+              ))}
+            </div>
+          </section>
+          <section className="panel grain mt-6 p-6">
+            <h2 className="mb-4 font-semibold">Tickets de soporte</h2>
+            <div className="space-y-4">
+              {supportTickets.data?.length === 0 && <p className="text-sm text-muted-foreground">No hay tickets pendientes.</p>}
+              {(supportTickets.data ?? []).map((ticket) => (
+                <article key={ticket.id} className="space-y-3 rounded-xl border border-border/60 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="font-medium">{ticket.subject}</h3>
+                    <Badge variant={ticket.status === "responded" ? "secondary" : "default"}>{ticket.status === "responded" ? "Respondido" : "Abierto"}</Badge>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm text-foreground/80">{ticket.message}</p>
+                  <p className="text-xs text-muted-foreground">Usuario {ticket.user_id.slice(0, 8)} · {new Date(ticket.created_at).toLocaleString("es")}</p>
+                  {ticket.admin_reply && <p className="rounded-lg bg-white/[0.04] p-3 text-sm text-pink-100">Última respuesta: {ticket.admin_reply}</p>}
+                  <Textarea value={ticketReplies[ticket.id] ?? ""} maxLength={4000} onChange={(event) => setTicketReplies((current) => ({ ...current, [ticket.id]: event.target.value }))} placeholder="Escribe la respuesta para el usuario…" />
+                  <div className="flex justify-end">
+                    <Button size="sm" disabled={replySupportTicket.isPending || !(ticketReplies[ticket.id] ?? "").trim()} onClick={() => replySupportTicket.mutate(ticket.id)}>
+                      Enviar respuesta
+                    </Button>
+                  </div>
+                </article>
               ))}
             </div>
           </section>

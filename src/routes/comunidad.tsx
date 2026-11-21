@@ -124,6 +124,9 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_likes" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient, viewerId]);
@@ -178,6 +181,7 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
         bio: person.bio ?? "",
         country_code: person.country_code ?? "",
         email: person.email ?? null,
+        official: Boolean(person.is_super_admin || person.is_official),
         looking_for: person.looking_for ?? "amistad",
         drinks: Boolean(person.drinks),
         has_kids: Boolean(person.has_kids),

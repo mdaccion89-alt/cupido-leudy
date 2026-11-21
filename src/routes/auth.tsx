@@ -62,6 +62,15 @@ function normalizePhone(value: string): string {
   return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
 }
 
+function limitProfileName(value: string): string {
+  return Array.from(value).slice(0, 40).join("");
+}
+
+function validSignupNames(fullName: string, displayName: string): boolean {
+  return [fullName.trim(), displayName.trim()].every((name) => name.length <= 40)
+    && Boolean(fullName.trim() || displayName.trim());
+}
+
 function isAdultDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const birthDate = new Date(`${value}T00:00:00`);
@@ -136,8 +145,8 @@ function AuthPage() {
       toast.error("Escribe tu correo y una contraseña de al menos 6 caracteres.");
       return;
     }
-    if (!fullName.trim() && !displayName.trim()) {
-      toast.error("Escribe tu nombre completo o un apodo.");
+    if (!validSignupNames(fullName, displayName)) {
+      toast.error("Escribe un nombre o apodo de hasta 40 caracteres.");
       setSignupStep(1);
       return;
     }
@@ -213,8 +222,8 @@ function AuthPage() {
       toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
       return;
     }
-    if (phoneSignup && ((!fullName.trim() && !displayName.trim()) || !isAdultDate(birthDate))) {
-      toast.error("Para crear la cuenta, completa tu nombre y confirma que tienes 18 años o más.");
+    if (phoneSignup && (!validSignupNames(fullName, displayName) || !isAdultDate(birthDate))) {
+      toast.error("Para crear la cuenta, escribe un nombre de hasta 40 caracteres y confirma que tienes 18 años o más.");
       return;
     }
     setBusy(true);
@@ -312,8 +321,8 @@ function AuthPage() {
       toast.error("Escribe un correo válido y una contraseña de al menos 6 caracteres.");
       return;
     }
-    if (!fullName.trim() && !displayName.trim()) {
-      toast.error("Escribe tu nombre completo o un apodo.");
+    if (!validSignupNames(fullName, displayName)) {
+      toast.error("Escribe un nombre o apodo de hasta 40 caracteres.");
       return;
     }
     if (!isAdultDate(birthDate)) {
@@ -398,11 +407,11 @@ function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-name">Nombre completo</Label>
-                  <Input id="signup-name" autoComplete="name" maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                  <Input id="signup-name" autoComplete="name" value={fullName} onChange={(event) => setFullName(limitProfileName(event.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-nickname">Apodo público (opcional)</Label>
-                  <Input id="signup-nickname" maxLength={60} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                  <Input id="signup-nickname" value={displayName} onChange={(event) => setDisplayName(limitProfileName(event.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-birth-date">Fecha de nacimiento (debes tener 18 años o más)</Label>
@@ -523,11 +532,11 @@ function AuthPage() {
               <div className="space-y-3 rounded-xl border border-white/10 p-3">
                 <div className="space-y-2">
                   <Label htmlFor="phone-signup-name">Nombre completo</Label>
-                  <Input id="phone-signup-name" maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                  <Input id="phone-signup-name" autoComplete="name" value={fullName} onChange={(event) => setFullName(limitProfileName(event.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone-signup-nickname">Apodo público (opcional)</Label>
-                  <Input id="phone-signup-nickname" maxLength={60} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                  <Input id="phone-signup-nickname" value={displayName} onChange={(event) => setDisplayName(limitProfileName(event.target.value))} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone-signup-birth">Fecha de nacimiento (+18)</Label>
