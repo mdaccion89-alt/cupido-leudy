@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { isSupremeAdminEmail, useAccount } from "@/lib/account";
+import { isSupremeAdminEmail } from "@/lib/account";
 
 type VerifiedBadgeProps = {
   email?: string | null | undefined;
@@ -15,8 +15,7 @@ const STAR_POINTS = Array.from({ length: 40 }, (_, index) => {
 }).join(" ");
 
 export function VerifiedBadge({ email, verified = false, official = false, className = "size-5" }: VerifiedBadgeProps) {
-  const account = useAccount();
-  const isSupreme = isSupremeAdminEmail(email) || official || (account.isAdmin && !email);
+  const isSupreme = isSupremeAdminEmail(email) || official;
   if (!isSupreme && !verified) return null;
   const label = isSupreme ? "Cuenta Oficial Verificada" : "Perfil verificado";
 

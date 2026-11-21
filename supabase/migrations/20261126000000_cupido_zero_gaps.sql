@@ -42,7 +42,7 @@ DECLARE
 BEGIN
   IF actor IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
   IF _target IS NULL OR _target = actor THEN RAISE EXCEPTION 'INVALID_TARGET'; END IF;
-  IF _kind NOT IN ('interested', 'pass') THEN RAISE EXCEPTION 'INVALID_LIKE_KIND'; END IF;
+  IF _kind IS NULL OR _kind NOT IN ('interested', 'pass', 'like') THEN RAISE EXCEPTION 'INVALID_LIKE_KIND'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = _target) THEN RAISE EXCEPTION 'PROFILE_NOT_FOUND'; END IF;
 
   IF COALESCE(_remove, FALSE) THEN
@@ -50,15 +50,72 @@ BEGIN
     RETURN FOUND;
   END IF;
 
+  IF _kind = 'interested' THEN
+    DELETE FROM public.cupido_likes WHERE actor_id = actor AND target_id = _target AND kind = 'pass';
+  ELSIF _kind = 'pass' THEN
+    DELETE FROM public.cupido_likes WHERE actor_id = actor AND target_id = _target AND kind = 'interested';
+  END IF;
+
   INSERT INTO public.cupido_likes (actor_id, target_id, kind)
   VALUES (actor, _target, _kind)
-  ON CONFLICT (actor_id, target_id) DO UPDATE
+  ON CONFLICT (actor_id, target_id, kind) DO UPDATE
     SET kind = EXCLUDED.kind, created_at = now();
   RETURN TRUE;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.cupido_set_like(TEXT, BOOLEAN, UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.cupido_set_like(TEXT, BOOLEAN, UUID) TO authenticated;
+
+-- Keep interest/pass as one choice while allowing an independent profile like.
+DO $$
+DECLARE constraint_name TEXT;
+BEGIN
+  FOR constraint_name IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.cupido_likes'::regclass AND contype = 'p'
+  LOOP
+    EXECUTE format('ALTER TABLE public.cupido_likes DROP CONSTRAINT %I', constraint_name);
+  END LOOP;
+  FOR constraint_name IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.cupido_likes'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%kind%'
+  LOOP
+    EXECUTE format('ALTER TABLE public.cupido_likes DROP CONSTRAINT %I', constraint_name);
+  END LOOP;
+END;
+$$;
+ALTER TABLE public.cupido_likes
+  ADD CONSTRAINT cupido_likes_pkey PRIMARY KEY (actor_id, target_id, kind),
+  ADD CONSTRAINT cupido_likes_kind_check CHECK (kind IN ('interested', 'pass', 'like'));
+
+CREATE OR REPLACE FUNCTION public.cupido_notify_profile_like()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE actor_name TEXT;
+BEGIN
+  IF TG_OP IN ('UPDATE', 'DELETE') AND OLD.kind IN ('interested', 'like') THEN
+    DELETE FROM public.notifications
+    WHERE user_id = OLD.target_id AND actor_id = OLD.actor_id
+      AND kind = CASE WHEN OLD.kind = 'interested' THEN 'interest' ELSE 'profile_like' END
+      AND target_id = OLD.actor_id;
+  END IF;
+  IF TG_OP IN ('INSERT', 'UPDATE') AND NEW.kind IN ('interested', 'like') AND NEW.actor_id <> NEW.target_id THEN
+    actor_name := public.cupido_actor_handle(NEW.actor_id);
+    PERFORM public.cupido_emit_notification(
+      NEW.target_id,
+      CASE WHEN NEW.kind = 'interested' THEN 'A ' || actor_name || ' le interesas' ELSE 'A ' || actor_name || ' le gustó tu perfil' END,
+      CASE WHEN NEW.kind = 'interested' THEN 'A ' || actor_name || ' le interesas.' ELSE 'A ' || actor_name || ' le gustó tu perfil.' END,
+      CASE WHEN NEW.kind = 'interested' THEN 'interest' ELSE 'profile_like' END,
+      NEW.actor_id, NEW.actor_id, '/perfil?userId=' || NEW.actor_id::TEXT
+    );
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS cupido_notify_profile_like ON public.cupido_likes;
+CREATE TRIGGER cupido_notify_profile_like AFTER INSERT OR UPDATE OR DELETE ON public.cupido_likes
+FOR EACH ROW EXECUTE FUNCTION public.cupido_notify_profile_like();
 
 CREATE OR REPLACE FUNCTION public.cupido_sync_interested_count()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$

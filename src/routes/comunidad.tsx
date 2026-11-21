@@ -135,40 +135,29 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
     queryKey: ["cupido-relations", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
-      const [likes, follows, friends, posts, postLikes] = await Promise.all([
+      const [likes, follows, friends] = await Promise.all([
         supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", viewerId!),
         supabase.from("follows").select("following_id").eq("follower_id", viewerId!),
         supabase
           .from("friend_requests")
           .select("requester_id,addressee_id,status")
           .or(`requester_id.eq.${viewerId},addressee_id.eq.${viewerId}`),
-        supabase
-          .from("cupido_posts")
-          .select("id,user_id")
-          .eq("moderation_status", "approved")
-          .order("created_at", { ascending: false })
-          .limit(48),
-        supabase.from("cupido_post_likes").select("post_id").eq("user_id", viewerId!),
       ]);
       if (likes.error) throw likes.error;
       if (follows.error) throw follows.error;
       if (friends.error) throw friends.error;
-      if (posts.error) throw posts.error;
-      if (postLikes.error) throw postLikes.error;
       const liked = new Set((likes.data ?? []).filter((row) => row.kind === "interested").map((row) => row.target_id));
+      const profileLikes = new Set((likes.data ?? []).filter((row) => row.kind === "like").map((row) => row.target_id));
       const following = new Set((follows.data ?? []).map((row) => row.following_id));
+      const latestPostByUser = new Map<string, string>();
+      const likedPosts = new Set<string>();
       const friendMap: FriendMap = new Map(
         (friends.data ?? []).map((row) => [
           row.requester_id === viewerId ? row.addressee_id : row.requester_id,
           row.status,
         ]),
       );
-      const latestPostByUser = new Map<string, string>();
-      for (const post of posts.data ?? []) {
-        if (!latestPostByUser.has(post.user_id)) latestPostByUser.set(post.user_id, post.id);
-      }
-      const likedPosts = new Set((postLikes.data ?? []).map((row) => row.post_id));
-      return { liked, following, friendMap, latestPostByUser, likedPosts };
+      return { liked, profileLikes, following, friendMap, latestPostByUser, likedPosts };
     },
   });
 
@@ -199,12 +188,12 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
   };
 
   const like = useMutation({
-    mutationFn: async ({ targetId, kind }: { targetId: string; kind: "interested" | "pass" }) => {
+    mutationFn: async ({ targetId, kind, remove = false }: { targetId: string; kind: "interested" | "pass" | "like"; remove?: boolean }) => {
       if (!viewerId) return requireLogin();
       const { error } = await supabase.rpc("cupido_set_like", {
         _target: targetId,
         _kind: kind,
-        _remove: false,
+        _remove: remove,
       });
       if (error) throw error;
     },
@@ -380,11 +369,11 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
               myId={viewerId}
               interested={relations.data?.liked.has(person.id)}
               following={relations.data?.following.has(person.id)}
-              liked={isPersonLiked(person.id)}
+              liked={relations.data?.profileLikes.has(person.id)}
               friendStatus={relations.data?.friendMap.get(person.id)}
               onInterested={(kind) => like.mutate({ targetId: person.id, kind })}
-              onLike={() => likeLatestMedia(person.id, false)}
-              onUnlike={() => likeLatestMedia(person.id, true)}
+              onLike={() => like.mutate({ targetId: person.id, kind: "like" })}
+              onUnlike={() => like.mutate({ targetId: person.id, kind: "like", remove: true })}
               onFollow={() => follow.mutate(person.id)}
               onFriend={() => friend.mutate(person.id)}
             />

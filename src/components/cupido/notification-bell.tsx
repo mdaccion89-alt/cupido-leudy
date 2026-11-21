@@ -23,6 +23,7 @@ type NotificationRow = {
 function notificationIcon(kind: string | null): string {
   if (kind === "interest" || kind === "interested") return "💘";
   if (kind === "like") return "❤️";
+  if (kind === "profile_like") return "💗";
   if (kind === "comment") return "💬";
   if (kind === "comment_reply") return "↩️";
   if (kind === "comment_like") return "❤️";

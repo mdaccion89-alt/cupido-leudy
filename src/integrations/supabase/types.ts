@@ -1338,7 +1338,7 @@ export type Database = {
       Returns: string;
     };
     cupido_set_avatar: { Args: { _moderation: string; _url: string }; Returns: undefined };
-    cupido_set_like: { Args: { _kind: string; _remove: boolean; _target: string }; Returns: undefined };
+    cupido_set_like: { Args: { _kind: string; _remove: boolean; _target: string }; Returns: boolean };
     cupido_start_live_room: { Args: { _title: string }; Returns: string };
     cupido_toggle_post_like: { Args: { _post: string }; Returns: boolean };
     cupido_start_call: { Args: { _callee: string; _mode: string; _video: boolean }; Returns: string };
