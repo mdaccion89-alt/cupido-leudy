@@ -72,7 +72,7 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,likes_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -85,33 +85,10 @@ export function formatCount(value: number): string {
   return String(Math.max(0, Math.floor(value)));
 }
 
-function postSeed(id?: string | null): number {
-  const text = String(id ?? "");
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-export function displayedMetrics(post?: FeedPost | null, now = Date.now()): { likes: string; views: string } {
+export function displayedMetrics(post?: FeedPost | null): { likes: string; views: string } {
   const realLikes = Math.max(0, Number(post?.likes_count) || 0);
   const realViews = Math.max(0, Number(post?.views_count) || 0);
-  if (!isSupremePost(post?.email, post?.is_super_admin))
-    return { likes: formatCount(realLikes), views: formatCount(realViews) };
-
-  const seed = postSeed(post?.id);
-  const baseLikes = 12_400 + (seed % 56_501);
-  const baseViews = 19_200 + ((seed >>> 7) % 75_301);
-  const published = Date.parse(String(post?.created_at ?? ""));
-  const minutes = Number.isFinite(published) ? Math.max(0, Math.floor((now - published) / 60_000) - 2) : 0;
-  const likeGrowth = minutes * (2 + (seed % 5));
-  const viewGrowth = minutes * (12 + ((seed >>> 4) % 19));
-  return {
-    likes: formatCount(baseLikes + likeGrowth + realLikes),
-    views: formatCount(baseViews + viewGrowth + realViews),
-  };
+  return { likes: formatCount(realLikes), views: formatCount(realViews) };
 }
 
 async function selectPosts(
@@ -120,6 +97,8 @@ async function selectPosts(
   savedOnly = false,
   viewerId?: string | null,
   onlyUserIds?: string[] | null,
+  searchTerm?: string,
+  onlyPostId?: string | null,
 ) {
   if (onlyUserIds && onlyUserIds.length === 0) return [];
   let savedIds: string[] | null = null;
@@ -132,8 +111,10 @@ async function selectPosts(
 
   let query = db.from("cupido_posts").select(POST_COLUMNS).order("created_at", { ascending: false }).limit(limit);
   if (onlyUserId) query = query.eq("user_id", onlyUserId);
+  if (onlyPostId) query = query.eq("id", onlyPostId);
   if (onlyUserIds) query = query.in("user_id", onlyUserIds);
   if (savedIds) query = query.in("id", savedIds);
+  if (searchTerm?.trim()) query = query.ilike("caption", `%${searchTerm.trim().replace(/[%_]/g, "\\$&")}%`);
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as AnyRow[];
@@ -167,8 +148,10 @@ export async function fetchFeed(options: {
   onlyUserId?: string | null;
   savedOnly?: boolean;
   followingOnly?: boolean;
+  searchTerm?: string | undefined;
+  onlyPostId?: string | null | undefined;
 }): Promise<FeedResult> {
-  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, followingOnly = false } = options;
+  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, followingOnly = false, searchTerm, onlyPostId = null } = options;
   if (followingOnly && !viewerId) {
     return { posts: [], liked: new Set(), disliked: new Set(), saved: new Set() };
   }
@@ -178,7 +161,7 @@ export async function fetchFeed(options: {
     if (error) throw error;
     followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
   }
-  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds);
+  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId);
   const filtered = videoOnly ? rows.filter((row) => row.kind === "video") : rows;
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
   const creatorRows = ids.length
@@ -218,7 +201,7 @@ export async function fetchFeed(options: {
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
       email: null,
-      is_super_admin: Boolean(row.is_super_admin ?? creator?.is_super_admin ?? creator?.is_official),
+      is_super_admin: Boolean(row.is_super_admin ?? creator?.is_super_admin ?? creator?.["is_official"]),
     }];
   });
 
@@ -337,10 +320,13 @@ export async function addComment(postId: string, body: string): Promise<void> {
 
 export async function registerPostView(postId: string): Promise<void> {
   if (typeof window === "undefined") return;
+  const userId = await currentUserId();
+  if (!userId) return;
   const key = `cupido-view-${postId}`;
   if (window.sessionStorage.getItem(key)) return;
+  const result = await db.rpc("cupido_register_post_view", { _post: postId });
+  if (result.error) throw result.error;
   window.sessionStorage.setItem(key, "1");
-  await db.rpc("cupido_register_post_view", { _post: postId });
 }
 
 export async function notifyUser(input: {
@@ -397,8 +383,28 @@ export async function notifyUser(input: {
 }
 
 export async function sharePost(post: FeedPost): Promise<"shared" | "copied"> {
-  const url = `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
+  const url = `${window.location.origin}/muro?post=${encodeURIComponent(post.id)}`;
   const text = post.caption || "Mira esta publicación en Cupido Leudy ❤️";
+  const copyUrl = async () => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        return;
+      } catch {
+        // Use the selection based fallback below when clipboard permission is unavailable.
+      }
+    }
+    const input = document.createElement("textarea");
+    input.value = url;
+    input.setAttribute("readonly", "");
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    const copied = document.execCommand("copy");
+    input.remove();
+    if (!copied) throw new Error("No se pudo copiar el enlace de la publicación.");
+  };
   let result: "shared" | "copied";
   if (navigator.share) {
     try {
@@ -406,14 +412,18 @@ export async function sharePost(post: FeedPost): Promise<"shared" | "copied"> {
       result = "shared";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") throw error;
-      await navigator.clipboard.writeText(url);
+      await copyUrl();
       result = "copied";
     }
   } else {
-    await navigator.clipboard.writeText(url);
+    await copyUrl();
     result = "copied";
   }
-  await db.rpc("cupido_register_post_share", { _post: post.id }).catch(() => undefined);
+  const viewerId = await currentUserId();
+  if (viewerId) {
+    const countResult = await db.rpc("cupido_register_post_share", { _post: post.id });
+    if (countResult.error) throw countResult.error;
+  }
   return result;
 }
 

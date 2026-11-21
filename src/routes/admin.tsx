@@ -211,7 +211,7 @@ function AdminDashboard() {
                   onChange={(e) => setSettings({ ...settings, site_tagline: e.target.value })}
                 />
               </Field>
-              <Field label="Logo">
+              <Field label="Logo Oficial de la App">
                 <div className="flex items-center gap-3">
                   <Button
                     type="button"

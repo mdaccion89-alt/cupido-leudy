@@ -47,10 +47,10 @@ export function canUsePaidPerks(plan: string | null | undefined, isAdmin: boolea
   return isAdmin || isPaidPlan(plan);
 }
 
-/** Blue verified badge: more than 1,000 real followers or an active Premium plan. */
+/** Blue verification is granted only by admin approval; popularity and Premium do not verify an account. */
 export const VERIFIED_FOLLOWERS = 1000;
-export function isVerifiedCreator(followers: number, isPremium: boolean): boolean {
-  return followers > VERIFIED_FOLLOWERS || isPremium;
+export function isVerifiedCreator(_followers: number, _isPremium: boolean): boolean {
+  return false;
 }
 
 export const ADMIN_EMAIL = "leudyfeliz81@gmail.com";

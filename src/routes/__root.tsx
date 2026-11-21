@@ -176,6 +176,7 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
         <ThemeSync onThemeChange={setTheme} />
+        <SystemNotificationSetup />
         <ReferralTracker />
         <div className="flex min-h-screen flex-col pb-20">
           <SiteHeader />
@@ -219,8 +220,32 @@ function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light")
     root.dataset["theme"] = mode;
     root.classList.toggle("dark", mode === "dark");
     localStorage.setItem("cupido-dark", String(mode === "dark"));
+    if (preference.data) {
+      localStorage.setItem("cupido-notifications", String(preference.data.notifications_enabled));
+      localStorage.setItem("cupido-sounds", String(preference.data.sounds_enabled));
+    }
     onThemeChange(mode);
   }, [preference.data, onThemeChange]);
+
+  return null;
+}
+
+function SystemNotificationSetup() {
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
+  useEffect(() => {
+    if (!userId || typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
+      console.error("[notifications] No se pudo registrar el Service Worker.", error);
+    });
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission().catch((error: unknown) => {
+        console.error("[notifications] No se pudo solicitar permiso de notificaciones.", error);
+      });
+    }
+  }, [userId]);
 
   return null;
 }

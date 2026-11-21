@@ -44,12 +44,13 @@ async function writeRow(table: "profiles" | "creator_profiles", id: string, full
 }
 
 export async function saveProfileDirect(id: string, values: ProfileValues): Promise<void> {
+  const fullName = values.fullName.trim() || values.displayName.trim();
   const profilesWritten = await writeRow(
     "profiles",
     id,
     {
       display_name: values.displayName,
-      full_name: values.fullName || null,
+      full_name: fullName,
       bio: values.bio,
       age: values.age,
       gender: values.gender,
@@ -71,6 +72,7 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
     id,
     {
       display_name: values.displayName,
+      full_name: fullName,
       bio: values.bio,
       country_code: values.countryCode,
       looking_for: values.lookingFor,
@@ -83,9 +85,17 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
       hobbies: values.hobbies,
       survey_completed: values.surveyCompleted,
     },
-    ["gender", "age", "looking_for", "has_kids", "drinks", "zodiac", "smokes", "hobbies", "survey_completed", "country_code", "bio"],
+    ["full_name", "gender", "age", "looking_for", "has_kids", "drinks", "zodiac", "smokes", "hobbies", "survey_completed", "country_code", "bio"],
   );
   if (!profilesWritten || !creatorWritten) throw new Error("No se pudo guardar el perfil.");
+
+  const { error: authError } = await supabase.auth.updateUser({
+    data: {
+      display_name: values.displayName,
+      full_name: fullName,
+    },
+  });
+  if (authError) throw authError;
 }
 
 export async function saveAvatarDirect(id: string, url: string, moderation: "approved" | "pending"): Promise<void> {

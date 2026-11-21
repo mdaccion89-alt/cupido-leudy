@@ -34,7 +34,7 @@ function loadPaypalSdk(clientId: string): Promise<void> {
   const pending = (async () => {
     const previous = document.querySelector<HTMLScriptElement>("script[data-cupido-paypal-sdk]");
     if (previous) previous.remove();
-    window.paypal = undefined;
+    delete window.paypal;
 
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {

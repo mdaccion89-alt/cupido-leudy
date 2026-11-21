@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { useAppLogo } from "@/lib/app-logo";
 import { BRAND, COUNTRIES, LOOKING_FOR, SLOGAN, countryFlag } from "@/lib/cupido";
 import { captureReferralFromUrl } from "@/lib/referral";
 
@@ -72,6 +73,7 @@ function isAdultDate(value: string): boolean {
 
 function AuthPage() {
   const { session } = useAuth();
+  const appLogo = useAppLogo();
   const { ref } = Route.useSearch();
   const navigate = useNavigate();
   const [mode, setMode] = useState<"email" | "phone">("email");
@@ -344,8 +346,8 @@ function AuthPage() {
           <ArrowLeft className="size-4" /> Volver a Cupido
         </Link>
         <div className="mb-6 flex items-center gap-3">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-gradient-primary shadow-glow">
-            <Heart className="size-5 fill-white text-white" />
+          <span className="flex size-10 items-center justify-center overflow-hidden rounded-xl bg-gradient-primary shadow-glow">
+            {appLogo ? <img src={appLogo} alt="" className="size-full object-contain" /> : <Heart className="size-5 fill-white text-white" />}
           </span>
           <span className="font-display text-lg font-semibold">{BRAND}</span>
         </div>

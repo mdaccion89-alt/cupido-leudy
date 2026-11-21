@@ -430,7 +430,7 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
     const admin = await getAdminClient();
     const { data } = await admin.from("site_settings").select("*").eq("id", 1).maybeSingle();
     let banner = data?.banner_image_url ?? "";
-    let logo = data?.logo_url ?? "";
+    let logo = data?.app_logo_url || data?.logo_url || "";
     if (banner && !banner.startsWith("http")) {
       const { data: s } = await admin.storage.from("site").createSignedUrl(banner, 60 * 60 * 24);
       banner = s?.signedUrl ?? "";

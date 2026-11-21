@@ -21,7 +21,7 @@ export const Route = createFileRoute("/comunidad")({
 
 type FriendMap = Map<string, string>;
 
-export function CommunityPage() {
+export function CommunityPage({ highlightPostId }: { highlightPostId?: string | undefined } = {}) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const navigate = useNavigate();
@@ -167,7 +167,7 @@ export function CommunityPage() {
     () =>
       (people.data ?? []).map((person) => ({
         id: person.id,
-        display_name: person.email?.toLowerCase() === SUPREME_ADMIN_EMAIL || person.is_official_profile ? "Cupido Leudy Cuenta Oficial" : person.display_name ?? "Miembro",
+        display_name: person.display_name?.trim() || (person.is_official_profile ? "Cupido Leudy Cuenta Oficial" : "Miembro"),
         avatar_url: person.avatar_url ?? "",
         bio: person.bio ?? "",
         country_code: person.country_code ?? "",
@@ -310,7 +310,7 @@ export function CommunityPage() {
           <h2 className="font-display text-2xl text-white">Muro público</h2>
           <p className="mt-1 text-sm text-muted-foreground">Sube una foto o video y descubre las publicaciones nuevas de la comunidad.</p>
         </div>
-        <WallFeed emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️" />
+        <WallFeed highlightPostId={highlightPostId} searchTerm={search} emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️" />
       </section>
 
       <section className="mb-6 grid gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -386,7 +386,6 @@ export function CommunityPage() {
               onUnlike={() => likeLatestMedia(person.id, true)}
               onFollow={() => follow.mutate(person.id)}
               onFriend={() => friend.mutate(person.id)}
-              onGift={() => void navigate({ to: "/tienda", search: { userId: person.id } })}
             />
           ))}
         </section>

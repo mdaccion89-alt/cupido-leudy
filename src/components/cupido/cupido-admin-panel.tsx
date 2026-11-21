@@ -97,6 +97,16 @@ export function CupidoAdminPanel() {
     },
   });
 
+  useEffect(() => {
+    const channel = supabase
+      .channel("cupido-admin-verification-queue")
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verifications"] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
+
   const withdrawals = useQuery({
     queryKey: ["cupido-admin", "withdrawals"],
     enabled: true,
@@ -257,7 +267,7 @@ export function CupidoAdminPanel() {
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  {(row.verification_frames.length === 3 ? row.verification_frames : [row.selfie_path]).map(
+                  {((row.verification_frames ?? []).length === 3 ? row.verification_frames : [row.selfie_path]).map(
                     (path, index) => (
                       <div key={`${row.id}-${index}`}>
                         <p className="mb-1 text-center text-[11px] text-sky-200">

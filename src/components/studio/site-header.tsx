@@ -5,17 +5,19 @@ import { NotificationBell } from "@/components/cupido/notification-bell";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
+import { useAppLogo } from "@/lib/app-logo";
 
 export function SiteHeader() {
   const { session, loading } = useAuth();
   const account = useAccount();
+  const appLogo = useAppLogo();
 
   return (
     <header className="sticky top-0 z-30 border-b border-amber-200/10 bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
         <Link to="/" className="flex min-w-0 items-center gap-2.5" aria-label="Cupido Leudy, inicio">
-          <span className="brand-heart grid size-10 shrink-0 place-items-center rounded-2xl bg-gradient-primary shadow-glow">
-            <Heart className="size-5 fill-primary-foreground text-primary-foreground" />
+          <span className="brand-heart grid size-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-primary shadow-glow">
+            {appLogo ? <img src={appLogo} alt="" className="size-full object-contain" /> : <Heart className="size-5 fill-primary-foreground text-primary-foreground" />}
           </span>
           <span className="truncate font-display text-sm font-semibold tracking-tight text-gradient sm:text-base">
             Cupido Leudy <span aria-hidden="true">❤️</span>

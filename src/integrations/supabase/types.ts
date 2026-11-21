@@ -146,8 +146,10 @@ export type Database = {
           drinks: boolean;
           follower_count: number;
           friend_count: number;
+          full_name: string;
           gender: string | null;
           has_kids: boolean;
+          hide_followers: boolean;
           id: string;
           is_official: boolean;
           is_cupido_active: boolean;
@@ -174,8 +176,10 @@ export type Database = {
           drinks?: boolean;
           follower_count?: number;
           friend_count?: number;
+          full_name?: string;
           gender?: string | null;
           has_kids?: boolean;
+          hide_followers?: boolean;
           id: string;
           is_official?: boolean;
           is_cupido_active?: boolean;
@@ -202,8 +206,10 @@ export type Database = {
           drinks?: boolean;
           follower_count?: number;
           friend_count?: number;
+          full_name?: string;
           gender?: string | null;
           has_kids?: boolean;
+          hide_followers?: boolean;
           id?: string;
           is_official?: boolean;
           is_cupido_active?: boolean;
@@ -462,6 +468,7 @@ export type Database = {
           full_name: string | null;
           gender: string | null;
           has_kids: boolean;
+          hide_followers: boolean;
           has_purchased: boolean;
           id: string;
           last_daily_claim: string | null;
@@ -497,6 +504,7 @@ export type Database = {
           full_name?: string | null;
           gender?: string | null;
           has_kids?: boolean;
+          hide_followers?: boolean;
           has_purchased?: boolean;
           id: string;
           last_daily_claim?: string | null;
@@ -532,6 +540,7 @@ export type Database = {
           full_name?: string | null;
           gender?: string | null;
           has_kids?: boolean;
+          hide_followers?: boolean;
           has_purchased?: boolean;
           id?: string;
           last_daily_claim?: string | null;
@@ -556,6 +565,7 @@ export type Database = {
       site_settings: {
         Row: {
           accent_color: string;
+          app_logo_url: string;
           banner_image_url: string;
           banner_text: string;
           covers_enabled: boolean;
@@ -574,6 +584,7 @@ export type Database = {
         };
         Insert: {
           accent_color?: string;
+          app_logo_url?: string;
           banner_image_url?: string;
           banner_text?: string;
           covers_enabled?: boolean;
@@ -592,6 +603,7 @@ export type Database = {
         };
         Update: {
           accent_color?: string;
+          app_logo_url?: string;
           banner_image_url?: string;
           banner_text?: string;
           covers_enabled?: boolean;
@@ -972,33 +984,48 @@ export type Database = {
     cupido_posts: {
       Row: {
         caption: string;
+        comments_count: number;
         created_at: string;
+        dislikes_count: number;
         id: string;
         kind: string;
         likes_count: number;
         media_path: string | null;
         moderation_status: string;
+        saves_count: number;
+        shares_count: number;
         user_id: string;
+        views_count: number;
       };
       Insert: {
         caption?: string;
+        comments_count?: number;
         created_at?: string;
+        dislikes_count?: number;
         id?: string;
         kind: string;
         likes_count?: number;
         media_path?: string | null;
         moderation_status?: string;
+        saves_count?: number;
+        shares_count?: number;
         user_id: string;
+        views_count?: number;
       };
       Update: {
         caption?: string;
+        comments_count?: number;
         created_at?: string;
+        dislikes_count?: number;
         id?: string;
         kind?: string;
         likes_count?: number;
         media_path?: string;
         moderation_status?: string;
+        saves_count?: number;
+        shares_count?: number;
         user_id?: string;
+        views_count?: number;
       };
       Relationships: [];
     };
@@ -1113,6 +1140,7 @@ export type Database = {
           follower_count: number;
           gender: string | null;
           has_kids: boolean;
+          hide_followers: boolean;
           hobbies: string;
           survey_completed: boolean;
           id: string;
@@ -1124,6 +1152,7 @@ export type Database = {
           looking_for: string;
           smokes: boolean;
           zodiac: string;
+          verification_status: string;
         };
         Relationships: [];
       };
@@ -1226,6 +1255,8 @@ export type Database = {
     cupido_toggle_post_like: { Args: { _post: string }; Returns: boolean };
     cupido_start_call: { Args: { _callee: string; _mode: string; _video: boolean }; Returns: string };
     cupido_submit_live_verification: { Args: { _frames: string[] }; Returns: undefined };
+    cupido_register_post_view: { Args: { _post: string }; Returns: number };
+    cupido_register_post_share: { Args: { _post: string }; Returns: number };
     cupido_submit_selfie: { Args: { _path: string }; Returns: undefined };
     cupido_answer_call: { Args: { _accept: boolean; _id: string }; Returns: undefined };
     cupido_end_call: { Args: { _id: string; _status: string }; Returns: undefined };

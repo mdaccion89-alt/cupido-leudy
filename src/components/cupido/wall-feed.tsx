@@ -22,6 +22,10 @@ import { applyMediaFilter, type MediaFilterId } from "@/lib/media-filters";
 const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "m4v"];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
 
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/") || VIDEO_EXTENSIONS.includes(safeExtension(file.name, "").toLowerCase());
+}
+
 function errorMessage(value: unknown, fallback: string): string {
   if (value instanceof Error) return value.message || fallback;
   if (value && typeof value === "object" && "message" in value) {
@@ -39,6 +43,8 @@ type WallFeedProps = {
   emptyText?: string;
   initialFollowingOnly?: boolean;
   showScopeTabs?: boolean;
+  searchTerm?: string | undefined;
+  highlightPostId?: string | undefined;
 };
 
 export function WallFeed({
@@ -49,6 +55,8 @@ export function WallFeed({
   emptyText,
   initialFollowingOnly = false,
   showScopeTabs = true,
+  searchTerm,
+  highlightPostId,
 }: WallFeedProps) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
@@ -64,11 +72,11 @@ export function WallFeed({
   const [loadingPosts, setLoadingPosts] = useState(false);
 
   const feed = useQuery({
-    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit],
+    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit, searchTerm, highlightPostId],
     queryFn: async () => {
       setLoadingPosts(true);
       try {
-        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly });
+        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly, searchTerm, onlyPostId: highlightPostId });
       } finally {
         setLoadingPosts(false);
       }
@@ -106,6 +114,10 @@ export function WallFeed({
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_comments" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `follower_id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
@@ -222,7 +234,12 @@ export function WallFeed({
   const handleUpload = async (file: File | null, alreadyFiltered = false) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
-    const isVideo = file.type.startsWith("video/");
+    const videoMime = file.type === "video/mp4" || file.type === "video/webm" || file.type === "video/quicktime";
+    const mimeExtension = videoMime
+      ? file.type === "video/webm" ? "webm" : file.type === "video/quicktime" ? "mov" : "mp4"
+      : file.type.startsWith("image/") ? (file.type.split("/")[1] ?? "jpg").replace(/^jpeg$/, "jpg") : "";
+    const extension = safeExtension(file.name, mimeExtension).toLowerCase();
+    const isVideo = videoMime || VIDEO_EXTENSIONS.includes(extension);
     const isImage = file.type.startsWith("image/");
     if (videoOnly && !isVideo) {
       toast.error("En Historia solo se publican videos cortos.");
@@ -232,26 +249,26 @@ export function WallFeed({
       toast.error("Elige una foto o un video corto.");
       return;
     }
-    const extension = safeExtension(file.name, isVideo ? "mp4" : "jpg");
     if (isVideo && !VIDEO_EXTENSIONS.includes(extension)) {
       toast.error("Formato de video no admitido. Usa MP4, WEBM o MOV.");
+      return;
+    }
+    if (isVideo && file.type && file.type !== "application/octet-stream" && !videoMime) {
+      toast.error("El tipo de video no es compatible. Usa MP4, WEBM o MOV.");
       return;
     }
     if (!isVideo && !IMAGE_EXTENSIONS.includes(extension)) {
       toast.error("Formato de imagen no admitido.");
       return;
     }
-    if (isVideo && file.size > 25 * 1024 * 1024) {
-      toast.error("El video debe pesar menos de 25 MB.");
-      return;
-    }
-    if (!isVideo && file.size > 25 * 1024 * 1024) {
-      toast.error("La foto debe pesar menos de 25 MB.");
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error(isVideo ? "El video debe pesar menos de 50 MB." : "La foto debe pesar menos de 50 MB.");
       return;
     }
 
     setUploading(true);
     let uploadedPath: string | null = null;
+    let uploadedBucket: "cupido-media" | "media" = "cupido-media";
     try {
       let uploadFile = alreadyFiltered ? file : await applyMediaFilter(file, mediaFilter);
       if (isVideo) {
@@ -262,13 +279,20 @@ export function WallFeed({
       }
       const finalExtension = safeExtension(uploadFile.name, extension);
       const path = `${viewerId}/${Date.now()}.${finalExtension}`;
-      const { error: storageError } = await supabase.storage.from("media").upload(path, uploadFile, {
-        contentType: uploadFile.type || (isVideo ? "video/mp4" : "image/jpeg"),
+      const contentType = isVideo
+        ? videoMime ? uploadFile.type : finalExtension === "webm" ? "video/webm" : finalExtension === "mov" ? "video/quicktime" : "video/mp4"
+        : uploadFile.type || "image/jpeg";
+      let uploadResult = await supabase.storage.from("cupido-media").upload(path, uploadFile, {
+        contentType,
         upsert: true,
       });
-      if (storageError) throw storageError;
+      if (uploadResult.error) {
+        uploadedBucket = "media";
+        uploadResult = await supabase.storage.from("media").upload(path, uploadFile, { contentType, upsert: true });
+      }
+      if (uploadResult.error) throw uploadResult.error;
       uploadedPath = path;
-      const { data: publicData } = supabase.storage.from("media").getPublicUrl(path);
+      const { data: publicData } = supabase.storage.from(uploadedBucket).getPublicUrl(path);
       const url = publicData?.publicUrl ?? "";
       if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
       await createPost({ userId: viewerId, caption, url, isVideo });
@@ -279,7 +303,7 @@ export function WallFeed({
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
     } catch (error) {
       if (uploadedPath) {
-        void supabase.storage.from("media").remove([uploadedPath]);
+        void supabase.storage.from(uploadedBucket).remove([uploadedPath]);
       }
       toast.error(errorMessage(error, "No se pudo publicar. Inténtalo de nuevo."));
     } finally {
@@ -305,8 +329,8 @@ export function WallFeed({
             </p>
             <p className="text-xs text-muted-foreground">
               {videoOnly
-                ? "Videos MP4/WEBM/MOV de hasta 25 MB y 30 segundos. Se publican al instante."
-                : "Fotos comprimidas y videos MP4/WEBM/MOV de hasta 25 MB. Se publican al instante."}
+                ? "Videos MP4/WEBM/MOV de hasta 50 MB y 30 segundos. Se publican al instante."
+                : "Fotos comprimidas y videos MP4/WEBM/MOV de hasta 50 MB. Se publican al instante."}
             </p>
           </div>
           <input
@@ -343,7 +367,7 @@ export function WallFeed({
       {draft && previewUrl && !hideUpload && (
         <div className="rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
           <p className="mb-3 text-sm font-semibold text-white">Vista previa</p>
-          {draft.file.type.startsWith("video/") ? (
+          {isVideoFile(draft.file) ? (
             <video src={previewUrl} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" />
           ) : (
             <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" />

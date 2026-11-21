@@ -88,7 +88,7 @@ function StorePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cupido_public_profiles")
-        .select("id,display_name,avatar_url,is_verified_blue")
+        .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
         .eq("id", giftTo!)
         .maybeSingle();
       if (error) throw error;

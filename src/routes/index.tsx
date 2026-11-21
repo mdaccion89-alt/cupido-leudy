@@ -86,7 +86,7 @@ function CupidoHome() {
       const people = rows.map((row) => ({
         ...row,
         email: row.id === officialId || row.is_official || row.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
-        display_name: row.id === officialId || row.is_official || row.is_super_admin ? "Cupido Leudy Cuenta Oficial" : row.display_name ?? "Miembro",
+        display_name: row.display_name?.trim() || (row.id === officialId || row.is_official || row.is_super_admin ? "Cupido Leudy Cuenta Oficial" : "Miembro"),
         is_cupido_active: Boolean(row.is_cupido_active) || row.id === officialId || Boolean(row.is_official || row.is_super_admin),
         follower_count: (followerMap.get(row.id) ?? Number(row.follower_count)) || 0,
         survey_completed: Boolean(row.survey_completed),
@@ -376,9 +376,6 @@ function CupidoHome() {
                   onUnlike={() => void handleProfileLike(profile.id)}
                   onFollow={() => void handleFollow(profile.id)}
                   onFriend={() => void handleFriend(profile.id)}
-                  onGift={() => {
-                    if (requireSession()) window.location.assign(`/tienda?userId=${profile.id}`);
-                  }}
                 />
               ))}
             </div>

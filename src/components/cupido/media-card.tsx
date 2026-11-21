@@ -38,11 +38,10 @@ type MediaCardProps = {
 export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare }: MediaCardProps) {
   const queryClient = useQueryClient();
   const visibilityRef = useRef<HTMLElement>(null);
-  const [now, setNow] = useState(() => Date.now());
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [sending, setSending] = useState(false);
-  const metrics = displayedMetrics(media, now);
+  const metrics = displayedMetrics(media);
   const postId = safeText(media?.id);
   const mediaUrl = safeText(media?.media_url);
   const caption = safeText(media?.caption);
@@ -73,12 +72,16 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       { threshold: [0, 0.6, 1] },
     );
     observer.observe(element);
-    const intervalTimer = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => {
       observer.disconnect();
       if (timer !== null) window.clearTimeout(timer);
-      window.clearInterval(intervalTimer);
     };
+  }, [postId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || window.location.search !== `?post=${encodeURIComponent(postId)}`) return;
+    const timer = window.setTimeout(() => visibilityRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 250);
+    return () => window.clearTimeout(timer);
   }, [postId]);
 
   const comments = useQuery({
@@ -122,7 +125,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   };
 
   return (
-    <article ref={visibilityRef} className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
+    <article id={`post-${postId}`} ref={visibilityRef} className="scroll-mt-24 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className={`relative w-full bg-black ${media?.kind === "text" ? "min-h-36 bg-gradient-to-br from-pink-950 to-slate-950 p-6" : "aspect-[9/14] max-h-[520px]"}`}>
         {media?.kind === "text" ? (
           <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white">{caption}</p>

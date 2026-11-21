@@ -76,7 +76,22 @@ export function NotificationBell() {
         (payload) => {
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
           void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
-          if (payload.eventType === "INSERT") void playCupidoSound("notification", viewerId);
+          if (payload.eventType === "INSERT") {
+            void playCupidoSound("notification", viewerId);
+            const row = payload.new as NotificationRow;
+            const soundEnabled = localStorage.getItem("cupido-sounds") !== "false";
+            const notificationsEnabled = localStorage.getItem("cupido-notifications") !== "false";
+            if (notificationsEnabled && document.visibilityState === "hidden" && "Notification" in window && Notification.permission === "granted" && "serviceWorker" in navigator) {
+              void navigator.serviceWorker.ready.then((registration) => registration.showNotification(row.title || "Cupido Leudy ❤️", {
+                body: row.body || "Tienes una notificación nueva.",
+                icon: localStorage.getItem("cupido-app-logo") || "/favicon.ico",
+                badge: "/favicon.ico",
+                tag: `cupido-${row.id}`,
+                data: { url: row.target_id ? `/?post=${encodeURIComponent(row.target_id)}` : "/" },
+                ...(soundEnabled ? { vibrate: [120, 80, 120] } : {}),
+              } as NotificationOptions));
+            }
+          }
         },
       )
       .subscribe();

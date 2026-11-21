@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Gift, X } from "lucide-react";
+import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, X } from "lucide-react";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -33,7 +33,6 @@ type ProfileCardProps = {
   onUnlike: () => void;
   onFollow: () => void;
   onFriend: () => void;
-  onGift: () => void;
 };
 
 export function ProfileCard({
@@ -48,7 +47,6 @@ export function ProfileCard({
   onUnlike,
   onFollow,
   onFriend,
-  onGift,
 }: ProfileCardProps) {
   const isMe = Boolean(myId && myId === profile.id);
   const looking = LOOKING_FOR.find((item) => item.value === profile.looking_for);
@@ -137,9 +135,6 @@ export function ProfileCard({
               <Link to="/chat" search={{ userId: profile.id }}>
                 <MessageCircle className="h-4 w-4" /> Chatear
               </Link>
-            </Button>
-            <Button variant="secondary" onClick={onGift} className="gap-1">
-              <Gift className="h-4 w-4" /> Enviar regalo
             </Button>
           </>
         )}

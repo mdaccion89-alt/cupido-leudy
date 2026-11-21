@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gift, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,13 +125,13 @@ function ProfilePage() {
       const [creator, privateProfile, follow, friendA, friendB, followerTotal] = await Promise.all([
         supabase
           .from("cupido_public_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
+          .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
           .eq("id", profileId!)
           .maybeSingle(),
         viewerId === profileId
           ? supabase
               .from("profiles")
-              .select("display_name,full_name,email,phone,birth_date,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids,zodiac,smokes,hobbies,survey_completed")
+              .select("display_name,full_name,email,phone,birth_date,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids,zodiac,smokes,hobbies,survey_completed,hide_followers")
               .eq("id", profileId!)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
@@ -188,6 +188,7 @@ function ProfilePage() {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `following_id=eq.${profileId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-followers", profileId] });
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -195,7 +196,7 @@ function ProfilePage() {
 
   const followersList = useQuery({
     queryKey: ["cupido-followers", profileId],
-    enabled: Boolean(profileId && followersOpen),
+    enabled: Boolean(profileId && followersOpen && !profile.data?.creator?.is_official && !profile.data?.creator?.is_super_admin && !profile.data?.creator?.hide_followers),
     queryFn: async () => {
       const { data, error } = await supabase.rpc("cupido_list_followers", { _following: profileId! });
       if (error) throw error;
@@ -251,6 +252,10 @@ function ProfilePage() {
     onSuccess: () => {
       setEditing(false);
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profiles"] });
       toast.success("Perfil actualizado ❤️");
     },
     onError: (error) => toast.error(errorMessage(error, "No se pudo guardar.")),
@@ -289,6 +294,11 @@ function ProfilePage() {
   const liveVerification = useMutation({
     mutationFn: async (frames: string[]) => {
       if (!viewerId) throw new Error("Inicia sesión.");
+      const ownProfile = profile.data?.privateProfile;
+      const publicProfile = profile.data?.creator;
+      if (!ownProfile?.avatar_url || !ownProfile?.full_name || !ownProfile?.birth_date || !ownProfile?.country_code || !ownProfile?.phone || !ownProfile?.bio || ownProfile?.survey_completed !== true || publicProfile?.is_official || publicProfile?.is_super_admin) {
+        throw new Error("Completa foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta antes de solicitar la insignia.");
+      }
       if (frames.length !== 3) throw new Error("Debes completar las 3 poses.");
       const stamp = Date.now();
       const paths: string[] = [];
@@ -309,6 +319,21 @@ function ProfilePage() {
       toast.success("3 capturas enviadas. El Admin Supremo revisará tu verificación ❤️");
     },
     onError: (error) => toast.error(errorMessage(error, "No se pudo enviar la verificación.")),
+  });
+
+  const toggleHideFollowers = useMutation({
+    mutationFn: async (hidden: boolean) => {
+      if (!viewerId || viewerId !== profileId) throw new Error("Solo puedes cambiar tu propia privacidad.");
+      const profileUpdate = await supabase.from("profiles").update({ hide_followers: hidden }).eq("id", viewerId);
+      if (profileUpdate.error) throw profileUpdate.error;
+      const creatorUpdate = await supabase.from("creator_profiles").update({ hide_followers: hidden }).eq("id", viewerId);
+      if (creatorUpdate.error) throw creatorUpdate.error;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+      toast.success("Privacidad de seguidores actualizada.");
+    },
+    onError: (error) => toast.error(errorMessage(error, "No se pudo actualizar la privacidad.")),
   });
 
   const toggleFollow = useMutation({
@@ -412,12 +437,19 @@ function ProfilePage() {
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
-  const displayLabel = officialProfile ? "Cupido Leudy Cuenta Oficial" : displayName || "Miembro de Cupido";
+  const displayLabel = displayName || (officialProfile ? "Cupido Leudy Cuenta Oficial" : "Miembro de Cupido");
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
   const followers = actualFollowerCount;
   const friends = safeCount(creator?.friend_count);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();
+  const verificationProfile = privateProfile;
+  const verificationEligible = Boolean(
+    own && !officialProfile && verificationProfile?.avatar_url && verificationProfile?.full_name?.trim()
+    && verificationProfile?.birth_date && verificationProfile?.country_code?.trim()
+    && verificationProfile?.phone?.trim() && verificationProfile?.bio?.trim()
+    && verificationProfile?.survey_completed === true,
+  );
   const publicAge = safeText(extraField(creator, "age"), safeText(privateProfile?.age)) || "—";
   const publicGender = safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)) || "—";
 
@@ -459,9 +491,16 @@ function ProfilePage() {
                 {publicAge} años ·{" "}
                 {publicGender} ·{" "}
                 {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
-              </p>              <Button variant="link" className="mt-1 h-auto px-0 text-xs text-pink-300" onClick={() => setFollowersOpen(true)}>
-                Ver quién sigue este perfil ({actualFollowerCount.toLocaleString("es")})
-              </Button>
+              </p>
+              {officialProfile ? (
+                <p className="mt-2 text-xs text-muted-foreground">La lista de seguidores de la Cuenta Oficial es privada</p>
+              ) : creator?.hide_followers && !own ? (
+                <p className="mt-2 text-xs text-muted-foreground">Esta persona mantiene privada su lista de seguidores.</p>
+              ) : (
+                <Button variant="link" className="mt-1 h-auto px-0 text-xs text-pink-300" onClick={() => setFollowersOpen(true)}>
+                  Ver quién sigue este perfil ({actualFollowerCount.toLocaleString("es")})
+                </Button>
+              )}
 
             </div>
           </div>
@@ -469,6 +508,7 @@ function ProfilePage() {
           <Dialog open={followersOpen} onOpenChange={setFollowersOpen}>
             <DialogContent className="max-w-sm">
               <DialogHeader><DialogTitle>Seguidores reales</DialogTitle></DialogHeader>
+              {officialProfile ? <p className="py-6 text-center text-sm text-muted-foreground">La lista de seguidores de la Cuenta Oficial es privada</p> : null}
               <div className="max-h-80 space-y-2 overflow-y-auto">
                 {followersList.isLoading ? <p className="py-6 text-center text-sm text-muted-foreground">Cargando seguidores...</p> : null}
                 {followersList.data?.map((follower) => (
@@ -516,11 +556,6 @@ function ProfilePage() {
                     <MessageCircle /> Chatear
                   </Link>
                 </Button>
-                <Button asChild variant="secondary">
-                  <Link to="/tienda" search={{ userId: profileId }}>
-                    <Gift /> Enviar regalo
-                  </Link>
-                </Button>
               </>
             ) : (
               <Button asChild>
@@ -536,7 +571,6 @@ function ProfilePage() {
                 <Input
                   value={displayName}
                   maxLength={60}
-                  disabled={isAdmin}
                   onChange={(event) => setDisplayName(event.target.value)}
                 />
               </div>
@@ -645,7 +679,13 @@ function ProfilePage() {
 
           {own && !isAdmin && (
             <div className="mt-6">
-              <LiveFaceVerification onComplete={(frames) => liveVerification.mutateAsync(frames)} />
+              {creator?.verification_status === "pending" ? (
+                <p className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Tu solicitud está en revisión.</p>
+              ) : !verified && verificationEligible ? (
+                <LiveFaceVerification onComplete={(frames) => liveVerification.mutateAsync(frames)} />
+              ) : !verified ? (
+                <p className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa tu foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta para solicitar la insignia azul.</p>
+              ) : null}
             </div>
           )}
 
@@ -663,6 +703,17 @@ function ProfilePage() {
 
           {own && viewerId && (
             <div className="mt-6 space-y-3">
+              {!officialProfile && (
+                <label className="flex items-center gap-3 rounded-xl border border-white/10 p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(creator?.hide_followers ?? privateProfile?.hide_followers)}
+                    disabled={toggleHideFollowers.isPending}
+                    onChange={(event) => toggleHideFollowers.mutate(event.target.checked)}
+                  />
+                  Ocultar mi lista de seguidores
+                </label>
+              )}
               <div className="flex justify-end">
                 <Button asChild variant="outline">
                   <Link to="/ajustes">Abrir ajustes</Link>
