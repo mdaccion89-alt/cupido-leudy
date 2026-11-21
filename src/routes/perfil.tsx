@@ -113,6 +113,7 @@ function ProfilePage() {
   const [hobbies, setHobbies] = useState("");
   const [followersOpen, setFollowersOpen] = useState(false);
   const [verificationOpen, setVerificationOpen] = useState(false);
+  const [profileTab, setProfileTab] = useState<"posts" | "saved">("posts");
 
   const profile = useQuery({
     queryKey: ["cupido-profile", profileId, viewerId],
@@ -750,21 +751,55 @@ function ProfilePage() {
             </div>
           </section>
         )}
-        <div>
-          <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
-          <WallFeed
-            onlyUserId={profileId}
-            hideUpload={!own}
-            emptyText="Esta persona todavía no tiene fotos ni videos publicados."
-          />
-        </div>
-        {own && viewerId && (
+        {own ? (
+          <>
+            <div className="flex gap-2" role="tablist" aria-label="Contenido del perfil">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={profileTab === "posts"}
+                onClick={() => setProfileTab("posts")}
+                className={`rounded-full border px-4 py-2 text-sm transition ${profileTab === "posts" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+              >
+                Publicaciones
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={profileTab === "saved"}
+                onClick={() => setProfileTab("saved")}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${profileTab === "saved" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+              >
+                <Save className="size-4" /> Guardados
+              </button>
+            </div>
+            {profileTab === "posts" ? (
+              <div>
+                <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
+                <WallFeed
+                  onlyUserId={profileId}
+                  hideUpload={!own}
+                  emptyText="Esta persona todavía no tiene fotos ni videos publicados."
+                />
+              </div>
+            ) : (
+              <div>
+                <h2 className="mb-4 font-display text-xl text-white">Guardados 🔖</h2>
+                <WallFeed
+                  savedOnly
+                  hideUpload
+                  emptyText="Aún no guardaste publicaciones. Toca 🔖 en cualquier foto o video."
+                />
+              </div>
+            )}
+          </>
+        ) : (
           <div>
-            <h2 className="mb-4 font-display text-xl text-white">Mis favoritos 🔖</h2>
+            <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
             <WallFeed
-              savedOnly
+              onlyUserId={profileId}
               hideUpload
-              emptyText="Aún no guardaste publicaciones. Toca 🔖 en cualquier foto o video."
+              emptyText="Esta persona todavía no tiene fotos ni videos publicados."
             />
           </div>
         )}

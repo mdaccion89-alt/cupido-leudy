@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Compass, Heart, MessageCircle, Phone, Radio, UserRound } from "lucide-react";
+import { Clapperboard, Compass, Heart, MessageCircle, Phone, Radio, UserRound } from "lucide-react";
 import { showInterstitialAd } from "@/lib/admob";
 
 const TABS = [
@@ -8,6 +8,7 @@ const TABS = [
   { to: "/directo", label: "Directo", icon: Radio, match: (path: string) => path.startsWith("/directo") },
   { to: "/comunidad", label: "Descubrir", icon: Compass, match: (path: string) => path.startsWith("/comunidad") },
   { to: "/muro", label: "Muro / Sugerencias", icon: Heart, match: (path: string) => path.startsWith("/muro") || path.startsWith("/siguiendo") },
+  { to: "/videos", label: "Videos", icon: Clapperboard, match: (path: string) => path.startsWith("/videos") },
   { to: "/chat", label: "Mensajes", icon: MessageCircle, match: (path: string) => path.startsWith("/chat") },
   { to: "/perfil", label: "Perfil", icon: UserRound, match: (path: string) => path.startsWith("/perfil") },
 ] as const;
@@ -32,7 +33,7 @@ export function BottomNav() {
       aria-label="Navegación móvil principal"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-amber-200/10 bg-background/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-12px_36px_rgba(0,0,0,0.25)] backdrop-blur-xl"
     >
-      <div className="mx-auto grid max-w-3xl grid-cols-6">
+      <div className="mx-auto grid max-w-3xl grid-cols-7">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = tab.match(pathname);

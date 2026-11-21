@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { COUNTRIES, LOOKING_FOR, countryFlag } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
@@ -21,9 +22,10 @@ export const Route = createFileRoute("/comunidad")({
 
 type FriendMap = Map<string, string>;
 
-export function CommunityPage({ highlightPostId }: { highlightPostId?: string | undefined } = {}) {
+export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId?: string | undefined; searchTerm?: string | undefined } = {}) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
+  const isMobile = useIsMobile();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -300,7 +302,12 @@ export function CommunityPage({ highlightPostId }: { highlightPostId?: string | 
           <h2 className="font-display text-2xl text-white">Muro público</h2>
           <p className="mt-1 text-sm text-muted-foreground">Sube una foto o video y descubre las publicaciones nuevas de la comunidad.</p>
         </div>
-        <WallFeed highlightPostId={highlightPostId} searchTerm={search} emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️" />
+        <WallFeed
+          highlightPostId={highlightPostId}
+          searchTerm={searchTerm || search}
+          emptyText="Todavía no hay publicaciones. Sé la primera persona en compartir una foto o video ❤️"
+          onOpenVideo={isMobile ? (postId) => void navigate({ to: "/videos", search: { post: postId } }) : undefined}
+        />
       </section>
 
       <section className="mb-6 grid gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-4 sm:grid-cols-2 lg:grid-cols-4">

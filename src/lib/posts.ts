@@ -123,6 +123,19 @@ export function displayedMetrics(post?: FeedPost | null): { likes: string; views
   };
 }
 
+async function savedPostIds(viewerId: string | null, postIds?: string[]): Promise<string[]> {
+  if (!viewerId) return [];
+  let query = db.from("cupido_saved_posts").select("post_id").eq("user_id", viewerId);
+  if (postIds?.length) query = query.in("post_id", postIds);
+  const saved = await query;
+  if (!saved.error) return ((saved.data ?? []) as AnyRow[]).map((row) => String(row.post_id));
+
+  let fallback = db.from("cupido_post_saves").select("post_id").eq("user_id", viewerId);
+  if (postIds?.length) fallback = fallback.in("post_id", postIds);
+  const legacy = await fallback;
+  return ((legacy.data ?? []) as AnyRow[]).map((row) => String(row.post_id));
+}
+
 async function selectPosts(
   limit: number,
   onlyUserId?: string | null,
@@ -136,9 +149,8 @@ async function selectPosts(
   let savedIds: string[] | null = null;
   if (savedOnly) {
     if (!viewerId) return [];
-    const { data } = await db.from("cupido_post_saves").select("post_id").eq("user_id", viewerId);
-    savedIds = (data ?? []).map((row: AnyRow) => row.post_id as string);
-    if (!savedIds?.length) return [];
+    savedIds = await savedPostIds(viewerId);
+    if (!savedIds.length) return [];
   }
 
   let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
@@ -158,7 +170,7 @@ async function fetchEngagement(postIds: string[], viewerId: string | null) {
   const [likes, dislikes, saves, comments] = await Promise.all([
     viewerId ? db.from("cupido_post_likes").select("post_id").eq("user_id", viewerId).in("post_id", postIds) : Promise.resolve({ data: [] }),
     viewerId ? db.from("cupido_post_dislikes").select("post_id").eq("user_id", viewerId).in("post_id", postIds) : Promise.resolve({ data: [] }),
-    viewerId ? db.from("cupido_post_saves").select("post_id").eq("user_id", viewerId).in("post_id", postIds) : Promise.resolve({ data: [] }),
+    savedPostIds(viewerId, postIds),
     db.from("cupido_post_comments").select("post_id").in("post_id", postIds),
   ]);
   const commentCounts = new Map<string, number>();
@@ -168,7 +180,7 @@ async function fetchEngagement(postIds: string[], viewerId: string | null) {
   return {
     liked: new Set(((likes.data ?? []) as AnyRow[]).map((row) => row.post_id as string)),
     disliked: new Set(((dislikes.data ?? []) as AnyRow[]).map((row) => row.post_id as string)),
-    saved: new Set(((saves.data ?? []) as AnyRow[]).map((row) => row.post_id as string)),
+    saved: new Set(saves),
     comments: commentCounts,
   };
 }
@@ -333,12 +345,13 @@ export async function togglePostSave(postId: string, saved: boolean): Promise<bo
   const userId = await currentUserId();
   if (!userId) throw new Error("Inicia sesión.");
   if (saved) {
-    const { error } = await db.from("cupido_post_saves").delete().eq("post_id", postId).eq("user_id", userId);
+    const { error } = await db.from("cupido_saved_posts").delete().eq("post_id", postId).eq("user_id", userId);
     if (!error) return false;
     throw error;
   }
-  const { error } = await db.from("cupido_post_saves").insert({ post_id: postId, user_id: userId });
+  const { error } = await db.from("cupido_saved_posts").insert({ post_id: postId, user_id: userId });
   if (error) throw error;
+  void db.from("cupido_post_saves").insert({ post_id: postId, user_id: userId }).then(() => undefined);
   return true;
 }
 

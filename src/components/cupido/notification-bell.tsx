@@ -152,7 +152,7 @@ export function NotificationBell() {
       return;
     }
     if (row.target_id && ["like", "comment", "comment_reply", "comment_like", "mention", "repost"].includes(row.kind ?? "")) {
-      void navigate({ to: "/muro", search: { post: row.target_id } });
+      void navigate({ to: "/muro", search: { post: row.target_id, q: undefined } });
       return;
     }
     if (row.actor_id) void navigate({ to: "/perfil", search: { userId: row.actor_id } });

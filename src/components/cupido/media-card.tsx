@@ -47,10 +47,11 @@ type MediaCardProps = {
   onPin: () => void;
   onRepost: () => void;
   onHashtag: (tag: string) => void;
+  onOpenVideo?: ((postId: string) => void) | undefined;
   currentUserId: string | null;
 };
 
-export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare, onEdit, onDelete, onPin, onRepost, onHashtag, currentUserId }: MediaCardProps) {
+export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare, onEdit, onDelete, onPin, onRepost, onHashtag, onOpenVideo, currentUserId }: MediaCardProps) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const visibilityRef = useRef<HTMLElement>(null);
@@ -258,25 +259,39 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white"><RichPostText text={caption} onHashtag={onHashtag} /></p>
           </div>
         ) : media?.kind === "video" ? (
-          <CupidoVideoPlayer
-            src={mediaUrl}
-            controls
-            loop
-            className="h-full w-full object-cover"
-            onPlay={(currentTime) => {
-              watchPositionRef.current = currentTime;
-              void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: 0 });
-            }}
-            onSeeking={(currentTime) => { watchPositionRef.current = currentTime; }}
-            onTimeUpdate={reportWatchProgress}
-            onPause={(currentTime) => {
-              const seconds = Math.floor(currentTime - watchPositionRef.current);
-              if (seconds >= 5 && postId) {
+          <>
+            <CupidoVideoPlayer
+              src={mediaUrl}
+              controls
+              loop
+              className="h-full w-full object-cover"
+              onPlay={(currentTime) => {
                 watchPositionRef.current = currentTime;
-                void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: Math.min(seconds, 30) });
-              }
-            }}
-          />
+                void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: 0 });
+              }}
+              onSeeking={(currentTime) => { watchPositionRef.current = currentTime; }}
+              onTimeUpdate={reportWatchProgress}
+              onPause={(currentTime) => {
+                const seconds = Math.floor(currentTime - watchPositionRef.current);
+                if (seconds >= 5 && postId) {
+                  watchPositionRef.current = currentTime;
+                  void supabase.rpc("cupido_record_video_watch", { _post: postId, _seconds: Math.min(seconds, 30) });
+                }
+              }}
+            />
+            {onOpenVideo && (
+              <button
+                type="button"
+                aria-label="Abrir video en pantalla completa"
+                onClick={() => onOpenVideo(postId)}
+                className="absolute inset-0 z-10 flex items-center justify-center bg-black/5 md:hidden"
+              >
+                <span className="flex size-14 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur">
+                  <Play className="ml-0.5 size-7 fill-white" />
+                </span>
+              </button>
+            )}
+          </>
         ) : (
           <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}
@@ -310,7 +325,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         {media.shared_post && (
           <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
             <p className="mb-2 text-xs text-muted-foreground">Republicación de <Link className="font-medium text-pink-200 hover:underline" to="/perfil" search={{ userId: media.shared_post.user_id }}>{media.shared_post.display_name}</Link></p>
-            <Link to="/muro" search={{ post: media.shared_post.id }} className="block rounded-lg bg-white/[0.04] p-2 text-sm hover:bg-white/[0.08]">
+            <Link to="/muro" search={{ post: media.shared_post.id, q: undefined }} className="block rounded-lg bg-white/[0.04] p-2 text-sm hover:bg-white/[0.08]">
               {media.shared_post.title && <span className="mb-1 block font-semibold text-white">{media.shared_post.title}</span>}
               <span className="line-clamp-3 whitespace-pre-wrap text-muted-foreground"><RichPostText text={media.shared_post.caption} onHashtag={onHashtag} /></span>
               {media.shared_post.media_url && (media.shared_post.kind === "video"

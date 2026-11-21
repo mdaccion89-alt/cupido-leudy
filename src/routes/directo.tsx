@@ -257,34 +257,53 @@ function DirectPage() {
             No hay transmisiones activas. Vuelve pronto ❤️
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {streams.data.map((stream) => (
-              <article key={stream.id} className="rounded-2xl border border-pink-400/20 bg-pink-500/[0.06] p-4">
-                <div className="flex items-start gap-3">
-                  <img src={stream.host_avatar || "/favicon.ico"} alt="" className="size-12 rounded-full border border-white/15 object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="flex items-center gap-1 truncate font-medium text-white">
-                      {stream.title}
-                      <VerifiedBadge verified={stream.is_verified_blue} className="size-4" />
-                    </h3>
-                    <p className="truncate text-xs text-muted-foreground">{stream.host_name}</p>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-pink-200"><Users className="size-3" /> {stream.viewers_count} viendo</p>
+          <div className="grid grid-cols-2 gap-3">
+            {streams.data.map((stream) => {
+              const openStream = () => {
+                if (stream.host_id === viewerId) {
+                  toast.info("Tu transmisión ya está activa.");
+                  return;
+                }
+                if (!viewerId) {
+                  toast.info("Inicia sesión para entrar, comentar o enviar regalos.");
+                  return;
+                }
+                setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+              };
+              return (
+                <div
+                  key={stream.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Entrar al directo de ${stream.host_name}`}
+                  onClick={openStream}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openStream();
+                    }
+                  }}
+                  className="group relative aspect-[3/4] cursor-pointer overflow-hidden rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] shadow-lg transition active:scale-[0.98]"
+                >
+                  <img src={stream.host_avatar || "/favicon.ico"} alt="" className="absolute inset-0 size-full object-cover transition duration-300 group-hover:scale-105" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/10 to-black/90" />
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-rose-600/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow">
+                    <span className="size-1.5 animate-pulse rounded-full bg-white" /> EN VIVO
+                  </span>
+                  <div className="absolute inset-x-0 bottom-0 p-3 pr-14">
+                    <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-white">{stream.title || "Directo en vivo"} ✨</h3>
+                    <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-white/85">
+                      <span className="truncate">{stream.host_name} ❤️</span>
+                      <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} className="size-4" />
+                    </p>
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {stream.viewers_count} viendo</p>
                   </div>
+                  <span className="absolute bottom-3 right-3 flex size-10 items-center justify-center rounded-full bg-purple-600 text-white shadow-[0_0_18px_rgba(168,85,247,0.7)] transition group-hover:bg-purple-500">
+                    <Video className="size-5" />
+                  </span>
                 </div>
-                {stream.host_id === viewerId ? (
-                  <p className="mt-4 rounded-lg bg-black/20 px-3 py-2 text-center text-xs text-pink-200">Tu transmisión está activa</p>
-                ) : (
-                  <Button
-                    className="mt-4 w-full gap-2"
-                    onClick={() => viewerId
-                      ? setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" })
-                      : toast.info("Inicia sesión para entrar, comentar o enviar regalos.")}
-                  >
-                    <Radio className="size-4" /> Entrar al Directo
-                  </Button>
-                )}
-              </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

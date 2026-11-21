@@ -48,6 +48,7 @@ type WallFeedProps = {
   showScopeTabs?: boolean;
   searchTerm?: string | undefined;
   highlightPostId?: string | undefined;
+  onOpenVideo?: ((postId: string) => void) | undefined;
 };
 
 export function WallFeed({
@@ -60,6 +61,7 @@ export function WallFeed({
   showScopeTabs = true,
   searchTerm,
   highlightPostId,
+  onOpenVideo,
 }: WallFeedProps) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
@@ -132,6 +134,9 @@ export function WallFeed({
         void queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_saves" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_saved_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_comments" }, () => {
@@ -484,6 +489,7 @@ export function WallFeed({
               onPin={() => void handlePin(post.id, post.is_pinned)}
               onRepost={() => void handleRepost(post.id)}
               onHashtag={(tag) => setSelectedHashtag(tag.toLowerCase())}
+              onOpenVideo={onOpenVideo}
               currentUserId={viewerId}
             />
           ))}
