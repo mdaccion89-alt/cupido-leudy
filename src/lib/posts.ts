@@ -6,7 +6,7 @@ export type FeedPost = {
   id: string;
   user_id: string;
   media_url: string;
-  kind: "photo" | "video";
+  kind: "photo" | "video" | "text";
   caption: string;
   likes_count: number;
   dislikes_count: number;
@@ -72,11 +72,7 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
-const POST_COLUMN_SETS = [
-  "id,user_id,media_url,media_type,media_path,kind,caption,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at",
-  "id,user_id,media_url,media_type,media_path,kind,caption,likes_count,created_at",
-  "id,user_id,media_path,kind,caption,likes_count,created_at",
-];
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,likes_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -134,17 +130,13 @@ async function selectPosts(
     if (!savedIds?.length) return [];
   }
 
-  let error: { message: string } | null = null;
-  for (const columns of POST_COLUMN_SETS) {
-    let query = db.from("cupido_posts").select(columns).order("created_at", { ascending: false }).limit(limit);
-    if (onlyUserId) query = query.eq("user_id", onlyUserId);
-    if (onlyUserIds) query = query.in("user_id", onlyUserIds);
-    if (savedIds) query = query.in("id", savedIds);
-    const result = await query;
-    if (!result.error) return (result.data ?? []) as AnyRow[];
-    error = result.error;
-  }
-  throw error ?? new Error("No se pudieron cargar las publicaciones.");
+  let query = db.from("cupido_posts").select(POST_COLUMNS).order("created_at", { ascending: false }).limit(limit);
+  if (onlyUserId) query = query.eq("user_id", onlyUserId);
+  if (onlyUserIds) query = query.in("user_id", onlyUserIds);
+  if (savedIds) query = query.in("id", savedIds);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as AnyRow[];
 }
 
 async function fetchEngagement(postIds: string[], viewerId: string | null) {
@@ -187,38 +179,33 @@ export async function fetchFeed(options: {
     followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
   }
   const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds);
-  const filtered = videoOnly ? rows.filter((row) => row.kind === "video" || row.media_type === "video") : rows;
+  const filtered = videoOnly ? rows.filter((row) => row.kind === "video") : rows;
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
-  const [creatorRows, emailRows] = await Promise.all([
-    ids.length
-      ? supabase
-          .from("creator_profiles")
-          .select("id,display_name,avatar_url,is_verified_blue,is_super_admin,is_cupido_active")
-          .in("id", ids)
-      : Promise.resolve({ data: [] }),
-    ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [] }),
-  ]);
+  const creatorRows = ids.length
+    ? await supabase
+        .from("cupido_public_profiles")
+        .select("id,display_name,avatar_url,is_verified_blue,is_super_admin,is_official,is_cupido_active")
+        .in("id", ids)
+    : { data: [], error: null };
+  if (creatorRows.error) {
+    console.error("[muro] No se pudieron cargar los perfiles públicos de las publicaciones.", creatorRows.error);
+    throw creatorRows.error;
+  }
   const creators = new Map(((creatorRows.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
-  const emails = new Map(((emailRows.data ?? []) as AnyRow[]).map((row) => [row.id as string, row.email as string | null]));
-  const publicRows = filtered.filter((row) => {
-    const creator = creators.get(row.user_id);
-    const email = emails.get(row.user_id) ?? null;
-    return Boolean(creator?.is_cupido_active) || isSupremePost(email, Boolean(creator?.is_super_admin));
-  });
-  const postIds = publicRows.map((row) => row.id as string);
+  const postIds = filtered.map((row) => row.id as string);
   const engagement = await fetchEngagement(postIds, viewerId);
 
-  const posts: FeedPost[] = publicRows.flatMap((row): FeedPost[] => {
+  const posts: FeedPost[] = filtered.flatMap((row): FeedPost[] => {
     if (!row || typeof row !== "object") return [];
-    const url = String(row.media_url ?? row.media_path ?? "");
-    if (!url) return [];
-    const email = emails.get(row.user_id) ?? null;
+    const url = String(row.media_path ?? row.media_url ?? "");
     const creator = creators.get(row.user_id);
+    const kind = row.kind === "text" ? "text" : row.kind === "video" ? "video" : "photo";
+    if (kind !== "text" && !url) return [];
     return [{
       id: row.id,
       user_id: row.user_id,
       media_url: url,
-      kind: row.kind === "video" || row.media_type === "video" ? "video" : "photo",
+      kind,
       caption: row.caption ?? "",
       likes_count: Number(row.likes_count) || 0,
       dislikes_count: Number(row.dislikes_count) || 0,
@@ -230,23 +217,23 @@ export async function fetchFeed(options: {
       display_name: creator?.display_name ?? "Miembro de Cupido",
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
-      email,
-      is_super_admin: isSupremePost(email, Boolean(row.is_super_admin ?? creator?.is_super_admin)),
+      email: null,
+      is_super_admin: Boolean(row.is_super_admin ?? creator?.is_super_admin ?? creator?.is_official),
     }];
   });
 
   return { posts, liked: engagement.liked, disliked: engagement.disliked, saved: engagement.saved };
 }
 
-export async function createPost(input: { userId: string; caption: string; url: string; isVideo: boolean }): Promise<string> {
+export async function createPost(input: { userId: string; caption: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text" }): Promise<string> {
+  const kind = input.kind ?? (input.isVideo ? "video" : "photo");
   const result = await db
     .from("cupido_posts")
     .insert({
       user_id: input.userId,
       caption: input.caption.trim(),
-      media_url: input.url,
-      media_type: input.isVideo ? "video" : "image",
-      kind: input.isVideo ? "video" : "photo",
+      media_path: input.url || null,
+      kind,
     })
     .select("id")
     .maybeSingle();
@@ -311,7 +298,7 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
   const rows = (result.data ?? []) as AnyRow[];
   const ids = [...new Set(rows.map((row) => row.user_id as string))];
   const profiles = ids.length
-    ? await supabase.from("creator_profiles").select("id,display_name,avatar_url").in("id", ids)
+    ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", ids)
     : { data: [] };
   const map = new Map(((profiles.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
   return rows.map((row) => {

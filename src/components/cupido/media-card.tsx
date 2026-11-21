@@ -123,15 +123,17 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
 
   return (
     <article ref={visibilityRef} className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
-      <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
-        {media?.kind === "video" ? (
+      <div className={`relative w-full bg-black ${media?.kind === "text" ? "min-h-36 bg-gradient-to-br from-pink-950 to-slate-950 p-6" : "aspect-[9/14] max-h-[520px]"}`}>
+        {media?.kind === "text" ? (
+          <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white">{caption}</p>
+        ) : media?.kind === "video" ? (
           <CupidoVideoPlayer src={mediaUrl} controls loop className="h-full w-full object-cover" />
         ) : (
           <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
         )}
         <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
-          {media?.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : <ImageIcon className="mr-1 inline h-3 w-3" />}
-          {media?.kind === "video" ? "Short" : "Foto"}
+          {media?.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : media?.kind === "text" ? null : <ImageIcon className="mr-1 inline h-3 w-3" />}
+          {media?.kind === "video" ? "Short" : media?.kind === "text" ? "Publicación" : "Foto"}
         </span>
       </div>
       <div className="p-4">
@@ -147,7 +149,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {authorName}
               <VerifiedBadge email={authorEmail} verified={Boolean(media?.is_verified_blue)} className="ml-1 inline size-4" />
             </p>
-            <p className="line-clamp-2 text-xs text-muted-foreground">{caption || "Momento en Cupido Leudy ❤️"}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{media.kind === "text" ? "Publicación de la comunidad" : caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
           <div className="shrink-0 text-right text-xs text-pink-200">
             <p className="font-semibold">{metrics.likes} ❤️</p>

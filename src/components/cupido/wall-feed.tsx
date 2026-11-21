@@ -198,6 +198,27 @@ export function WallFeed({
     }
   };
 
+  const handleTextPost = async () => {
+    if (!viewerId) {
+      requireSession();
+      return;
+    }
+    if (!caption.trim()) return;
+    setUploading(true);
+    try {
+      await createPost({ userId: viewerId, caption, kind: "text" });
+      setCaption("");
+      toast.success("Publicación compartida en el muro ❤️");
+      await invalidateFeed();
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
+    } catch (error) {
+      console.error("[muro] No se pudo publicar el texto.", error);
+      toast.error(errorMessage(error, "No se pudo publicar. Inténtalo de nuevo."));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleUpload = async (file: File | null, alreadyFiltered = false) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
@@ -291,7 +312,7 @@ export function WallFeed({
           <input
             value={caption}
             onChange={(event) => setCaption(event.target.value)}
-            placeholder={videoOnly ? "Describe tu video…" : "Describe tu foto o video…"}
+            placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video…"}
             className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
           />
           <input
@@ -311,6 +332,11 @@ export function WallFeed({
             <Upload className="h-4 w-4" />
             {videoOnly ? "Elegir video" : "Elegir foto o video"}
           </Button>
+          {!videoOnly && (
+            <Button onClick={() => void handleTextPost()} disabled={uploading || !caption.trim()} variant="secondary">
+              {uploading ? "Publicando…" : "Publicar texto"}
+            </Button>
+          )}
         </div>
       )}
 

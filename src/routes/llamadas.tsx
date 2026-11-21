@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, CALL_COSTS } from "@/lib/cupido";
+import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export const Route = createFileRoute("/llamadas")({
   head: () => ({ meta: [{ title: `Llamadas en vivo — ${BRAND}` }] }),
@@ -99,12 +100,8 @@ function CallsPage() {
       if (error) throw error;
       const ids = [...new Set((rooms ?? []).map((room) => room.host_id))];
       const profiles = ids.length
-        ? (await supabase.from("creator_profiles").select("id,display_name,avatar_url,is_verified_blue").in("id", ids)).data ?? []
+        ? (await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin").in("id", ids)).data ?? []
         : [];
-      const emails = ids.length
-        ? (await supabase.from("profiles").select("id,email").in("id", ids)).data ?? []
-        : [];
-      const emailMap = new Map(emails.map((row) => [row.id, row.email]));
       return (rooms ?? []).map<LiveRow>((room) => {
         const profile = profiles.find((row) => row.id === room.host_id);
         return {
@@ -115,7 +112,7 @@ function CallsPage() {
           host_name: profile?.display_name ?? "Miembro de Cupido",
           host_avatar: profile?.avatar_url ?? "",
           is_verified_blue: profile?.is_verified_blue ?? false,
-          email: emailMap.get(room.host_id) ?? null,
+          email: profile?.is_official || profile?.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
         };
       });
     },

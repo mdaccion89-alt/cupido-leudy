@@ -155,6 +155,10 @@ export type Database = {
           is_super_admin: boolean;
           is_verified_blue: boolean;
           looking_for: string;
+          zodiac: string;
+          smokes: boolean;
+          hobbies: string;
+          survey_completed: boolean;
           moderation_status: string;
           selfie_path: string;
           verification_frames: string[];
@@ -179,6 +183,10 @@ export type Database = {
           is_super_admin?: boolean;
           is_verified_blue?: boolean;
           looking_for?: string;
+          zodiac?: string;
+          smokes?: boolean;
+          hobbies?: string;
+          survey_completed?: boolean;
           moderation_status?: string;
           selfie_path?: string;
           verification_frames?: string[];
@@ -203,6 +211,10 @@ export type Database = {
           is_super_admin?: boolean;
           is_verified_blue?: boolean;
           looking_for?: string;
+          zodiac?: string;
+          smokes?: boolean;
+          hobbies?: string;
+          survey_completed?: boolean;
           moderation_status?: string;
           selfie_path?: string;
           verification_frames?: string[];
@@ -457,6 +469,10 @@ export type Database = {
           theme_mode: string;
           notifications_enabled: boolean;
           sounds_enabled: boolean;
+          zodiac: string;
+          smokes: boolean;
+          hobbies: string;
+          survey_completed: boolean;
           looking_for: string | null;
           phone: string | null;
           plan: string;
@@ -488,6 +504,10 @@ export type Database = {
           theme_mode?: string;
           notifications_enabled?: boolean;
           sounds_enabled?: boolean;
+          zodiac?: string;
+          smokes?: boolean;
+          hobbies?: string;
+          survey_completed?: boolean;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
@@ -519,6 +539,10 @@ export type Database = {
           theme_mode?: string;
           notifications_enabled?: boolean;
           sounds_enabled?: boolean;
+          zodiac?: string;
+          smokes?: boolean;
+          hobbies?: string;
+          survey_completed?: boolean;
           looking_for?: string | null;
           phone?: string | null;
           plan?: string;
@@ -952,7 +976,7 @@ export type Database = {
         id: string;
         kind: string;
         likes_count: number;
-        media_path: string;
+        media_path: string | null;
         moderation_status: string;
         user_id: string;
       };
@@ -962,7 +986,7 @@ export type Database = {
         id?: string;
         kind: string;
         likes_count?: number;
-        media_path: string;
+        media_path?: string | null;
         moderation_status?: string;
         user_id: string;
       };
@@ -1076,7 +1100,33 @@ export type Database = {
     };
     };
     Views: {
-      [_ in never]: never;
+      cupido_public_profiles: {
+        Row: {
+          age: number | null;
+          avatar_url: string;
+          bio: string;
+          country_code: string;
+          created_at: string;
+          display_name: string;
+          drinks: boolean;
+          friend_count: number;
+          follower_count: number;
+          gender: string | null;
+          has_kids: boolean;
+          hobbies: string;
+          survey_completed: boolean;
+          id: string;
+          is_official: boolean;
+          is_cupido_active: boolean;
+          is_premium: boolean;
+          is_super_admin: boolean;
+          is_verified_blue: boolean;
+          looking_for: string;
+          smokes: boolean;
+          zodiac: string;
+        };
+        Relationships: [];
+      };
     };
     Functions: {
       cupido_count_followers: { Args: { _following: string }; Returns: number };

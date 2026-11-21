@@ -12,7 +12,11 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT 'dark' CHECK (theme_mode IN ('dark', 'light')),
   ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS sounds_enabled BOOLEAN NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+  ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS zodiac TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS smokes BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS hobbies TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS survey_completed BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE public.creator_profiles
   ADD COLUMN IF NOT EXISTS country_code TEXT NOT NULL DEFAULT 'DO',
@@ -28,8 +32,22 @@ ALTER TABLE public.creator_profiles
   ADD COLUMN IF NOT EXISTS is_verified_blue BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS is_cupido_active BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS zodiac TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS smokes BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS hobbies TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS survey_completed BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS friend_count INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS shares_count INTEGER NOT NULL DEFAULT 0;
+
+CREATE OR REPLACE VIEW public.cupido_public_profiles
+WITH (security_barrier = TRUE)
+AS
+SELECT id, display_name, avatar_url, bio, country_code, age, gender, looking_for,
+  zodiac, smokes, drinks, has_kids, hobbies, survey_completed, is_verified_blue,
+  is_super_admin, is_official, is_cupido_active, is_premium, friend_count,
+  follower_count, created_at
+FROM public.creator_profiles;
+GRANT SELECT ON public.cupido_public_profiles TO anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 2. Tablas de la plataforma
@@ -61,9 +79,9 @@ CREATE TABLE IF NOT EXISTS public.cupido_friends (
 CREATE TABLE IF NOT EXISTS public.cupido_posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('photo', 'video')),
+  kind TEXT NOT NULL CHECK (kind IN ('photo', 'video', 'text')),
   caption TEXT NOT NULL DEFAULT '',
-  media_path TEXT NOT NULL,
+  media_path TEXT,
   likes_count INTEGER NOT NULL DEFAULT 0,
   moderation_status TEXT NOT NULL DEFAULT 'approved'
     CHECK (moderation_status IN ('pending', 'approved', 'rejected')),
@@ -433,7 +451,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authentic
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 -- La insignia azul y la revisión solo cambian por RPC de administración.
 REVOKE UPDATE ON public.creator_profiles FROM authenticated;
-GRANT UPDATE (display_name, bio, avatar_url, country_code, looking_for, drinks, has_kids)
+GRANT UPDATE (display_name, bio, avatar_url, country_code, looking_for, drinks, has_kids, age, gender, zodiac, smokes, hobbies, survey_completed)
   ON public.creator_profiles TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_accept_terms(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_admin_auto_terms() TO authenticated;

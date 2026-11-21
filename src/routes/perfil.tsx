@@ -50,6 +50,16 @@ function safeCount(value: unknown): number {
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
+function ageFromBirthDate(value: string): number | null {
+  if (!value) return null;
+  const birth = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let years = now.getFullYear() - birth.getFullYear();
+  if (now.getMonth() < birth.getMonth() || (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())) years -= 1;
+  return years;
+}
+
 function errorMessage(value: unknown, fallback: string): string {
   if (value instanceof Error) return value.message || fallback;
   if (value && typeof value === "object" && "message" in value) {
@@ -96,11 +106,16 @@ function ProfilePage() {
   const [fullName, setFullName] = useState("");
   const [bio, setBio] = useState("");
   const [age, setAge] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [phone, setPhone] = useState("");
   const [gender, setGender] = useState("");
   const [countryCode, setCountryCode] = useState("DO");
   const [lookingFor, setLookingFor] = useState("amistad");
   const [drinks, setDrinks] = useState(false);
   const [hasKids, setHasKids] = useState(false);
+  const [zodiac, setZodiac] = useState("");
+  const [smokes, setSmokes] = useState(false);
+  const [hobbies, setHobbies] = useState("");
   const [followersOpen, setFollowersOpen] = useState(false);
 
   const profile = useQuery({
@@ -108,14 +123,18 @@ function ProfilePage() {
     enabled: Boolean(profileId),
     queryFn: async () => {
       const [creator, privateProfile, follow, friendA, friendB, followerTotal] = await Promise.all([
-        supabase.from("creator_profiles").select("*").eq("id", profileId!).maybeSingle(),
         supabase
-          .from("profiles")
-          .select(
-            "display_name,full_name,email,phone,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids",
-          )
+          .from("cupido_public_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
           .eq("id", profileId!)
           .maybeSingle(),
+        viewerId === profileId
+          ? supabase
+              .from("profiles")
+              .select("display_name,full_name,email,phone,birth_date,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids,zodiac,smokes,hobbies,survey_completed")
+              .eq("id", profileId!)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
         viewerId
           ? supabase
               .from("follows")
@@ -142,6 +161,14 @@ function ProfilePage() {
           : Promise.resolve({ data: null }),
         supabase.rpc("cupido_count_followers", { _following: profileId! }),
       ]);
+      if (creator.error) {
+        console.error("[perfil] Falló la consulta del perfil público.", creator.error);
+        throw creator.error;
+      }
+      if (privateProfile.error) {
+        console.error("[perfil] No se pudieron leer los datos privados del propietario.", privateProfile.error);
+        throw privateProfile.error;
+      }
       return {
         creator: creator.data,
         privateProfile: privateProfile.data,
@@ -151,6 +178,20 @@ function ProfilePage() {
       };
     },
   });
+
+  useEffect(() => {
+    if (!profileId) return;
+    const channel = supabase
+      .channel(`cupido-profile-live-${profileId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles", filter: `id=eq.${profileId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `following_id=eq.${profileId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [profileId, queryClient]);
 
   const followersList = useQuery({
     queryKey: ["cupido-followers", profileId],
@@ -167,6 +208,8 @@ function ProfilePage() {
     const privateProfile = profile.data?.privateProfile;
     setDisplayName(safeText(creator?.display_name, safeText(privateProfile?.display_name)));
     setFullName(safeText(privateProfile?.full_name));
+    setBirthDate(safeText(privateProfile?.birth_date));
+    setPhone(safeText(privateProfile?.phone));
     setBio(safeText(creator?.bio, safeText(privateProfile?.bio)));
     setAge(safeText(extraField(creator, "age"), safeText(privateProfile?.age)));
     setGender(safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)));
@@ -174,12 +217,19 @@ function ProfilePage() {
     setLookingFor(safeText(creator?.looking_for, safeText(privateProfile?.looking_for, "amistad")) || "amistad");
     setDrinks(Boolean(creator?.drinks ?? privateProfile?.drinks));
     setHasKids(Boolean(creator?.has_kids ?? privateProfile?.has_kids));
+    setZodiac(safeText(creator?.zodiac, safeText(privateProfile?.zodiac)));
+    setSmokes(Boolean(creator?.smokes ?? privateProfile?.smokes));
+    setHobbies(safeText(creator?.hobbies, safeText(privateProfile?.hobbies)));
   }, [profile.data]);
 
   const save = useMutation({
     mutationFn: async () => {
       if (!profileId) return;
-      const parsedAge = Number.parseInt(age, 10);
+      const birthdayAge = ageFromBirthDate(birthDate);
+      if (birthDate && (!birthdayAge || birthdayAge < 18 || birthdayAge > 120)) {
+        throw new Error("La fecha de nacimiento debe corresponder a una persona adulta.");
+      }
+      const parsedAge = birthdayAge ?? Number.parseInt(age, 10);
       await saveProfileDirect(profileId, {
         displayName: displayName.trim() || "Miembro de Cupido",
         fullName: fullName.trim(),
@@ -190,6 +240,12 @@ function ProfilePage() {
         lookingFor,
         drinks,
         hasKids,
+        birthDate,
+        phone: phone.trim(),
+        zodiac,
+        smokes,
+        hobbies: hobbies.trim(),
+        surveyCompleted: true,
       });
     },
     onSuccess: () => {
@@ -355,7 +411,8 @@ function ProfilePage() {
   const isAdmin = Boolean(account.isAdmin) && own;
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
-  const displayLabel = isSupremeAdminEmail(profileEmail) ? "Cupido Leudy Cuenta Oficial" : displayName || "Miembro de Cupido";
+  const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
+  const displayLabel = officialProfile ? "Cupido Leudy Cuenta Oficial" : displayName || "Miembro de Cupido";
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
   const followers = actualFollowerCount;
   const friends = safeCount(creator?.friend_count);
@@ -385,11 +442,11 @@ function ProfilePage() {
                   verified={
                     verified ||
                     Boolean(creator?.is_official) ||
-                    isSupremeAdminEmail(profileEmail)
+                    officialProfile
                   }
                   className="size-6"
                 />
-                {Boolean(creator?.is_official) && (
+                {officialProfile && (
                   <Badge className="gap-1 bg-gradient-to-r from-pink-500 to-violet-500">
                     <VerifiedBadge verified className="size-3.5" /> Cuenta Oficial
                   </Badge>
@@ -427,13 +484,20 @@ function ProfilePage() {
           <p className="mt-5 max-w-2xl text-sm text-foreground/80">
             {bio || "Todavía no escribió su biografía."}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          {Boolean(creator?.survey_completed ?? privateProfile?.survey_completed) ? <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <span className="rounded-full bg-pink-500/15 px-3 py-1 text-pink-200">
               Busca {LOOKING_FOR.find((item) => item.value === lookingFor)?.label ?? lookingFor}
             </span>
             <span className="rounded-full bg-white/10 px-3 py-1">{drinks ? "Toma" : "No toma"}</span>
             <span className="rounded-full bg-white/10 px-3 py-1">{hasKids ? "Con hijos" : "Sin hijos"}</span>
-          </div>
+            {safeText(creator?.zodiac, safeText(privateProfile?.zodiac)) && (
+              <span className="rounded-full bg-white/10 px-3 py-1">Signo: {safeText(creator?.zodiac, safeText(privateProfile?.zodiac))}</span>
+            )}
+            <span className="rounded-full bg-white/10 px-3 py-1">{Boolean(creator?.smokes ?? privateProfile?.smokes) ? "Fuma" : "No fuma"}</span>
+          </div> : <p className="mt-3 text-xs text-muted-foreground">La encuesta de perfil es opcional y está pendiente.</p>}
+          {Boolean(creator?.survey_completed ?? privateProfile?.survey_completed) && safeText(creator?.hobbies, safeText(privateProfile?.hobbies)) && (
+            <p className="mt-3 text-sm text-muted-foreground">Pasatiempos: {safeText(creator?.hobbies, safeText(privateProfile?.hobbies))}</p>
+          )}
 
           <div className="mt-6 flex flex-wrap gap-2">
             {own ? (
@@ -481,15 +545,17 @@ function ProfilePage() {
                 <Input value={fullName} maxLength={80} onChange={(event) => setFullName(event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Edad</Label>
+                <Label>Fecha de nacimiento (solo visible para ti)</Label>
                 <Input
-                  type="number"
-                  min={18}
-                  max={100}
-                  value={age}
-                  onChange={(event) => setAge(event.target.value)}
-                  placeholder="18"
+                  type="date"
+                  max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)}
+                  value={birthDate}
+                  onChange={(event) => setBirthDate(event.target.value)}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Teléfono (privado)</Label>
+                <Input type="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Género</Label>
@@ -537,6 +603,24 @@ function ProfilePage() {
                 <Checkbox checked={hasKids} onCheckedChange={(value) => setHasKids(Boolean(value))} />
                 Tiene hijos
               </label>
+              <div className="space-y-2">
+                <Label>Signo zodiacal</Label>
+                <Select value={zodiac || "sin-especificar"} onValueChange={(value) => setZodiac(value === "sin-especificar" ? "" : value)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"].map((sign) => <SelectItem key={sign} value={sign}>{sign}</SelectItem>)}
+                    <SelectItem value="sin-especificar">Prefiero omitirlo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={smokes} onCheckedChange={(value) => setSmokes(Boolean(value))} />
+                Fuma
+              </label>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>Pasatiempos favoritos (visibles en el perfil)</Label>
+                <Input value={hobbies} maxLength={240} onChange={(event) => setHobbies(event.target.value)} placeholder="Música, baile, senderismo…" />
+              </div>
               <div className="flex flex-wrap gap-2 sm:col-span-2">
                 <Button onClick={() => save.mutate()} disabled={save.isPending}>
                   {save.isPending ? <Loader2 className="animate-spin" /> : <Save />} Guardar

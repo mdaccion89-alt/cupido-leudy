@@ -36,7 +36,7 @@ export function useCreators() {
     queryKey: creatorKeys.list(),
     queryFn: async (): Promise<CreatorProfile[]> => {
       const { data, error } = await supabase
-        .from("creator_profiles")
+        .from("cupido_public_profiles")
         .select(PUBLIC_FIELDS)
         .order("follower_count", { ascending: false })
         .order("created_at", { ascending: false });
@@ -53,7 +53,7 @@ export function useCreator(id: string | null | undefined) {
     enabled: Boolean(id),
     queryFn: async (): Promise<CreatorProfile | null> => {
       const { data, error } = await supabase
-        .from("creator_profiles")
+        .from("cupido_public_profiles")
         .select(PUBLIC_FIELDS)
         .eq("id", id!)
         .maybeSingle();

@@ -18,6 +18,7 @@ export type CupidoProfile = {
   is_verified_blue: boolean;
   friend_count: number;
   follower_count: number;
+  survey_completed: boolean;
 };
 
 type ProfileCardProps = {
@@ -86,17 +87,19 @@ export function ProfileCard({
         {profile.bio || "Todavía no escribió su biografía."}
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        <span className="rounded-full bg-pink-500/15 px-2.5 py-1 text-pink-200">
-          {looking?.emoji ?? "💕"} Busca {looking?.label ?? profile.looking_for}
-        </span>
-        <span className="rounded-full bg-white/10 px-2.5 py-1 text-slate-300">
-          <Beer className="mr-1 inline h-3 w-3" /> {profile.drinks ? "Toma" : "No toma"}
-        </span>
-        <span className="rounded-full bg-white/10 px-2.5 py-1 text-slate-300">
-          <Baby className="mr-1 inline h-3 w-3" /> {profile.has_kids ? "Con hijos" : "Sin hijos"}
-        </span>
-      </div>
+      {profile.survey_completed ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="rounded-full bg-pink-500/15 px-2.5 py-1 text-pink-200">
+            {looking?.emoji ?? "💕"} Busca {looking?.label ?? profile.looking_for}
+          </span>
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-slate-300">
+            <Beer className="mr-1 inline h-3 w-3" /> {profile.drinks ? "Toma" : "No toma"}
+          </span>
+          <span className="rounded-full bg-white/10 px-2.5 py-1 text-slate-300">
+            <Baby className="mr-1 inline h-3 w-3" /> {profile.has_kids ? "Con hijos" : "Sin hijos"}
+          </span>
+        </div>
+      ) : <p className="mt-3 text-xs text-muted-foreground">Encuesta opcional sin responder</p>}
 
       <div className="mt-auto grid grid-cols-2 gap-2 pt-5">
         {isMe ? (

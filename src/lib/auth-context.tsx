@@ -16,6 +16,7 @@ function ensureMyProfile(): Promise<void> {
     .then(() => client.rpc("cupido_adapt_legacy_profile"))
     .then(() => client.rpc("cupido_admin_auto_terms"))
     .then(() => client.rpc("cupido_admin_auto_follow"))
+    .then(() => client.rpc("cupido_sync_my_profile"))
     .then(() => undefined)
     .catch(() => undefined);
 }

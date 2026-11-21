@@ -6,9 +6,10 @@ import heroWaves from "@/assets/hero-waves.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
-import { BRAND, SLOGAN } from "@/lib/cupido";
+import { BRAND, COUNTRIES, LOOKING_FOR, SLOGAN, countryFlag } from "@/lib/cupido";
 import { captureReferralFromUrl } from "@/lib/referral";
 
 export const Route = createFileRoute("/auth")({
@@ -60,6 +61,15 @@ function normalizePhone(value: string): string {
   return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
 }
 
+function isAdultDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const birthDate = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(birthDate.getTime())) return false;
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 18);
+  return birthDate <= cutoff;
+}
+
 function AuthPage() {
   const { session } = useAuth();
   const { ref } = Route.useSearch();
@@ -73,6 +83,19 @@ function AuthPage() {
   const [recoverySent, setRecoverySent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [guestUsed, setGuestUsed] = useState(false);
+  const [signupStep, setSignupStep] = useState<0 | 1 | 2>(0);
+  const [phoneSignup, setPhoneSignup] = useState(false);
+  const [phoneSurveySkipped, setPhoneSurveySkipped] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [birthDate, setBirthDate] = useState("");
+  const [countryCode, setCountryCode] = useState("DO");
+  const [lookingFor, setLookingFor] = useState("amistad");
+  const [zodiac, setZodiac] = useState("");
+  const [smokes, setSmokes] = useState(false);
+  const [drinks, setDrinks] = useState(false);
+  const [hasKids, setHasKids] = useState(false);
+  const [hobbies, setHobbies] = useState("");
 
   useEffect(() => {
     captureReferralFromUrl();
@@ -104,9 +127,27 @@ function AuthPage() {
     }
   };
 
-  const signUp = async () => {
+  const signUp = () => setSignupStep(1);
+
+  const finishSignup = async (skipSurvey: boolean) => {
     if (!email.trim() || password.length < 6) {
       toast.error("Escribe tu correo y una contraseña de al menos 6 caracteres.");
+      return;
+    }
+    if (!fullName.trim() && !displayName.trim()) {
+      toast.error("Escribe tu nombre completo o un apodo.");
+      setSignupStep(1);
+      return;
+    }
+    if (!isAdultDate(birthDate)) {
+      toast.error("Debes tener al menos 18 años. Revisa tu fecha de nacimiento.");
+      setSignupStep(1);
+      return;
+    }
+    const normalizedPhone = normalizePhone(phone);
+    if (!/^\+[1-9]\d{6,14}$/.test(normalizedPhone)) {
+      toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
+      setSignupStep(1);
       return;
     }
     setBusy(true);
@@ -114,7 +155,23 @@ function AuthPage() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin },
+        options: {
+          emailRedirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin,
+          data: {
+            full_name: fullName.trim() || displayName.trim(),
+            display_name: displayName.trim() || fullName.trim(),
+            birth_date: birthDate,
+            phone: normalizedPhone,
+            country_code: countryCode,
+            looking_for: skipSurvey ? "amistad" : lookingFor,
+            zodiac: skipSurvey ? "" : zodiac,
+            smokes: skipSurvey ? false : smokes,
+            drinks: skipSurvey ? false : drinks,
+            has_kids: skipSurvey ? false : hasKids,
+            hobbies: skipSurvey ? "" : hobbies.trim(),
+            survey_completed: !skipSurvey,
+          },
+        },
       });
       if (error) throw error;
       toast.success(
@@ -154,11 +211,33 @@ function AuthPage() {
       toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
       return;
     }
+    if (phoneSignup && ((!fullName.trim() && !displayName.trim()) || !isAdultDate(birthDate))) {
+      toast.error("Para crear la cuenta, completa tu nombre y confirma que tienes 18 años o más.");
+      return;
+    }
     setBusy(true);
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: normalized,
-        options: { shouldCreateUser: true },
+        options: {
+          shouldCreateUser: phoneSignup,
+          ...(phoneSignup ? {
+            data: {
+              full_name: fullName.trim() || displayName.trim(),
+              display_name: displayName.trim() || fullName.trim(),
+              birth_date: birthDate,
+              phone: normalized,
+              country_code: countryCode,
+              looking_for: phoneSurveySkipped ? "amistad" : lookingFor,
+              zodiac: phoneSurveySkipped ? "" : zodiac,
+              smokes: phoneSurveySkipped ? false : smokes,
+              drinks: phoneSurveySkipped ? false : drinks,
+              has_kids: phoneSurveySkipped ? false : hasKids,
+              hobbies: phoneSurveySkipped ? "" : hobbies.trim(),
+              survey_completed: !phoneSurveySkipped,
+            },
+          } : {}),
+        },
       });
       if (error) throw error;
       setPhone(normalized);
@@ -226,6 +305,26 @@ function AuthPage() {
     }
   };
 
+  const continueSignup = () => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || password.length < 6) {
+      toast.error("Escribe un correo válido y una contraseña de al menos 6 caracteres.");
+      return;
+    }
+    if (!fullName.trim() && !displayName.trim()) {
+      toast.error("Escribe tu nombre completo o un apodo.");
+      return;
+    }
+    if (!isAdultDate(birthDate)) {
+      toast.error("Debes tener al menos 18 años. Revisa tu fecha de nacimiento.");
+      return;
+    }
+    if (!/^\+[1-9]\d{6,14}$/.test(normalizePhone(phone))) {
+      toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
+      return;
+    }
+    setSignupStep(2);
+  };
+
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-12">
       <img
@@ -277,7 +376,90 @@ function AuthPage() {
           </button>
         </div>
 
-        {mode === "email" ? (
+        {mode === "email" && signupStep > 0 ? (
+          <section className="mt-6 space-y-4 rounded-2xl border border-pink-400/20 bg-black/20 p-4">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-pink-200">Paso {signupStep} de 2</p>
+              <h2 className="mt-1 text-lg font-semibold text-white">
+                {signupStep === 1 ? "Completa tu perfil para crear la cuenta" : "Cuéntanos un poco más (opcional)"}
+              </h2>
+            </div>
+            {signupStep === 1 ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Correo electrónico</Label>
+                  <Input id="signup-email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Contraseña (mínimo 6 caracteres)</Label>
+                  <Input id="signup-password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-name">Nombre completo</Label>
+                  <Input id="signup-name" autoComplete="name" maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-nickname">Apodo público (opcional)</Label>
+                  <Input id="signup-nickname" maxLength={60} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-birth-date">Fecha de nacimiento (debes tener 18 años o más)</Label>
+                  <Input id="signup-birth-date" type="date" max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>País</Label>
+                  <Select value={countryCode} onValueChange={setCountryCode}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {COUNTRIES.map(([code, name]) => <SelectItem key={code} value={code}>{countryFlag(code)} {name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-phone">Teléfono con código de país</Label>
+                  <Input id="signup-phone" type="tel" autoComplete="tel" placeholder="+1 809 555 1234" value={phone} onChange={(event) => setPhone(event.target.value)} />
+                </div>
+                <Button type="button" className="w-full" disabled={busy} onClick={continueSignup}>Continuar</Button>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>¿Qué buscas?</Label>
+                  <Select value={lookingFor} onValueChange={setLookingFor}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {LOOKING_FOR.map((item) => <SelectItem key={item.value} value={item.value}>{item.emoji} {item.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Signo zodiacal</Label>
+                  <Select value={zodiac || "sin-especificar"} onValueChange={(value) => setZodiac(value === "sin-especificar" ? "" : value)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"].map((sign) => <SelectItem key={sign} value={sign}>{sign}</SelectItem>)}
+                      <SelectItem value="sin-especificar">Prefiero omitirlo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={smokes} onChange={(event) => setSmokes(event.target.checked)} /> ¿Fumas?</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={drinks} onChange={(event) => setDrinks(event.target.checked)} /> ¿Tomas alcohol?</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={hasKids} onChange={(event) => setHasKids(event.target.checked)} /> ¿Tienes hijos?</label>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-hobbies">Pasatiempos favoritos (opcional)</Label>
+                  <Input id="signup-hobbies" maxLength={240} placeholder="Música, baile, senderismo…" value={hobbies} onChange={(event) => setHobbies(event.target.value)} />
+                </div>
+                <div className="flex flex-wrap justify-between gap-2 pt-2">
+                  <Button type="button" variant="outline" disabled={busy} onClick={() => setSignupStep(1)}>Atrás</Button>
+                  <Button type="button" variant="outline" disabled={busy} onClick={() => void finishSignup(true)}>Omitir encuesta</Button>
+                  <Button type="button" disabled={busy} onClick={() => void finishSignup(false)}>
+                    {busy && <Loader2 className="animate-spin" />} Crear cuenta
+                  </Button>
+                </div>
+              </>
+            )}
+          </section>
+        ) : mode === "email" ? (
           <form onSubmit={signIn} className="mt-6 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Correo electrónico</Label>
@@ -332,6 +514,59 @@ function AuthPage() {
                 className="h-11 rounded-xl bg-surface/80"
               />
             </div>
+            <Button type="button" variant="link" className="h-auto px-0 text-xs" onClick={() => setPhoneSignup((value) => !value)}>
+              {phoneSignup ? "Ya tengo una cuenta con teléfono" : "Crear una cuenta nueva con teléfono"}
+            </Button>
+            {phoneSignup && (
+              <div className="space-y-3 rounded-xl border border-white/10 p-3">
+                <div className="space-y-2">
+                  <Label htmlFor="phone-signup-name">Nombre completo</Label>
+                  <Input id="phone-signup-name" maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone-signup-nickname">Apodo público (opcional)</Label>
+                  <Input id="phone-signup-nickname" maxLength={60} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone-signup-birth">Fecha de nacimiento (+18)</Label>
+                  <Input id="phone-signup-birth" type="date" max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>País</Label>
+                  <Select value={countryCode} onValueChange={setCountryCode}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-72">
+                      {COUNTRIES.map(([code, name]) => <SelectItem key={code} value={code}>{countryFlag(code)} {name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {phoneSurveySkipped ? (
+                  <Button type="button" variant="link" className="h-auto px-0 text-xs" onClick={() => setPhoneSurveySkipped(false)}>Completar encuesta opcional</Button>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label>¿Qué buscas?</Label>
+                      <Select value={lookingFor} onValueChange={setLookingFor}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{LOOKING_FOR.map((item) => <SelectItem key={item.value} value={item.value}>{item.emoji} {item.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Signo zodiacal</Label>
+                      <Select value={zodiac || "sin-especificar"} onValueChange={(value) => setZodiac(value === "sin-especificar" ? "" : value)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>{["Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo", "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"].map((sign) => <SelectItem key={sign} value={sign}>{sign}</SelectItem>)}<SelectItem value="sin-especificar">Prefiero omitirlo</SelectItem></SelectContent>
+                      </Select>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={smokes} onChange={(event) => setSmokes(event.target.checked)} /> ¿Fumas?</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={drinks} onChange={(event) => setDrinks(event.target.checked)} /> ¿Tomas alcohol?</label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={hasKids} onChange={(event) => setHasKids(event.target.checked)} /> ¿Tienes hijos?</label>
+                    <div className="space-y-2"><Label htmlFor="phone-signup-hobbies">Pasatiempos favoritos</Label><Input id="phone-signup-hobbies" maxLength={240} value={hobbies} onChange={(event) => setHobbies(event.target.value)} /></div>
+                    <Button type="button" variant="outline" className="w-full" onClick={() => setPhoneSurveySkipped(true)}>Omitir encuesta</Button>
+                  </>
+                )}
+              </div>
+            )}
             {otpSent && (
               <div className="space-y-2">
                 <Label htmlFor="otp">Código SMS</Label>

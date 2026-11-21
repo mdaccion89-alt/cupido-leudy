@@ -49,7 +49,7 @@ export function StoryFeed() {
       const rows = (data ?? []) as Omit<Story, "display_name" | "avatar_url">[];
       const ids = [...new Set(rows.map((row) => row.user_id))];
       const profiles = ids.length
-        ? await supabase.from("creator_profiles").select("id,display_name,avatar_url,is_cupido_active").in("id", ids)
+        ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_cupido_active").in("id", ids)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
       const byId = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));

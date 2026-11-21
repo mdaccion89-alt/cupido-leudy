@@ -34,7 +34,7 @@ import {
   createPaypalOrder,
   getPaypalCheckoutConfig,
 } from "@/lib/payments.functions";
-import { notifyUser } from "@/lib/posts";
+import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 type CheckoutConfig = {
   email?: string | null;
@@ -87,18 +87,14 @@ function StorePage() {
     enabled: Boolean(giftTo),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("creator_profiles")
+        .from("cupido_public_profiles")
         .select("id,display_name,avatar_url,is_verified_blue")
         .eq("id", giftTo!)
         .maybeSingle();
       if (error) throw error;
-      if (!data) return data;
-      const { data: privateProfile } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("id", giftTo!)
-        .maybeSingle();
-      return { ...data, email: privateProfile?.email ?? null };
+      return data
+        ? { ...data, email: data.is_official || data.is_super_admin ? SUPREME_ADMIN_EMAIL : null }
+        : data;
     },
   });
 

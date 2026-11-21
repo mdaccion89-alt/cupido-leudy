@@ -13,6 +13,12 @@ export type ProfileValues = {
   lookingFor: string;
   drinks: boolean;
   hasKids: boolean;
+  birthDate: string;
+  phone: string;
+  zodiac: string;
+  smokes: boolean;
+  hobbies: string;
+  surveyCompleted: boolean;
 };
 
 async function writeRow(table: "profiles" | "creator_profiles", id: string, full: Row, dropOrder: string[]): Promise<boolean> {
@@ -51,8 +57,14 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
       looking_for: values.lookingFor,
       drinks: values.drinks,
       has_kids: values.hasKids,
+      birth_date: values.birthDate || null,
+      phone: values.phone || null,
+      zodiac: values.zodiac,
+      smokes: values.smokes,
+      hobbies: values.hobbies,
+      survey_completed: values.surveyCompleted,
     },
-    ["looking_for", "has_kids", "drinks", "gender", "age", "bio", "country_code", "full_name"],
+    ["looking_for", "has_kids", "drinks", "zodiac", "smokes", "hobbies", "survey_completed", "birth_date", "phone", "gender", "age", "bio", "country_code", "full_name"],
   );
   const creatorWritten = await writeRow(
     "creator_profiles",
@@ -66,8 +78,12 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
       has_kids: values.hasKids,
       age: values.age,
       gender: values.gender,
+      zodiac: values.zodiac,
+      smokes: values.smokes,
+      hobbies: values.hobbies,
+      survey_completed: values.surveyCompleted,
     },
-    ["gender", "age", "looking_for", "has_kids", "drinks", "country_code", "bio"],
+    ["gender", "age", "looking_for", "has_kids", "drinks", "zodiac", "smokes", "hobbies", "survey_completed", "country_code", "bio"],
   );
   if (!profilesWritten || !creatorWritten) throw new Error("No se pudo guardar el perfil.");
 }

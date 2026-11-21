@@ -34,13 +34,13 @@ export function CommunityPage() {
   const people = useQuery({
     queryKey: ["cupido-people", search, country, looking, verifiedOnly],
     queryFn: async () => {
-      const officialProfile = await supabase.from("profiles").select("id,email").eq("email", SUPREME_ADMIN_EMAIL).maybeSingle();
-      if (officialProfile.error) throw officialProfile.error;
+      const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
+      if (officialProfile.error) console.error("[comunidad] No se pudo localizar la cuenta oficial.", officialProfile.error);
 
       const loadPage = async (from: number) => {
         let query = supabase
-          .from("creator_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .from("cupido_public_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
           .eq("is_cupido_active", true)
           .order("is_verified_blue", { ascending: false })
           .order("follower_count", { ascending: false });
@@ -49,7 +49,10 @@ export function CommunityPage() {
         if (verifiedOnly) query = query.eq("is_verified_blue", true);
         if (search.trim()) query = query.ilike("display_name", `%${search.trim()}%`);
         const { data, error } = await query.range(from, from + 999);
-        if (error) throw error;
+        if (error) {
+          console.error("[comunidad] Falló la consulta pública de perfiles.", error);
+          throw error;
+        }
         return data ?? [];
       };
       let rows = [];
@@ -62,36 +65,41 @@ export function CommunityPage() {
       const officialId = officialProfile.data?.id ?? null;
       if (officialId && !rows.some((row) => row.id === officialId)) {
         const official = await supabase
-          .from("creator_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .from("cupido_public_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
           .eq("id", officialId)
           .maybeSingle();
-        if (official.error) throw official.error;
+        if (official.error) {
+          console.error("[comunidad] Falló la consulta del perfil oficial.", official.error);
+          throw official.error;
+        }
         if (official.data) rows = [...rows, official.data];
       }
       const ids = [...new Set(rows.map((row) => row.id))];
-      const [emails, followers] = await Promise.all([
-        ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [], error: null }),
-        ids.length ? supabase.rpc("cupido_count_followers_batch", { _following: ids }) : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (emails.error) throw emails.error;
-      if (followers.error) throw followers.error;
-      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
-      const followerMap = new Map((followers.data ?? []).map((row) => [row.following_id, row.follower_count]));
+      const followerMap = new Map<string, number>();
+      if (ids.length) {
+        const followers = await supabase.rpc("cupido_count_followers_batch", { _following: ids });
+        if (followers.error) {
+          console.error("[comunidad] No se pudo consultar el conteo de seguidores; se usan los conteos sincronizados.", followers.error);
+        } else {
+          for (const row of followers.data ?? []) followerMap.set(row.following_id, Number(row.follower_count) || 0);
+        }
+      }
       const candidates = rows.map((row) => {
-        const official = row.id === officialId;
-        const realFollowers = followerMap.get(row.id) ?? 0;
+        const official = row.id === officialId || Boolean(row.is_super_admin || row.is_official);
+        const realFollowers = (followerMap.get(row.id) ?? Number(row.follower_count)) || 0;
         return {
           ...row,
-          email: emailMap.get(row.id) ?? (official ? officialProfile.data?.email : null),
+          email: official ? SUPREME_ADMIN_EMAIL : null,
           is_cupido_active: Boolean(row.is_cupido_active) || official,
           follower_count: realFollowers,
+          is_official_profile: official,
         };
       });
-      const official = candidates.filter((row) => row.id === officialId);
-      const verified = candidates.filter((row) => row.id !== officialId && row.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
+      const official = candidates.filter((row) => row.is_official_profile);
+      const verified = candidates.filter((row) => !row.is_official_profile && row.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
       const newcomers = candidates
-        .filter((row) => row.id !== officialId && !row.is_verified_blue)
+        .filter((row) => !row.is_official_profile && !row.is_verified_blue)
         .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
       return [...official, ...verified, ...newcomers];
     },
@@ -159,7 +167,7 @@ export function CommunityPage() {
     () =>
       (people.data ?? []).map((person) => ({
         id: person.id,
-        display_name: person.email?.toLowerCase() === SUPREME_ADMIN_EMAIL ? "Cupido Leudy Cuenta Oficial" : person.display_name ?? "Miembro",
+        display_name: person.email?.toLowerCase() === SUPREME_ADMIN_EMAIL || person.is_official_profile ? "Cupido Leudy Cuenta Oficial" : person.display_name ?? "Miembro",
         avatar_url: person.avatar_url ?? "",
         bio: person.bio ?? "",
         country_code: person.country_code ?? "",
@@ -170,6 +178,7 @@ export function CommunityPage() {
         is_verified_blue: Boolean(person.is_verified_blue),
         friend_count: person.friend_count ?? 0,
         follower_count: person.follower_count ?? 0,
+        survey_completed: Boolean(person.survey_completed),
       })),
     [people.data],
   );

@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { notifyUser } from "@/lib/posts";
+import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import {
   CALL_COSTS,
@@ -116,20 +116,15 @@ function ChatPage() {
       );
       const profiles = otherIds.length
         ? await supabase
-            .from("creator_profiles")
-            .select("id,display_name,avatar_url,is_verified_blue")
+            .from("cupido_public_profiles")
+            .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
             .in("id", otherIds)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
-      const emails = otherIds.length
-        ? await supabase.from("profiles").select("id,email").in("id", otherIds)
-        : { data: [], error: null };
-      if (emails.error) throw emails.error;
-      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
       const map = new Map(
         (profiles.data ?? []).map((profile) => [
           profile.id,
-          { ...profile, email: emailMap.get(profile.id) ?? null } as ChatProfile,
+          { ...profile, email: profile.is_official || profile.is_super_admin ? SUPREME_ADMIN_EMAIL : null } as ChatProfile,
         ]),
       );
       return (data ?? []).map<ConversationRow>((row) => {
@@ -216,7 +211,7 @@ function ChatPage() {
           if (row.status !== "ringing" || call) return;
           void (async () => {
             const { data } = await supabase
-              .from("creator_profiles")
+              .from("cupido_public_profiles")
               .select("id,display_name,avatar_url,is_verified_blue")
               .eq("id", row.caller_id)
               .maybeSingle();

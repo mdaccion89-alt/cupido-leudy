@@ -42,17 +42,20 @@ function CupidoHome() {
   const profilesQuery = useQuery({
     queryKey: ["cupido-profiles", userId],
     queryFn: async () => {
-      const officialProfile = await supabase.from("profiles").select("id,email").eq("email", SUPREME_ADMIN_EMAIL).maybeSingle();
-      if (officialProfile.error) throw officialProfile.error;
+      const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
+      if (officialProfile.error) console.error("[inicio] No se pudo localizar la cuenta oficial.", officialProfile.error);
       const loadPage = async (from: number) => {
         const { data, error } = await supabase
-          .from("creator_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at")
+          .from("cupido_public_profiles")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at")
           .eq("is_cupido_active", true)
           .order("is_verified_blue", { ascending: false })
           .order("follower_count", { ascending: false })
           .range(from, from + 999);
-        if (error) throw error;
+        if (error) {
+          console.error("[inicio] Falló la consulta de perfiles públicos.", error);
+          throw error;
+        }
         return data ?? [];
       };
       const rows = [];
@@ -63,30 +66,36 @@ function CupidoHome() {
       }
       const officialId = officialProfile.data?.id ?? null;
       if (officialId && !rows.some((row) => row.id === officialId)) {
-        const { data, error } = await supabase.from("creator_profiles").select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_cupido_active,friend_count,follower_count,created_at").eq("id", officialId).maybeSingle();
-        if (error) throw error;
+        const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at").eq("id", officialId).maybeSingle();
+        if (error) {
+          console.error("[inicio] Falló la consulta del perfil oficial.", error);
+          throw error;
+        }
         if (data) rows.push(data);
       }
       const ids = [...new Set(rows.map((row) => row.id))];
-      const [emails, followerCounts] = await Promise.all([
-        ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [], error: null }),
-        ids.length ? supabase.rpc("cupido_count_followers_batch", { _following: ids }) : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (emails.error) throw emails.error;
-      if (followerCounts.error) throw followerCounts.error;
-      const emailMap = new Map((emails.data ?? []).map((row) => [row.id, row.email]));
-      const followerMap = new Map((followerCounts.data ?? []).map((row) => [row.following_id, row.follower_count]));
+      const followerMap = new Map<string, number>();
+      if (ids.length) {
+        const followerCounts = await supabase.rpc("cupido_count_followers_batch", { _following: ids });
+        if (followerCounts.error) {
+          console.error("[inicio] No se pudo leer el conteo real de seguidores; se usan los datos sincronizados.", followerCounts.error);
+        } else {
+          for (const row of followerCounts.data ?? []) followerMap.set(row.following_id, Number(row.follower_count) || 0);
+        }
+      }
       const people = rows.map((row) => ({
         ...row,
-        email: emailMap.get(row.id) ?? (row.id === officialId ? officialProfile.data?.email : null),
-        display_name: row.id === officialId ? "Cupido Leudy Cuenta Oficial" : row.display_name ?? "Miembro",
-        is_cupido_active: Boolean(row.is_cupido_active) || row.id === officialId,
-        follower_count: followerMap.get(row.id) ?? 0,
+        email: row.id === officialId || row.is_official || row.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
+        display_name: row.id === officialId || row.is_official || row.is_super_admin ? "Cupido Leudy Cuenta Oficial" : row.display_name ?? "Miembro",
+        is_cupido_active: Boolean(row.is_cupido_active) || row.id === officialId || Boolean(row.is_official || row.is_super_admin),
+        follower_count: (followerMap.get(row.id) ?? Number(row.follower_count)) || 0,
+        survey_completed: Boolean(row.survey_completed),
+        is_official_profile: row.id === officialId || Boolean(row.is_official || row.is_super_admin),
       }));
-      const official = people.filter((person) => person.id === officialId);
-      const verified = people.filter((person) => person.id !== officialId && person.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
+      const official = people.filter((person) => person.is_official_profile);
+      const verified = people.filter((person) => !person.is_official_profile && person.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
       const newcomers = people
-        .filter((person) => person.id !== officialId && !person.is_verified_blue)
+        .filter((person) => !person.is_official_profile && !person.is_verified_blue)
         .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
       return [...official, ...verified, ...newcomers] as CupidoProfile[];
     },
