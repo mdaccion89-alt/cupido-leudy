@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, X } from "lucide-react";
+import { displayedFollowerCount } from "@/lib/account";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -51,6 +52,7 @@ export function ProfileCard({
   const isMe = Boolean(myId && myId === profile.id);
   const looking = LOOKING_FOR.find((item) => item.value === profile.looking_for);
   const initials = profile.display_name.slice(0, 2).toUpperCase();
+  const displayFollowers = displayedFollowerCount(profile.follower_count, profile.email);
 
   return (
     <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
@@ -76,7 +78,7 @@ export function ProfileCard({
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}
           </p>
           <p className="mt-1 text-xs text-pink-300/80">
-            {profile.follower_count.toLocaleString("es")} seguidores · {profile.friend_count.toLocaleString("es")} amigos
+            {displayFollowers.toLocaleString("es")} seguidores · {profile.friend_count.toLocaleString("es")} amigos
           </p>
         </div>
       </div>

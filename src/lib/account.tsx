@@ -10,6 +10,17 @@ export function isSupremeAdminEmail(email?: string | null): boolean {
   return email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
 }
 
+export const OFFICIAL_FOLLOWER_BONUS = 40_000;
+
+export function displayedFollowerCount(
+  realCount?: number | null,
+  email?: string | null,
+  isOfficialProfile?: boolean,
+): number {
+  const real = Math.max(0, Math.floor(Number(realCount) || 0));
+  return isSupremeAdminEmail(email) || isOfficialProfile ? real + OFFICIAL_FOLLOWER_BONUS : real;
+}
+
 export function useAccount() {
   const { session } = useAuth();
   const userId = session?.user.id ?? null;

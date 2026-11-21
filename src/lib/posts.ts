@@ -85,10 +85,30 @@ export function formatCount(value: number): string {
   return String(Math.max(0, Math.floor(value)));
 }
 
+function numericHash(value: string, salt: number): number {
+  let hash = (2166136261 ^ salt) >>> 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function hashInRange(id?: string | null, min = 0, max = 0, salt = 0): number {
+  const low = Math.floor(min);
+  const high = Math.floor(max);
+  if (high < low) return low;
+  return low + (numericHash(String(id ?? ""), salt) % (high - low + 1));
+}
+
 export function displayedMetrics(post?: FeedPost | null): { likes: string; views: string } {
   const realLikes = Math.max(0, Number(post?.likes_count) || 0);
   const realViews = Math.max(0, Number(post?.views_count) || 0);
-  return { likes: formatCount(realLikes), views: formatCount(realViews) };
+  if (!post?.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
+  return {
+    likes: formatCount(realLikes + hashInRange(post.id, 14_200, 68_900)),
+    views: formatCount(realViews + hashInRange(post.id, 78_400, 342_900, 0x9e3779b9)),
+  };
 }
 
 async function selectPosts(

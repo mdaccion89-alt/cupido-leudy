@@ -20,7 +20,7 @@ import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
-import { useAccount, isSupremeAdminEmail } from "@/lib/account";
+import { displayedFollowerCount, useAccount, isSupremeAdminEmail } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
@@ -439,7 +439,7 @@ function ProfilePage() {
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
   const displayLabel = displayName || (officialProfile ? "Cupido Leudy Cuenta Oficial" : "Miembro de Cupido");
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
-  const followers = actualFollowerCount;
+  const followers = displayedFollowerCount(actualFollowerCount, profileEmail, officialProfile);
   const friends = safeCount(creator?.friend_count);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();
