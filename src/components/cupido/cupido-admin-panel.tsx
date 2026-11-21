@@ -66,9 +66,11 @@ export function CupidoAdminPanel() {
     mode: "live",
   });
   const [paypalSaved, setPaypalSaved] = useState(false);
+  const [paypalError, setPaypalError] = useState("");
 
   const updatePaypal = (patch: Partial<PaypalBusinessInput>) => {
     setPaypalSaved(false);
+    setPaypalError("");
     setPaypalConfig((current) => ({ ...current, ...patch }));
   };
 
@@ -175,6 +177,7 @@ export function CupidoAdminPanel() {
         secret: paypalConfig.secret,
         mode: paypalConfig.mode,
       };
+      let serverError: unknown;
       try {
         await savePaypalServer({
           data: {
@@ -185,21 +188,30 @@ export function CupidoAdminPanel() {
             mode: input.mode,
           },
         });
-      } catch (serverError) {
-        try {
-          await savePaypalBusinessSettings(input);
-        } catch {
-          throw serverError;
-        }
+        return;
+      } catch (error) {
+        serverError = error;
+      }
+      try {
+        await savePaypalBusinessSettings(input);
+      } catch (clientError) {
+        const details = [serverError, clientError]
+          .map((error) => (error instanceof Error ? error.message : String(error)))
+          .filter(Boolean);
+        throw new Error(details.join(" | ") || "No se pudo guardar PayPal.");
       }
     },
     onSuccess: () => {
       setPaypalSaved(true);
+      setPaypalError("");
       toast.success("PayPal Business guardado correctamente");
       void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
     },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "No se pudo guardar PayPal."),
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : "No se pudo guardar PayPal.";
+      setPaypalError(message);
+      toast.error(message);
+    },
   });
 
   const selfieUrl = async (path: string) => {
@@ -421,6 +433,11 @@ export function CupidoAdminPanel() {
             {paypalSaved && (
               <p className="text-sm font-medium text-emerald-300">
                 PayPal Business guardado correctamente
+              </p>
+            )}
+            {paypalError && (
+              <p className="break-words text-xs text-red-300" role="alert">
+                Error: {paypalError}
               </p>
             )}
           </div>

@@ -138,6 +138,7 @@ export function WallFeed({
     try {
       const result = await sharePost(post);
       toast.success(result === "shared" ? "Publicación compartida ↗️" : "Enlace copiado al portapapeles ↗️");
+      await invalidateFeed();
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       toast.error("No se pudo compartir la publicación.");

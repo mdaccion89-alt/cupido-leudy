@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'premium')),
   plan_expires_at TIMESTAMPTZ,
   credits INTEGER NOT NULL DEFAULT 500 CHECK (credits >= -1),
+  credits_balance INTEGER NOT NULL DEFAULT 500 CHECK (credits_balance >= -1),
   is_admin BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -32,6 +33,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS birth_date DATE;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan_expires_at TIMESTAMPTZ;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits INTEGER NOT NULL DEFAULT 500;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS credits_balance INTEGER NOT NULL DEFAULT 500;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
@@ -134,6 +136,7 @@ CREATE TABLE IF NOT EXISTS public.creator_profiles (
   avatar_url TEXT NOT NULL DEFAULT '',
   is_official BOOLEAN NOT NULL DEFAULT false,
   is_premium BOOLEAN NOT NULL DEFAULT false,
+  is_super_admin BOOLEAN NOT NULL DEFAULT false,
   follower_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -358,7 +361,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.sync_credits_to_profile()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  UPDATE public.profiles SET credits = NEW.balance, updated_at = now() WHERE id = NEW.user_id;
+  UPDATE public.profiles SET credits = NEW.balance, credits_balance = NEW.balance, updated_at = now() WHERE id = NEW.user_id;
   RETURN NEW;
 END;
 $$;

@@ -151,6 +151,7 @@ export type Database = {
           id: string;
           is_official: boolean;
           is_premium: boolean;
+          is_super_admin: boolean;
           is_verified_blue: boolean;
           looking_for: string;
           moderation_status: string;
@@ -173,6 +174,7 @@ export type Database = {
           id: string;
           is_official?: boolean;
           is_premium?: boolean;
+          is_super_admin?: boolean;
           is_verified_blue?: boolean;
           looking_for?: string;
           moderation_status?: string;
@@ -195,6 +197,7 @@ export type Database = {
           id?: string;
           is_official?: boolean;
           is_premium?: boolean;
+          is_super_admin?: boolean;
           is_verified_blue?: boolean;
           looking_for?: string;
           moderation_status?: string;
@@ -436,6 +439,7 @@ export type Database = {
           country_code: string | null;
           created_at: string;
           credits: number;
+          credits_balance: number;
           daily_streak: number;
           display_name: string | null;
           drinks: boolean;
@@ -462,6 +466,7 @@ export type Database = {
           country_code?: string | null;
           created_at?: string;
           credits?: number;
+          credits_balance?: number;
           daily_streak?: number;
           display_name?: string | null;
           drinks?: boolean;
@@ -488,6 +493,7 @@ export type Database = {
           country_code?: string | null;
           created_at?: string;
           credits?: number;
+          credits_balance?: number;
           daily_streak?: number;
           display_name?: string | null;
           drinks?: boolean;

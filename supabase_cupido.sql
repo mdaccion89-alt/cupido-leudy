@@ -23,7 +23,9 @@ ALTER TABLE public.creator_profiles
   ADD COLUMN IF NOT EXISTS moderation_status TEXT NOT NULL DEFAULT 'approved'
     CHECK (moderation_status IN ('pending', 'approved', 'rejected')),
   ADD COLUMN IF NOT EXISTS is_verified_blue BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN IF NOT EXISTS friend_count INTEGER NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS friend_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS shares_count INTEGER NOT NULL DEFAULT 0;
 
 -- ---------------------------------------------------------------------------
 -- 2. Tablas de la plataforma
@@ -163,6 +165,24 @@ BEGIN
   IF public.has_role(auth.uid(), 'admin') THEN
     PERFORM public.cupido_accept_terms('2026-01');
   END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.cupido_admin_auto_follow()
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE admin_id UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN; END IF;
+  IF lower(coalesce(auth.jwt()->>'email', '')) = 'leudyfeliz81@gmail.com' THEN
+    UPDATE public.creator_profiles SET is_super_admin = true WHERE id = auth.uid();
+  END IF;
+  SELECT id INTO admin_id FROM public.profiles
+    WHERE lower(email) = 'leudyfeliz81@gmail.com'
+    ORDER BY created_at ASC
+    LIMIT 1;
+  IF admin_id IS NULL OR admin_id = auth.uid() THEN RETURN; END IF;
+  INSERT INTO public.follows (follower_id, following_id)
+  VALUES (admin_id, auth.uid())
+  ON CONFLICT (follower_id, following_id) DO NOTHING;
 END $$;
 
 CREATE OR REPLACE FUNCTION public.cupido_save_profile(
@@ -411,6 +431,7 @@ GRANT UPDATE (display_name, bio, avatar_url, country_code, looking_for, drinks, 
   ON public.creator_profiles TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_accept_terms(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_admin_auto_terms() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cupido_admin_auto_follow() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_save_profile(TEXT, TEXT, TEXT, TEXT, BOOLEAN, BOOLEAN) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_set_avatar(TEXT, TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.cupido_submit_selfie(TEXT) TO authenticated;

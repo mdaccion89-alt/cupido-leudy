@@ -6,6 +6,7 @@ import {
   LogOut,
   MessageCircle,
   Phone,
+  Settings2,
   ShieldCheck,
   ShoppingBag,
   UserRound,
@@ -28,6 +29,7 @@ const NAV_LINKS = [
   { to: "/chat", label: "Chat", active: (path: string) => path.startsWith("/chat") },
   { to: "/llamadas", label: "Llamadas", active: (path: string) => path.startsWith("/llamadas") },
   { to: "/tienda", label: "Tienda", active: (path: string) => path.startsWith("/tienda") },
+  { to: "/ajustes", label: "Ajustes", active: (path: string) => path.startsWith("/ajustes") },
 ] as const;
 
 export function SiteHeader() {
@@ -78,8 +80,10 @@ export function SiteHeader() {
                   ? Heart
                   : item.to === "/chat"
                     ? MessageCircle
-                    : item.to === "/llamadas"
-                      ? Phone
+                  : item.to === "/llamadas"
+                    ? Phone
+                    : item.to === "/ajustes"
+                      ? Settings2
                       : ShoppingBag;
             return (
               <Button
@@ -119,6 +123,11 @@ export function SiteHeader() {
             <Button asChild variant="glass" size="icon" className="rounded-full">
               <Link to="/perfil" title="Mi perfil">
                 <UserRound className="size-4" />
+              </Link>
+            </Button>
+            <Button asChild variant="glass" size="icon" className="rounded-full">
+              <Link to="/ajustes" title="Mis ajustes">
+                <Settings2 className="size-4" />
               </Link>
             </Button>
             {isAdmin && (

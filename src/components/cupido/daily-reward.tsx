@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { Coins, Gift, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { supabase } from "@/integrations/supabase/client";
 import { DAILY_REWARDS, DAY_MS, formatCountdown, nextDailyDay } from "@/lib/rewards";
+import { claimDailyReward } from "@/lib/rewards.functions";
 
 export function DailyReward() {
   const account = useAccount();
@@ -14,6 +15,7 @@ export function DailyReward() {
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
   const [claiming, setClaiming] = useState(false);
+  const claimDaily = useServerFn(claimDailyReward);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -25,36 +27,20 @@ export function DailyReward() {
       toast.error("Inicia sesión para reclamar tu premio diario.");
       return;
     }
-    const claimedAt = new Date().toISOString();
-    const nextDay = nextDailyDay(account.dailyStreak, account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0, Date.now());
-    const reward = DAILY_REWARDS[nextDay - 1] ?? 0;
-    const currentBalance = account.balance === Infinity ? 0 : account.balance;
+    const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;
+    const nextDay = nextDailyDay(account.dailyStreak, lastClaim, Date.now());
     setClaiming(true);
-    const profileUpdate = {
-      daily_streak: nextDay,
-      last_daily_claim: claimedAt,
-    };
-    const db = supabase as unknown as { from: (table: string) => any };
-    let { error } = await db
-      .from("profiles")
-      .update({ ...profileUpdate, credits_balance: currentBalance + reward })
-      .eq("id", session.user.id);
-    if (error) {
-      ({ error } = await db
-        .from("profiles")
-        .update({ ...profileUpdate, credits: currentBalance + reward })
-        .eq("id", session.user.id));
-    }
-    if (error) {
-      toast.error(error.message);
+    try {
+      const result = await claimDaily({ data: { day: nextDay } });
+      toast.success(`Día ${result.day}: +${result.awarded} monedas brillantes ✨`);
+      void queryClient.invalidateQueries({ queryKey: ["account"] });
+      account.refresh();
+      setNow(Date.now());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo reclamar el premio.");
+    } finally {
       setClaiming(false);
-      return;
     }
-    toast.success(`Día ${nextDay}: +${reward} monedas brillantes ✨`);
-    void queryClient.invalidateQueries({ queryKey: ["account"] });
-    account.refresh();
-    setNow(Date.now());
-    setClaiming(false);
   };
 
   const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;

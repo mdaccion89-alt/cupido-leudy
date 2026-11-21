@@ -6,7 +6,14 @@ import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
-import { addComment, displayedMetrics, fetchComments, registerPostView, type FeedPost } from "@/lib/posts";
+import {
+  addComment,
+  displayedMetrics,
+  fetchComments,
+  formatCount,
+  registerPostView,
+  type FeedPost,
+} from "@/lib/posts";
 
 export type CupidoMedia = FeedPost;
 
@@ -158,7 +165,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             <MessageCircle className="size-3.5" /> 💬 {Math.max(0, Number(media.comments_count) || 0)}
           </Button>
           <Button variant="outline" size="sm" onClick={onShare} className="col-span-2 gap-1" aria-label="Compartir">
-            <Share2 className="size-3.5" /> ↗️ Compartir
+            <Share2 className="size-3.5" /> ↗️ Compartir {formatCount(Number(media.shares_count) || 0)}
           </Button>
         </div>
 

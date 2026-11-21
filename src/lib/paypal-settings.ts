@@ -147,16 +147,24 @@ export async function savePaypalBusinessSettings(input: PaypalBusinessSettings):
     admin_paypal_email: businessEmail,
   };
   let paymentSaved = false;
+  let paymentError = "";
   for (const payload of [paymentFull, paymentBase]) {
     const { error } = await db.from("payment_settings").upsert(payload);
     if (!error) {
       paymentSaved = true;
       break;
     }
+    paymentError = paymentError || error.message;
   }
-  if (!paymentSaved) throw new Error("No se pudo guardar PayPal Business en payment_settings.");
+  if (!paymentSaved) throw new Error(`payment_settings: ${paymentError || "No se pudo guardar PayPal Business."}`);
 
+  const currentApp = await db.from("app_settings").select("config").eq("id", 1).maybeSingle();
+  const existingConfig =
+    currentApp.data?.config && typeof currentApp.data.config === "object"
+      ? (currentApp.data.config as AnyRow)
+      : {};
   const config = {
+    ...existingConfig,
     business_name: businessName,
     paypal_business_name: businessName,
     paypal_email: email,
@@ -175,6 +183,7 @@ export async function savePaypalBusinessSettings(input: PaypalBusinessSettings):
     paypal_mode: mode,
   };
   let appSaved = false;
+  let appError = "";
   for (const payload of [appFull, appBase]) {
     const { data, error } = await db.from("app_settings").update(payload).eq("id", 1).select("id");
     if (!error) {
@@ -187,7 +196,10 @@ export async function savePaypalBusinessSettings(input: PaypalBusinessSettings):
         appSaved = true;
         break;
       }
+      appError = appError || upsert.error.message;
+    } else {
+      appError = appError || error.message;
     }
   }
-  if (!appSaved) throw new Error("No se pudo guardar PayPal Business en app_settings.");
+  if (!appSaved) throw new Error(`app_settings: ${appError || "No se pudo guardar PayPal Business."}`);
 }

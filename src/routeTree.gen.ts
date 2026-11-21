@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as AjustesRouteImport } from './routes/ajustes'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
@@ -29,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AjustesRoute = AjustesRouteImport.update({
+  id: '/ajustes',
+  path: '/ajustes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -80,6 +86,7 @@ const TiendaRoute = TiendaRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ajustes': typeof AjustesRoute
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ajustes': typeof AjustesRoute
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/ajustes': typeof AjustesRoute
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/ajustes'
     | '/auth'
     | '/chat'
     | '/comunidad'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/ajustes'
     | '/auth'
     | '/chat'
     | '/comunidad'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/ajustes'
     | '/auth'
     | '/chat'
     | '/comunidad'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  AjustesRoute: typeof AjustesRoute
   AuthRoute: typeof AuthRoute
   ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
@@ -187,6 +200,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ajustes': {
+      id: '/ajustes'
+      path: '/ajustes'
+      fullPath: '/ajustes'
+      preLoaderRoute: typeof AjustesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -258,6 +278,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  AjustesRoute: AjustesRoute,
   AuthRoute: AuthRoute,
   ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,

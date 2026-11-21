@@ -33,7 +33,7 @@ export function useAccount() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("has_purchased,daily_streak,last_daily_claim,last_wheel_spin")
+          .select("credits,credits_balance,has_purchased,daily_streak,last_daily_claim,last_wheel_spin")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -44,7 +44,11 @@ export function useAccount() {
           .limit(1),
       ]);
       return {
-        balance: credits.data?.balance ?? 0,
+        balance:
+          privateProfile.data?.credits_balance ??
+          privateProfile.data?.credits ??
+          credits.data?.balance ??
+          500,
         nextReset: credits.data?.daily_reset_at ?? null,
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
@@ -59,7 +63,7 @@ export function useAccount() {
   });
   return {
     userId,
-    balance: isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
+    balance: isImmediateAdmin || query.data?.balance === -1 ? Infinity : (query.data?.balance ?? 500),
     nextReset: query.data?.nextReset ?? null,
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),

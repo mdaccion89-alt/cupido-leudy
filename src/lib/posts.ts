@@ -13,6 +13,7 @@ export type FeedPost = {
   comments_count: number;
   saves_count: number;
   views_count: number;
+  shares_count: number;
   created_at: string;
   display_name: string;
   avatar_url: string;
@@ -48,7 +49,7 @@ type AnyQueryClient = {
 const db = supabase as unknown as AnyQueryClient;
 
 const POST_COLUMN_SETS = [
-  "id,user_id,media_url,media_type,media_path,kind,caption,likes_count,dislikes_count,comments_count,saves_count,views_count,created_at",
+  "id,user_id,media_url,media_type,media_path,kind,caption,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at",
   "id,user_id,media_url,media_type,media_path,kind,caption,likes_count,created_at",
   "id,user_id,media_path,kind,caption,likes_count,created_at",
 ];
@@ -77,7 +78,8 @@ function postSeed(id?: string | null): number {
 export function displayedMetrics(post?: FeedPost | null, now = Date.now()): { likes: string; views: string } {
   const realLikes = Math.max(0, Number(post?.likes_count) || 0);
   const realViews = Math.max(0, Number(post?.views_count) || 0);
-  if (!post?.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
+  if (!isSupremePost(post?.email, post?.is_super_admin))
+    return { likes: formatCount(realLikes), views: formatCount(realViews) };
 
   const seed = postSeed(post.id);
   const baseLikes = 12_400 + (seed % 56_501);
@@ -147,7 +149,10 @@ export async function fetchFeed(options: {
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
   const [creatorRows, emailRows] = await Promise.all([
     ids.length
-      ? supabase.from("creator_profiles").select("id,display_name,avatar_url,is_verified_blue").in("id", ids)
+      ? supabase
+          .from("creator_profiles")
+          .select("id,display_name,avatar_url,is_verified_blue,is_super_admin")
+          .in("id", ids)
       : Promise.resolve({ data: [] }),
     ids.length ? supabase.from("profiles").select("id,email").in("id", ids) : Promise.resolve({ data: [] }),
   ]);
@@ -173,12 +178,13 @@ export async function fetchFeed(options: {
       comments_count: Number(row.comments_count) || engagement.comments.get(row.id) || 0,
       saves_count: Number(row.saves_count) || 0,
       views_count: Number(row.views_count) || 0,
+      shares_count: Number(row.shares_count) || 0,
       created_at: row.created_at ?? new Date().toISOString(),
       display_name: creator?.display_name ?? "Miembro de Cupido",
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
       email,
-      is_super_admin: isSupremePost(email, Boolean(row.is_super_admin)),
+      is_super_admin: isSupremePost(email, Boolean(row.is_super_admin ?? creator?.is_super_admin)),
     }];
   });
 
@@ -366,16 +372,22 @@ export async function notifyUser(input: {
 export async function sharePost(post: FeedPost): Promise<"shared" | "copied"> {
   const url = `${window.location.origin}/?post=${encodeURIComponent(post.id)}`;
   const text = post.caption || "Mira esta publicación en Cupido Leudy ❤️";
+  let result: "shared" | "copied";
   if (navigator.share) {
     try {
       await navigator.share({ title: "Cupido Leudy ❤️", text, url });
-      return "shared";
+      result = "shared";
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") throw error;
+      await navigator.clipboard.writeText(url);
+      result = "copied";
     }
+  } else {
+    await navigator.clipboard.writeText(url);
+    result = "copied";
   }
-  await navigator.clipboard.writeText(url);
-  return "copied";
+  await db.rpc("cupido_register_post_share", { _post: post.id }).catch(() => undefined);
+  return result;
 }
 
 async function currentUserId(): Promise<string | null> {

@@ -37,7 +37,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
       supabase
         .from("profiles")
-        .select("id,email,display_name,full_name,plan,plan_expires_at,created_at")
+        .select("id,email,display_name,full_name,plan,plan_expires_at,created_at,credits,credits_balance")
         .order("created_at", { ascending: false })
         .limit(200),
       supabase.from("user_credits").select("user_id,balance,daily_reset_at"),
@@ -50,7 +50,11 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       settings: (settings.data ?? {}) as Partial<AdminSettings>,
       users: (profiles.data ?? []).map((p) => ({
         ...p,
-        balance: credits.data?.find((c) => c.user_id === p.id)?.balance ?? 0,
+        balance:
+          credits.data?.find((c) => c.user_id === p.id)?.balance ??
+          p.credits_balance ??
+          p.credits ??
+          0,
         roles: (roles.data ?? []).filter((r) => r.user_id === p.id).map((r) => r.role),
         isOfficial: creators.data?.find((c) => c.id === p.id)?.is_official ?? false,
         followers: creators.data?.find((c) => c.id === p.id)?.follower_count ?? 0,
@@ -140,6 +144,7 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
     };
     const paymentBase = { id: 1, ...config };
     let paymentSaved = false;
+    let paymentError = "";
     for (const payload of [
       paymentBase,
       { id: 1, paypal_email: data.email, paypal_business_name: data.businessName, paypal_client_id: data.clientId, paypal_secret: data.secret, paypal_mode: data.mode },
@@ -149,10 +154,12 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
         paymentSaved = true;
         break;
       }
+      paymentError = paymentError || error.message;
     }
-    if (!paymentSaved) throw new Error("No se pudo guardar PayPal Business en payment_settings.");
+    if (!paymentSaved) throw new Error(`payment_settings: ${paymentError || "No se pudo guardar PayPal Business."}`);
 
     let appSaved = false;
+    let appError = "";
     for (const payload of [
       { id: 1, ...config, config },
       { id: 1, paypal_email: data.email, config },
@@ -163,8 +170,9 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
         appSaved = true;
         break;
       }
+      appError = appError || error.message;
     }
-    if (!appSaved) throw new Error("No se pudo guardar PayPal Business en app_settings.");
+    if (!appSaved) throw new Error(`app_settings: ${appError || "No se pudo guardar PayPal Business."}`);
     return { ok: true };
   });
 

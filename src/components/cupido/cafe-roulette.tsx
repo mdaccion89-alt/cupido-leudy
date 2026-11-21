@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { Play, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { HOUR_MS, ROULETTE_PRIZES, formatCountdown } from "@/lib/rewards";
+import { spinCafeRoulette } from "@/lib/rewards.functions";
 
 const SEGMENT_COLORS = ["bg-pink-500/20", "bg-violet-500/20", "bg-amber-500/20", "bg-rose-500/20"];
 const SEGMENT_SIZE = 360 / ROULETTE_PRIZES.length;
@@ -20,6 +21,7 @@ export function CafeRoulette() {
   const [spinning, setSpinning] = useState(false);
   const [adOpen, setAdOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const spinRoulette = useServerFn(spinCafeRoulette);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -31,39 +33,26 @@ export function CafeRoulette() {
       toast.error("Inicia sesión para girar la ruleta.");
       return;
     }
-    const index = Math.floor(Math.random() * ROULETTE_PRIZES.length);
-    const awarded = ROULETTE_PRIZES[index] ?? 0;
-    const target = (((360 - (index + 0.5) * SEGMENT_SIZE) % 360) + 360) % 360;
-    const baseAngle = wheelAngle - (wheelAngle % 360);
-    setWheelAngle(baseAngle + 360 * 5 + target);
     setSpinning(true);
-
-    await new Promise((resolve) => window.setTimeout(resolve, 3500));
-
-    const currentBalance = account.balance === Infinity ? 0 : account.balance;
-    const spinUpdate = { last_wheel_spin: new Date().toISOString() };
-    const db = supabase as unknown as { from: (table: string) => any };
-    let { error } = await db
-      .from("profiles")
-      .update({ ...spinUpdate, credits_balance: currentBalance + awarded })
-      .eq("id", session.user.id);
-    if (error) {
-      ({ error } = await db
-        .from("profiles")
-        .update({ ...spinUpdate, credits: currentBalance + awarded })
-        .eq("id", session.user.id));
+    try {
+      const result = await spinRoulette();
+      const index = Math.max(0, Math.min(ROULETTE_PRIZES.length - 1, result.index));
+      const target = (((360 - (index + 0.5) * SEGMENT_SIZE) % 360) + 360) % 360;
+      const baseAngle = wheelAngle - (wheelAngle % 360);
+      setWheelAngle(baseAngle + 360 * 5 + target);
+      toast[result.awarded ? "success" : "info"](
+        result.awarded
+          ? `La ruleta Café te dio +${result.awarded} monedas ✨`
+          : "Suerte esta vez, vuelve en una hora ❤️",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["account"] });
+      account.refresh();
+      setNow(Date.now());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo girar la ruleta.");
+    } finally {
+      setSpinning(false);
     }
-    setSpinning(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast[awarded ? "success" : "info"](
-      awarded ? `La ruleta Café te dio +${awarded} monedas ✨` : "Suerte esta vez, vuelve en una hora ❤️",
-    );
-    void queryClient.invalidateQueries({ queryKey: ["account"] });
-    account.refresh();
-    setNow(Date.now());
   };
 
   const lastSpin = account.lastWheelSpin ? Date.parse(account.lastWheelSpin) : 0;

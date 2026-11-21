@@ -523,7 +523,12 @@ function ProfilePage() {
           )}
 
           {own && viewerId && (
-            <div className="mt-6">
+            <div className="mt-6 space-y-3">
+              <div className="flex justify-end">
+                <Button asChild variant="outline">
+                  <Link to="/ajustes">Abrir ajustes</Link>
+                </Button>
+              </div>
               <ProfileSettings
                 email={profileEmail}
                 phone={safeText(privateProfile?.phone) || undefined}

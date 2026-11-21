@@ -322,14 +322,15 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
         });
         const { data: profile } = await admin
           .from("profiles")
-          .select("credits")
+          .select("credits,credits_balance")
           .eq("id", context.userId)
           .maybeSingle();
+        const currentCredits = profile?.credits_balance ?? profile?.credits ?? 0;
         const nextCredits =
-          Number(granted) > 0 ? Number(granted) : Number(profile?.credits ?? 0) + pack.credits;
+          Number(granted) > 0 ? Number(granted) : currentCredits + pack.credits;
         await admin
           .from("profiles")
-          .update({ credits: nextCredits, has_purchased: true })
+          .update({ credits: nextCredits, credits_balance: nextCredits, has_purchased: true })
           .eq("id", context.userId);
       }
       return { ok: true, credits: pack.credits, hasPurchased: true };

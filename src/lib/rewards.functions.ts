@@ -39,14 +39,21 @@ async function readRewardProfile(admin: Db, userId: string) {
   };
 }
 
+async function syncProfileCredits(admin: Db, userId: string, balance: number): Promise<void> {
+  const { error } = await admin
+    .from("profiles")
+    .update({ credits: balance, credits_balance: balance, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw error;
+}
+
 async function creditCoins(admin: Db, userId: string, amount: number, reason: string): Promise<void> {
   if (amount <= 0) return;
-  const { data: existing } = await admin
-    .from("user_credits")
-    .select("balance")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const current = existing?.balance ?? 0;
+  const [{ data: existing }, { data: profile }] = await Promise.all([
+    admin.from("user_credits").select("balance").eq("user_id", userId).maybeSingle(),
+    admin.from("profiles").select("credits,credits_balance").eq("id", userId).maybeSingle(),
+  ]);
+  const current = existing?.balance ?? profile?.credits_balance ?? profile?.credits ?? 0;
   const balance = current === -1 ? -1 : current + amount;
   const now = new Date().toISOString();
 
@@ -62,6 +69,7 @@ async function creditCoins(admin: Db, userId: string, amount: number, reason: st
       .insert({ user_id: userId, balance: amount, daily_reset_at: now, updated_at: now });
     if (error) throw error;
   }
+  await syncProfileCredits(admin, userId, balance);
 
   const { error: transactionError } = await admin
     .from("credit_transactions")
