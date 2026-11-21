@@ -22,6 +22,11 @@ type NotificationRow = {
 };
 
 type ActorProfile = { id: string; display_name: string; avatar_url: string };
+const GOLD_COIN_PROFILE: ActorProfile = { id: "gold-coin", display_name: "Moneda de Oro", avatar_url: "" };
+
+function attachNotificationActors(rows: NotificationRow[], actors: Map<string, ActorProfile>) {
+  return rows.map((row) => ({ ...row, actor: row.kind === "withdrawal_paid" ? GOLD_COIN_PROFILE : row.actor_id ? actors.get(row.actor_id) ?? null : null }));
+}
 
 function notificationIcon(kind: string | null): string {
   if (kind === "interest" || kind === "interested") return "💘";
@@ -36,7 +41,7 @@ function notificationIcon(kind: string | null): string {
   if (kind === "friend_accepted") return "💞";
   if (kind === "support_ticket" || kind === "support_reply") return "🎫";
   if (kind === "report") return "🚩";
-  if (kind === "verification") return "✅";
+  if (kind === "verification" || kind === "withdrawal_paid") return "✅";
   if (kind === "gift" || kind === "live_gift") return "🎁";
   return "🔔";
 }
@@ -62,11 +67,11 @@ export function NotificationBell() {
       if (error) throw error;
       const rows = (data ?? []) as NotificationRow[];
       const actorIds = [...new Set(rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id)))];
-      if (!actorIds.length) return rows.map((row) => ({ ...row, actor: null as ActorProfile | null }));
+      if (!actorIds.length) return attachNotificationActors(rows, new Map());
       const actors = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", actorIds);
       if (actors.error) throw actors.error;
       const actorMap = new Map(((actors.data ?? []) as ActorProfile[]).map((actor) => [actor.id, actor]));
-      return rows.map((row) => ({ ...row, actor: row.actor_id ? actorMap.get(row.actor_id) ?? null : null }));
+      return attachNotificationActors(rows, actorMap);
     },
   });
 
@@ -190,7 +195,7 @@ export function NotificationBell() {
               <span className="relative shrink-0">
                 <Avatar className="size-10 border border-pink-400/30">
                   <AvatarImage src={row.actor?.avatar_url ?? ""} alt={row.actor?.display_name ?? "Usuario"} />
-                  <AvatarFallback className="bg-pink-500/20 text-xs text-pink-100">{row.actor?.display_name?.slice(0, 1)?.toUpperCase() || notificationIcon(row.kind)}</AvatarFallback>
+                  <AvatarFallback className="bg-pink-500/20 text-xs text-pink-100">{row.kind === "withdrawal_paid" ? "🪙" : row.actor?.display_name?.slice(0, 1)?.toUpperCase() || notificationIcon(row.kind)}</AvatarFallback>
                 </Avatar>
                 <span className="absolute -bottom-1 -right-1 rounded-full bg-slate-950 px-0.5 text-xs">{notificationIcon(row.kind)}</span>
               </span>

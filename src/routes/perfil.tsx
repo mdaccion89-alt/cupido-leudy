@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { InviteButton } from "@/components/cupido/invite-button";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
+import { CupidoStudioPanel } from "@/components/cupido/cupido-studio-panel";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -734,22 +735,8 @@ function ProfilePage() {
       </section>
 
       <section className="mt-8 space-y-8">
-        {own && (
-          <section className="rounded-3xl border border-sky-400/20 bg-sky-500/[0.05] p-5">
-            <h2 className="font-display text-lg text-white">Monetización de videos del muro</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Se activa con 1.000 seguidores reales y 1.000 horas de reproducción reales.</p>
-            <div className="mt-4 space-y-3">
-              <div>
-                <div className="mb-1 flex justify-between text-xs text-white"><span>Seguidores</span><span>{actualFollowerCount.toLocaleString("es")} / 1.000</span></div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-pink-400" style={{ width: `${Math.min(actualFollowerCount / 10, 100)}%` }} /></div>
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between text-xs text-white"><span>Horas reproducidas</span><span>{(Number(profile.data?.videoWatchSeconds ?? 0) / 3600).toFixed(1)} / 1.000</span></div>
-                <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-sky-300" style={{ width: `${Math.min(Number(profile.data?.videoWatchSeconds ?? 0) / 36000, 100)}%` }} /></div>
-              </div>
-              <p className="text-xs text-muted-foreground">{actualFollowerCount >= 1000 && Number(profile.data?.videoWatchSeconds ?? 0) >= 3_600_000 ? "Monetización habilitada." : "Sigue creciendo con reproducciones y seguidores reales."}</p>
-            </div>
-          </section>
+        {own && viewerId && (
+          <CupidoStudioPanel userId={viewerId} followerCount={actualFollowerCount} />
         )}
         {own ? (
           <>

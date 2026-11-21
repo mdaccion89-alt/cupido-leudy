@@ -35,7 +35,7 @@ import {
   createPaypalOrder,
   getPaypalCheckoutConfig,
 } from "@/lib/payments.functions";
-import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 type CheckoutConfig = {
   email?: string | null;
@@ -121,6 +121,9 @@ function StorePage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances", filter: `user_id=eq.${viewerId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_withdrawals", filter: `user_id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-withdrawals", viewerId] });
+      })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient, viewerId]);
@@ -197,32 +200,24 @@ function StorePage() {
         throw new Error(
           account.hasPurchased || account.isAdmin
             ? "No tienes monedas brillantes suficientes para ese regalo."
-            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
         );
-      const { error } = await supabase.rpc("cupido_send_gift", {
+      const { data, error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
+      if (!data) throw new Error("El servidor no confirmó el envío del regalo.");
     },
     onSuccess: () => {
       account.refresh();
       toast.success("Regalo enviado ❤️");
-      if (giftTo) {
-        void notifyUser({
-          userId: giftTo,
-          title: "🎁 Recibiste un regalo",
-          body: "Alguien te envió un regalo en Cupido Leudy ❤️",
-          kind: "gift",
-          actorId: viewerId,
-          targetId: giftTo,
-        });
-      }
+
     },
     onError: (error) =>
-      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo enviar el regalo.")),
+      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.")),
   });
 
   const withdraw = useMutation({
@@ -327,8 +322,7 @@ function StorePage() {
             <h2 className="font-display text-lg text-white">99 regalos para enamorar</h2>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            500 monedas gratis de bienvenida: regalos hasta {FREE_GIFT_MAX_CREDITS} monedas. Para regalos
-            superiores y llamadas, compra o recarga.
+            500 créditos gratis de bienvenida: regalos hasta 500 monedas. Los regalos más caros y las llamadas requieren una recarga real.
           </p>
           <div className="mt-3">
             <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending} />
@@ -489,8 +483,8 @@ function StorePage() {
                     {item.method} · {countryName(item.country_code)}
                   </p>
                 </div>
-                <Badge variant={item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"}>
-                  {item.status === "approved" ? "Aprobado" : item.status === "rejected" ? "Rechazado" : "Pendiente"}
+                <Badge variant={item.status === "pagado" || item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"}>
+                  {item.status === "pagado" || item.status === "approved" ? "Pagado" : item.status === "rejected" ? "Rechazado" : "Pendiente"}
                 </Badge>
               </div>
             ))}

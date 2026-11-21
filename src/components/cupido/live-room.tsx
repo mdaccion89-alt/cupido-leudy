@@ -357,12 +357,12 @@ export function LiveRoom({
       toast.error(
         account.hasPurchased || account.isAdmin
           ? "No tienes monedas brillantes suficientes."
-          : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+          : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
       );
       return;
     }
     setSendingGift(true);
-    const { error } = await supabase.rpc("cupido_send_live_gift", {
+    const { data, error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
       _receiver: hostId,
       _gift_id: gift.id,
@@ -370,8 +370,8 @@ export function LiveRoom({
       _cash_value: gift.cash,
     });
     setSendingGift(false);
-    if (error) {
-      toast.error(giftErrorMessage(error.message, "No se pudo enviar el regalo en vivo."));
+    if (error || !data) {
+      toast.error(giftErrorMessage(error?.message ?? "", "El servidor no confirmó el envío. Intenta de nuevo."));
       return;
     }
     account.refresh();
@@ -507,7 +507,7 @@ export function LiveRoom({
             )}
             {!account.hasPurchased && !account.isAdmin && (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Hasta {FREE_GIFT_MAX_CREDITS} monedas son gratis; puedes recargar desde la tienda para regalos mayores.
+                Puedes usar tus 500 créditos de bienvenida para regalos. Recarga para enviar regalos más caros.
               </p>
             )}
           </div>

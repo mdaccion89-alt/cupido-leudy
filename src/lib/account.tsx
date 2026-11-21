@@ -44,7 +44,7 @@ export function useAccount() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("credits,credits_balance,has_purchased,daily_streak,last_daily_claim")
+          .select("credits,credits_balance,daily_streak,last_daily_claim")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -65,8 +65,7 @@ export function useAccount() {
         isSupremeAdmin: isImmediateAdmin || (roles.data ?? []).some((r) => r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
         plan: profile.data?.is_premium ? "premium" : "free",
-        hasPurchased:
-          Boolean(privateProfile.data?.has_purchased) || Boolean(capturedOrders.data?.length),
+        hasPurchased: Boolean(capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
         lastDailyClaim: privateProfile.data?.last_daily_claim ?? null,
       };

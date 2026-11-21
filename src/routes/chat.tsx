@@ -442,7 +442,7 @@ function ChatPage() {
         throw new Error(
           account.hasPurchased || account.isSupremeAdmin
             ? "No tienes monedas brillantes suficientes."
-            : "Las llamadas requieren compra o recarga de monedas brillantes.",
+            : "Las llamadas requieren una recarga real confirmada.",
         );
       const { data, error } = await supabase.rpc("cupido_start_call", {
         _callee: activeConversation.other.id,
@@ -471,33 +471,27 @@ function ChatPage() {
         throw new Error(
           account.hasPurchased || account.isAdmin
             ? "No tienes monedas brillantes suficientes."
-            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren compra o recarga.`,
+            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
         );
-      const { error } = await supabase.rpc("cupido_send_gift", {
+      const { data, error } = await supabase.rpc("cupido_send_gift", {
         _receiver: activeConversation.other.id,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
+      if (!data) throw new Error("El servidor no confirmó el envío del regalo.");
       return activeConversation.other.id;
     },
     onSuccess: (receiverId) => {
       account.refresh();
       setGiftOpen(false);
       toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
-      void notifyUser({
-        userId: receiverId,
-        title: "🎁 Recibiste un regalo",
-        body: "Alguien te envió un regalo en Cupido Leudy ❤️",
-        kind: "gift",
-        actorId: viewerId,
-        targetId: activeConversation?.id ?? null,
-      });
+
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) =>
-      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo enviar el regalo.")),
+      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.")),
   });
 
   const answerCall = async (accept: boolean) => {

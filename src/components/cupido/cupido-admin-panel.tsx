@@ -221,7 +221,7 @@ export function CupidoAdminPanel() {
       if (error) throw error;
     },
     onSuccess: (_data, variables) => {
-      toast.success(variables.approve ? "Retiro aprobado y enviado." : "Retiro rechazado; saldo devuelto.");
+      toast.success(variables.approve ? "Marcado como pagado. Se envió la notificación." : "Retiro rechazado; saldo devuelto.");
       invalidate();
     },
     onError: () => toast.error("No se pudo revisar el retiro."),

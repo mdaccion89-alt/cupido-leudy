@@ -1329,6 +1329,20 @@ export type Database = {
     cupido_review_face_verification_video: { Args: { _approve: boolean; _request: string }; Returns: undefined };
     cupido_record_video_watch: { Args: { _post: string; _seconds: number }; Returns: number };
     cupido_get_video_watch_seconds: { Args: { _user: string }; Returns: number };
+    cupido_get_studio_analytics: {
+      Args: never;
+      Returns: {
+        video_id: string;
+        creator_id: string;
+        creator_name: string;
+        country_code: string;
+        follower_count: number;
+        video_title: string;
+        views_count: number;
+        watched_seconds: number;
+        created_at: string;
+      }[];
+    };
     cupido_send_gift: {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string };
       Returns: string;
