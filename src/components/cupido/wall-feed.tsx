@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, Play, Upload, Users } from "lucide-react";
+import { Globe2, Hash, Play, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { MediaCard } from "@/components/cupido/media-card";
 import { MediaComposer } from "@/components/cupido/media-composer";
+import { MentionInput } from "@/components/cupido/mention-input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -11,6 +12,9 @@ import {
   createPost,
   fetchFeed,
   sharePost,
+  deletePost,
+  togglePostPinned,
+  updatePost,
   togglePostDislike,
   togglePostLike,
   togglePostSave,
@@ -62,6 +66,7 @@ export function WallFeed({
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState("");
+  const [title, setTitle] = useState("");
   const [mediaFilter, setMediaFilter] = useState<MediaFilterId>("normal");
   const [draft, setDraft] = useState<{ file: File; alreadyFiltered: boolean } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -69,16 +74,33 @@ export function WallFeed({
   const [feedLimit, setFeedLimit] = useState(24);
   const [uploading, setUploading] = useState(false);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [selectedHashtag, setSelectedHashtag] = useState("");
 
   const feed = useQuery({
-    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit, searchTerm, highlightPostId],
+    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
     queryFn: async () => {
       setLoadingPosts(true);
       try {
-        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly, searchTerm, onlyPostId: highlightPostId });
+        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly, searchTerm: selectedHashtag || searchTerm, onlyPostId: highlightPostId });
       } finally {
         setLoadingPosts(false);
       }
+    },
+  });
+
+  const trending = useQuery({
+    queryKey: ["cupido-trending-hashtags"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_posts").select("caption").order("created_at", { ascending: false }).limit(1000);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const post of data ?? []) {
+        for (const match of String(post.caption ?? "").matchAll(/#[\p{L}\p{N}_]+/gu)) {
+          const key = match[0].toLowerCase();
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+      }
+      return [...counts].sort((a, b) => b[1] - a[1]).slice(0, 8);
     },
   });
 
@@ -99,6 +121,7 @@ export function WallFeed({
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-trending-hashtags"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
@@ -187,6 +210,41 @@ export function WallFeed({
     }
   };
 
+  const handleEdit = async (postId: string, nextTitle: string, nextCaption: string) => {
+    try {
+      await updatePost(postId, nextTitle, nextCaption);
+      await invalidateFeed();
+      toast.success("Publicación actualizada.");
+    } catch (error) { toast.error(errorMessage(error, "No se pudo editar la publicación.")); }
+  };
+
+  const handleDelete = async (postId: string) => {
+    try {
+      await deletePost(postId);
+      await invalidateFeed();
+      toast.success("Publicación eliminada.");
+    } catch (error) { toast.error(errorMessage(error, "No se pudo eliminar la publicación.")); }
+  };
+
+  const handlePin = async (postId: string, pinned: boolean) => {
+    try {
+      await togglePostPinned(postId, pinned);
+      await invalidateFeed();
+      toast.success(pinned ? "Publicación desfijada." : "Publicación fijada en tu perfil.");
+    } catch (error) { toast.error(errorMessage(error, "No se pudo actualizar el fijado.")); }
+  };
+
+  const handleRepost = async (postId: string) => {
+    if (!requireSession()) return;
+    const post = feed.data?.posts.find((item) => item.id === postId);
+    if (!post || !viewerId) return;
+    try {
+      await createPost({ userId: viewerId, caption: `Republicó una publicación de ${post.display_name}`, title: post.title, kind: "text", sharedPostId: post.id });
+      await invalidateFeed();
+      toast.success("Publicación compartida en tu muro.");
+    } catch (error) { toast.error(errorMessage(error, "No se pudo republicar.")); }
+  };
+
   const handlePick = async (file: File | null) => {
     if (!file) return;
     try {
@@ -207,8 +265,9 @@ export function WallFeed({
     if (!caption.trim()) return;
     setUploading(true);
     try {
-      await createPost({ userId: viewerId, caption, kind: "text" });
+      await createPost({ userId: viewerId, caption, title, kind: "text" });
       setCaption("");
+      setTitle("");
       toast.success("Publicación compartida en el muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -284,8 +343,9 @@ export function WallFeed({
       const { data: publicData } = supabase.storage.from(uploadedBucket).getPublicUrl(path);
       const url = publicData?.publicUrl ?? "";
       if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
-      await createPost({ userId: viewerId, caption, url, isVideo });
+      await createPost({ userId: viewerId, caption, title, url, isVideo });
       setCaption("");
+      setTitle("");
       setDraft(null);
       toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
       await invalidateFeed();
@@ -322,12 +382,10 @@ export function WallFeed({
                 : "Fotos comprimidas y videos MP4/WEBM/MOV de hasta 50 MB. Se publican al instante."}
             </p>
           </div>
-          <input
-            value={caption}
-            onChange={(event) => setCaption(event.target.value)}
-            placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video…"}
-            className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
-          />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
+            <MentionInput value={caption} onChange={setCaption} placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video… Usa @ para mencionar y # para etiquetar."} className="min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -395,6 +453,17 @@ export function WallFeed({
         </div>
       )}
 
+      {!videoOnly && !onlyUserId && !savedOnly && Boolean(trending.data?.length) && (
+        <div className="flex flex-wrap items-center gap-2" aria-label="Hashtags populares">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"><Hash className="size-3.5" /> Tendencia</span>
+          {trending.data?.map(([tag, count]) => (
+            <button key={tag} type="button" onClick={() => setSelectedHashtag((current) => current === tag ? "" : tag)} className={`rounded-full border px-3 py-1 text-xs transition ${selectedHashtag === tag ? "border-pink-400/50 bg-pink-500/20 text-pink-100" : "border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white"}`}>
+              {tag} <span className="opacity-60">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {feed.isLoading || loadingPosts ? (
         <p className="text-sm text-muted-foreground">Cargando publicaciones reales…</p>
       ) : posts.length ? (
@@ -410,6 +479,12 @@ export function WallFeed({
               onDislike={() => void handleDislike(post.id, dislikedIds.has(post.id) ?? false)}
               onSave={() => void handleSave(post.id, savedIds.has(post.id))}
               onShare={() => void handleShare(post.id)}
+              onEdit={(nextTitle, nextCaption) => void handleEdit(post.id, nextTitle, nextCaption)}
+              onDelete={() => void handleDelete(post.id)}
+              onPin={() => void handlePin(post.id, post.is_pinned)}
+              onRepost={() => void handleRepost(post.id)}
+              onHashtag={(tag) => setSelectedHashtag(tag.toLowerCase())}
+              currentUserId={viewerId}
             />
           ))}
         </div>

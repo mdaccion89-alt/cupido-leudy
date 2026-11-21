@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Flag, Heart, Image as ImageIcon, MessageCircle, Play, Send, Share2, ThumbsDown } from "lucide-react";
+import { Bookmark, Flag, Heart, Image as ImageIcon, MessageCircle, Pin, Play, Send, Share2, ThumbsDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CupidoVideoPlayer } from "@/components/cupido/video-player";
+import { MentionInput } from "@/components/cupido/mention-input";
+import { RichPostText } from "@/components/cupido/rich-post-text";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth-context";
+import { isSupremePost, notifyUser } from "@/lib/posts";
 import {
   addComment,
   displayedMetrics,
@@ -36,9 +42,16 @@ type MediaCardProps = {
   onDislike: () => void;
   onSave: () => void;
   onShare: () => void;
+  onEdit: (title: string, caption: string) => void;
+  onDelete: () => void;
+  onPin: () => void;
+  onRepost: () => void;
+  onHashtag: (tag: string) => void;
+  currentUserId: string | null;
 };
 
-export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare }: MediaCardProps) {
+export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, onSave, onShare, onEdit, onDelete, onPin, onRepost, onHashtag, currentUserId }: MediaCardProps) {
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const visibilityRef = useRef<HTMLElement>(null);
   const watchPositionRef = useRef(0);
@@ -47,12 +60,66 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState(media.title);
+  const [editCaption, setEditCaption] = useState(media.caption);
+  const [shareMessage, setShareMessage] = useState("");
+  const adminStatus = useQuery({
+    queryKey: ["cupido-social-admin", currentUserId],
+    enabled: Boolean(currentUserId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("creator_profiles").select("is_super_admin").eq("id", currentUserId!).maybeSingle();
+      if (error) throw error;
+      return Boolean(data?.is_super_admin);
+    },
+  });
   const metrics = displayedMetrics(media);
   const postId = safeText(media?.id);
   const mediaUrl = safeText(media?.media_url);
   const caption = safeText(media?.caption);
   const authorName = safeText(media?.display_name, "Miembro de Cupido");
   const authorEmail = safeText(media?.email) || undefined;
+  const canManage = media.user_id === currentUserId || isSupremePost(session?.user.email, adminStatus.data);
+
+  const sharePeople = useQuery({
+    queryKey: ["cupido-share-people", currentUserId],
+    enabled: shareOpen && Boolean(currentUserId),
+    queryFn: async () => {
+      const [follows, friends] = await Promise.all([
+        supabase.from("follows").select("follower_id,following_id").or(`follower_id.eq.${currentUserId},following_id.eq.${currentUserId}`),
+        supabase.from("friend_requests").select("requester_id,addressee_id").eq("status", "accepted").or(`requester_id.eq.${currentUserId},addressee_id.eq.${currentUserId}`),
+      ]);
+      if (follows.error) throw follows.error;
+      if (friends.error) throw friends.error;
+      const ids = new Set<string>();
+      for (const row of follows.data ?? []) ids.add(row.follower_id === currentUserId ? row.following_id : row.follower_id);
+      for (const row of friends.data ?? []) ids.add(row.requester_id === currentUserId ? row.addressee_id : row.requester_id);
+      ids.delete(currentUserId ?? "");
+      if (!ids.size) return [] as Array<{ id: string; display_name: string; avatar_url: string }>;
+      const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", [...ids]).order("display_name").limit(80);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const sendInMessage = async (recipient: { id: string; display_name: string }) => {
+    if (!currentUserId) { toast.error("Inicia sesión para compartir por mensaje."); return; }
+    setSending(true);
+    try {
+      const conversation = await supabase.rpc("cupido_open_conversation", { _other: recipient.id });
+      if (conversation.error || !conversation.data) throw conversation.error ?? new Error("No se pudo abrir la conversación.");
+      const url = `${window.location.origin}/muro?post=${encodeURIComponent(postId)}`;
+      const body = `${shareMessage.trim() ? `${shareMessage.trim()}\n\n` : ""}Publicación de ${authorName}: ${url}`;
+      const { error } = await supabase.from("cupido_messages").insert({ conversation_id: conversation.data, sender_id: currentUserId, body });
+      if (error) throw error;
+      void notifyUser({ userId: recipient.id, title: "Te compartieron una publicación", body: `${authorName} te envió una publicación.`, kind: "message", actorId: currentUserId, targetId: conversation.data });
+      setShareOpen(false);
+      setShareMessage("");
+      toast.success(`Enviada a ${recipient.display_name}.`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "No se pudo enviar la publicación."); }
+    finally { setSending(false); }
+  };
 
   const reportWatchProgress = (currentTime: number) => {
     const seconds = Math.floor(currentTime - watchPositionRef.current);
@@ -159,7 +226,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         <div className="min-w-0 flex-1">
           <p className="break-words text-white">
             <span className="mr-1 font-medium">{safeText(comment.display_name, "Miembro")}</span>
-            <span className="text-muted-foreground">{safeText(comment.body)}</span>
+            <span className="text-muted-foreground"><RichPostText text={safeText(comment.body)} onHashtag={onHashtag} /></span>
           </p>
           <div className="mt-1 flex items-center gap-3 text-[11px]">
             <button type="button" onClick={() => void toggleCommentLike(comment.id).then(() => queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] })).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "No se pudo reaccionar."))} className={comment.liked ? "text-rose-300" : "text-muted-foreground hover:text-rose-300"} aria-label="Me gusta este comentario">
@@ -172,7 +239,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           </div>
           {replyTarget === comment.id && (
             <div className="mt-2 flex gap-2">
-              <input value={replyText} onChange={(event) => setReplyText(event.target.value)} maxLength={500} placeholder="Escribe tu respuesta…" className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2 text-xs" />
+              <MentionInput value={replyText} onChange={setReplyText} maxLength={500} rows={1} placeholder="Escribe tu respuesta… usa @ para mencionar" className="min-h-8 w-full resize-y rounded-md border border-input bg-transparent px-2 py-1 text-xs" />
               <Button size="sm" className="h-8" disabled={sending || !replyText.trim()} onClick={() => void submitComment(comment.id)}><Send className="size-3" /></Button>
             </div>
           )}
@@ -186,7 +253,10 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
     <article id={`post-${postId}`} ref={visibilityRef} className="scroll-mt-24 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className={`relative w-full bg-black ${media?.kind === "text" ? "min-h-36 bg-gradient-to-br from-pink-950 to-slate-950 p-6" : "aspect-[9/14] max-h-[520px]"}`}>
         {media?.kind === "text" ? (
-          <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white">{caption}</p>
+          <div>
+            {media.title && <p className="mb-2 text-xl font-semibold leading-tight text-white">{media.title}</p>}
+            <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white"><RichPostText text={caption} onHashtag={onHashtag} /></p>
+          </div>
         ) : media?.kind === "video" ? (
           <CupidoVideoPlayer
             src={mediaUrl}
@@ -214,6 +284,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           {media?.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : media?.kind === "text" ? null : <ImageIcon className="mr-1 inline h-3 w-3" />}
           {media?.kind === "video" ? "Short" : media?.kind === "text" ? "Publicación" : "Foto"}
         </span>
+        {media.is_pinned && <span className="absolute right-3 top-3 rounded-full bg-pink-600/90 px-2.5 py-1 text-[11px] font-semibold text-white">📌 Fijada</span>}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
@@ -235,6 +306,21 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             <p className="text-muted-foreground">{metrics.views} 👁️</p>
           </div>
         </div>
+
+        {media.shared_post && (
+          <div className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <p className="mb-2 text-xs text-muted-foreground">Republicación de <Link className="font-medium text-pink-200 hover:underline" to="/perfil" search={{ userId: media.shared_post.user_id }}>{media.shared_post.display_name}</Link></p>
+            <Link to="/muro" search={{ post: media.shared_post.id }} className="block rounded-lg bg-white/[0.04] p-2 text-sm hover:bg-white/[0.08]">
+              {media.shared_post.title && <span className="mb-1 block font-semibold text-white">{media.shared_post.title}</span>}
+              <span className="line-clamp-3 whitespace-pre-wrap text-muted-foreground"><RichPostText text={media.shared_post.caption} onHashtag={onHashtag} /></span>
+              {media.shared_post.media_url && (media.shared_post.kind === "video"
+                ? <video src={media.shared_post.media_url} controls playsInline className="mt-2 max-h-48 w-full rounded-lg bg-black object-contain" />
+                : <img src={media.shared_post.media_url} alt={media.shared_post.title || "Publicación compartida"} className="mt-2 max-h-48 w-full rounded-lg object-cover" />)}
+            </Link>
+          </div>
+        )}
+        {media.kind !== "text" && media.title && <h3 className="mt-3 text-base font-semibold text-white">{media.title}</h3>}
+        {media.kind !== "text" && caption && <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-white"><RichPostText text={caption} onHashtag={onHashtag} /></p>}
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           <Button
@@ -273,10 +359,18 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           >
             <MessageCircle className="size-3.5" /> 💬 {Math.max(0, Number(media.comments_count) || 0)}
           </Button>
-          <Button variant="outline" size="sm" onClick={onShare} className="col-span-2 gap-1" aria-label="Compartir">
+          <Button variant="outline" size="sm" onClick={() => setShareOpen(true)} className="col-span-2 gap-1" aria-label="Compartir">
             <Share2 className="size-3.5" /> ↗️ Compartir {formatCount(Number(media.shares_count) || 0)}
           </Button>
         </div>
+
+        {canManage && (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
+            <Button variant="outline" size="sm" onClick={() => { setEditTitle(media.title); setEditCaption(media.caption); setEditOpen(true); }}>Editar</Button>
+            <Button variant="outline" size="sm" onClick={onPin}><Pin className="mr-1 size-3.5" />{media.is_pinned ? "Desfijar" : "Fijar en perfil"}</Button>
+            <Button variant="outline" size="sm" onClick={() => { if (window.confirm("¿Eliminar esta publicación?")) onDelete(); }} className="text-rose-300"><Trash2 className="mr-1 size-3.5" />Eliminar</Button>
+          </div>
+        )}
 
         {commentsOpen && (
           <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
@@ -290,15 +384,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {Array.isArray(comments.data) && comments.data.filter((comment) => !comment.parent_comment_id).map((comment) => renderComment(comment))}
             </div>
             <div className="mt-3 flex gap-2">
-              <input
-                value={commentText}
-                onChange={(event) => setCommentText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void submitComment();
-                }}
-                placeholder="Escribe un comentario…"
-                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
-              />
+              <MentionInput value={commentText} onChange={setCommentText} rows={1} placeholder="Comenta o menciona a alguien con @…" className="min-h-9 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitComment(); } }} />
               <Button size="sm" onClick={() => void submitComment()} disabled={sending || !commentText.trim()}>
                 <Send className="size-3.5" />
               </Button>
@@ -306,6 +392,40 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           </div>
         )}
       </div>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Editar publicación</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm" />
+            <MentionInput value={editCaption} onChange={setEditCaption} placeholder="Texto de la publicación" className="min-h-32 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button><Button onClick={() => { onEdit(editTitle, editCaption); setEditOpen(false); }}>Guardar cambios</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Compartir publicación</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <section className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dentro de Cupido Leudy</p>
+              <Button className="w-full" onClick={() => { onRepost(); setShareOpen(false); }}>Republicar en mi muro</Button>
+              <div className="space-y-2">
+                <input value={shareMessage} onChange={(event) => setShareMessage(event.target.value)} placeholder="Añade un mensaje opcional" maxLength={500} className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm" />
+                <p className="text-xs text-muted-foreground">Enviar por mensaje privado</p>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {sharePeople.isLoading && <p className="py-3 text-center text-xs text-muted-foreground">Cargando amigos y seguidores…</p>}
+                  {sharePeople.data?.map((person) => <button key={person.id} type="button" disabled={sending} onClick={() => void sendInMessage(person)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10">{person.display_name}</button>)}
+                  {!sharePeople.isLoading && !sharePeople.data?.length && <p className="py-2 text-xs text-muted-foreground">No encontramos amigos o seguidores para enviarles el post.</p>}
+                </div>
+              </div>
+            </section>
+            <section className="space-y-2 border-t border-white/10 pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fuera de Cupido Leudy</p>
+              <Button variant="outline" className="w-full" onClick={() => { setShareOpen(false); onShare(); }}><Share2 className="mr-2 size-4" />Compartir o copiar enlace</Button>
+            </section>
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }

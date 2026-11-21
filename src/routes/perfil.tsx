@@ -754,7 +754,7 @@ function ProfilePage() {
           <h2 className="mb-4 font-display text-xl text-white">Publicaciones de {displayName || "este perfil"}</h2>
           <WallFeed
             onlyUserId={profileId}
-            hideUpload
+            hideUpload={!own}
             emptyText="Esta persona todavía no tiene fotos ni videos publicados."
           />
         </div>

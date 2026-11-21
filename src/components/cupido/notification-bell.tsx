@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
@@ -19,6 +20,8 @@ type NotificationRow = {
   target_id: string | null;
   action_url: string | null;
 };
+
+type ActorProfile = { id: string; display_name: string; avatar_url: string };
 
 function notificationIcon(kind: string | null): string {
   if (kind === "interest" || kind === "interested") return "💘";
@@ -57,7 +60,13 @@ export function NotificationBell() {
         .order("created_at", { ascending: false })
         .limit(30);
       if (error) throw error;
-      return (data ?? []) as NotificationRow[];
+      const rows = (data ?? []) as NotificationRow[];
+      const actorIds = [...new Set(rows.map((row) => row.actor_id).filter((id): id is string => Boolean(id)))];
+      if (!actorIds.length) return rows.map((row) => ({ ...row, actor: null as ActorProfile | null }));
+      const actors = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", actorIds);
+      if (actors.error) throw actors.error;
+      const actorMap = new Map(((actors.data ?? []) as ActorProfile[]).map((actor) => [actor.id, actor]));
+      return rows.map((row) => ({ ...row, actor: row.actor_id ? actorMap.get(row.actor_id) ?? null : null }));
     },
   });
 
@@ -97,13 +106,16 @@ export function NotificationBell() {
                 icon: localStorage.getItem("cupido-app-logo") || "/favicon.ico",
                 badge: "/favicon.ico",
                 tag: `cupido-${row.id}`,
-                data: { url: row.action_url ?? (row.target_id ? `/?post=${encodeURIComponent(row.target_id)}` : "/") },
+                data: { url: row.action_url ?? (row.target_id ? `/muro?post=${encodeURIComponent(row.target_id)}` : row.actor_id ? `/perfil?userId=${encodeURIComponent(row.actor_id)}` : "/") },
                 ...(soundEnabled ? { vibrate: [120, 80, 120] } : {}),
               } as NotificationOptions));
             }
           }
         },
       )
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", viewerId] });
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -124,14 +136,27 @@ export function NotificationBell() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-notifications-count", viewerId] });
   };
 
-  const openNotification = (row: NotificationRow) => {
-    void markRead(row);
+  const openNotification = async (row: NotificationRow) => {
+    await markRead(row);
     setOpen(false);
     if (row.kind === "live" && row.target_id) {
       void navigate({ to: "/directo", search: { liveId: row.target_id } });
       return;
     }
-    if (row.action_url?.startsWith("/")) void navigate({ to: row.action_url as never });
+    if (row.action_url?.startsWith("/")) {
+      void navigate({ to: row.action_url as never });
+      return;
+    }
+    if (row.kind === "message" && row.actor_id) {
+      void navigate({ to: "/chat", search: { userId: row.actor_id } });
+      return;
+    }
+    if (row.target_id && ["like", "comment", "comment_reply", "comment_like", "mention", "repost"].includes(row.kind ?? "")) {
+      void navigate({ to: "/muro", search: { post: row.target_id } });
+      return;
+    }
+    if (row.actor_id) void navigate({ to: "/perfil", search: { userId: row.actor_id } });
+    else void navigate({ to: "/perfil", search: { userId: viewerId ?? "" } });
   };
 
   return (
@@ -162,9 +187,16 @@ export function NotificationBell() {
               onClick={() => openNotification(row)}
               className={`flex w-full gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.06] ${row.read ? "" : "bg-pink-500/10"}`}
             >
-              <span className="text-lg">{notificationIcon(row.kind)}</span>
+              <span className="relative shrink-0">
+                <Avatar className="size-10 border border-pink-400/30">
+                  <AvatarImage src={row.actor?.avatar_url ?? ""} alt={row.actor?.display_name ?? "Usuario"} />
+                  <AvatarFallback className="bg-pink-500/20 text-xs text-pink-100">{row.actor?.display_name?.slice(0, 1)?.toUpperCase() || notificationIcon(row.kind)}</AvatarFallback>
+                </Avatar>
+                <span className="absolute -bottom-1 -right-1 rounded-full bg-slate-950 px-0.5 text-xs">{notificationIcon(row.kind)}</span>
+              </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-white">{row.title}</span>
+                {row.actor && <span className="block truncate text-xs font-medium text-pink-200">{row.actor.display_name}</span>}
                 <span className="block text-xs text-muted-foreground">{row.body}</span>
                 <span className="mt-1 block text-[10px] text-muted-foreground">
                   {new Date(row.created_at).toLocaleString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}

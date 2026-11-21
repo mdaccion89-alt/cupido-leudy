@@ -8,6 +8,10 @@ export type FeedPost = {
   media_url: string;
   kind: "photo" | "video" | "text";
   caption: string;
+  title: string;
+  is_pinned: boolean;
+  shared_post_id: string | null;
+  shared_post: { id: string; user_id: string; title: string; caption: string; media_url: string; kind: "photo" | "video" | "text"; display_name: string; avatar_url: string } | null;
   likes_count: number;
   dislikes_count: number;
   comments_count: number;
@@ -55,6 +59,9 @@ type AnyRow = Record<string, any> & {
   media_url?: any;
   media_path?: any;
   caption?: any;
+  title?: any;
+  is_pinned?: any;
+  shared_post_id?: any;
   likes_count?: any;
   dislikes_count?: any;
   comments_count?: any;
@@ -77,7 +84,7 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,is_pinned,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -134,7 +141,7 @@ async function selectPosts(
     if (!savedIds?.length) return [];
   }
 
-  let query = db.from("cupido_posts").select(POST_COLUMNS).order("created_at", { ascending: false }).limit(limit);
+  let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
   if (onlyUserId) query = query.eq("user_id", onlyUserId);
   if (onlyPostId) query = query.eq("id", onlyPostId);
   if (onlyUserIds) query = query.in("user_id", onlyUserIds);
@@ -201,6 +208,25 @@ export async function fetchFeed(options: {
   }
   const creators = new Map(((creatorRows.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
   const postIds = filtered.map((row) => row.id as string);
+  const sharedIds = [...new Set(filtered.map((row) => row.shared_post_id).filter((id): id is string => typeof id === "string"))];
+  const sharedRows = sharedIds.length
+    ? await db.from("cupido_posts").select("id,user_id,media_path,kind,caption,title").in("id", sharedIds)
+    : { data: [], error: null };
+  if (sharedRows.error) throw sharedRows.error;
+  const sharedCreators = [...new Set(((sharedRows.data ?? []) as AnyRow[]).map((row) => row.user_id as string))];
+  const sharedProfiles = sharedCreators.length
+    ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", sharedCreators)
+    : { data: [], error: null };
+  if (sharedProfiles.error) throw sharedProfiles.error;
+  const sharedProfileMap = new Map(((sharedProfiles.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
+  const sharedMap = new Map(((sharedRows.data ?? []) as AnyRow[]).map((row) => {
+    const profile = sharedProfileMap.get(row.user_id);
+    return [row.id as string, {
+      id: String(row.id), user_id: String(row.user_id), title: String(row.title ?? ""), caption: String(row.caption ?? ""),
+      media_url: String(row.media_path ?? ""), kind: row.kind === "video" ? "video" as const : row.kind === "text" ? "text" as const : "photo" as const,
+      display_name: String(profile?.display_name ?? "Miembro de Cupido"), avatar_url: String(profile?.avatar_url ?? ""),
+    }];
+  }));
   const engagement = await fetchEngagement(postIds, viewerId);
 
   const posts: FeedPost[] = filtered.flatMap((row): FeedPost[] => {
@@ -215,6 +241,10 @@ export async function fetchFeed(options: {
       media_url: url,
       kind,
       caption: row.caption ?? "",
+      title: String(row.title ?? ""),
+      is_pinned: Boolean(row.is_pinned),
+      shared_post_id: typeof row.shared_post_id === "string" ? row.shared_post_id : null,
+      shared_post: typeof row.shared_post_id === "string" ? sharedMap.get(row.shared_post_id) ?? null : null,
       likes_count: Number(row.likes_count) || 0,
       dislikes_count: Number(row.dislikes_count) || 0,
       comments_count: Number(row.comments_count) || engagement.comments.get(row.id) || 0,
@@ -233,13 +263,15 @@ export async function fetchFeed(options: {
   return { posts, liked: engagement.liked, disliked: engagement.disliked, saved: engagement.saved };
 }
 
-export async function createPost(input: { userId: string; caption: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text" }): Promise<string> {
+export async function createPost(input: { userId: string; caption: string; title?: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text"; sharedPostId?: string }): Promise<string> {
   const kind = input.kind ?? (input.isVideo ? "video" : "photo");
   const result = await db
     .from("cupido_posts")
     .insert({
       user_id: input.userId,
       caption: input.caption.trim(),
+      title: input.title?.trim() || null,
+      shared_post_id: input.sharedPostId ?? null,
       media_path: input.url || null,
       kind,
     })
@@ -248,6 +280,21 @@ export async function createPost(input: { userId: string; caption: string; url?:
   if (result.error) throw result.error;
   if (!result.data?.id) throw new Error("No se pudo guardar la publicación.");
   return String(result.data.id);
+}
+
+export async function updatePost(postId: string, title: string, caption: string): Promise<void> {
+  const { error } = await db.from("cupido_posts").update({ title: title.trim() || null, caption: caption.trim() }).eq("id", postId);
+  if (error) throw error;
+}
+
+export async function deletePost(postId: string): Promise<void> {
+  const { error } = await db.from("cupido_posts").delete().eq("id", postId);
+  if (error) throw error;
+}
+
+export async function togglePostPinned(postId: string, pinned: boolean): Promise<void> {
+  const { error } = await db.from("cupido_posts").update({ is_pinned: !pinned }).eq("id", postId);
+  if (error) throw error;
 }
 
 export async function togglePostLike(postId: string, liked: boolean): Promise<boolean> {
