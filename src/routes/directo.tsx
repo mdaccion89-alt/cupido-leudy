@@ -13,7 +13,6 @@ import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND } from "@/lib/cupido";
 import { fetchBlockedUserIds } from "@/lib/safety";
-import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import { useLivePresenceCounts } from "@/lib/use-live-presence-counts";
 
 export const Route = createFileRoute("/directo")({
@@ -64,7 +63,6 @@ function DirectPage() {
   const [payingEntry, setPayingEntry] = useState(false);
   const [active, setActive] = useState<ActiveDirect | null>(null);
   const [verificationOpen, setVerificationOpen] = useState(false);
-  const pendingStream = useRef<MediaStream | null>(null);
   const autoOpened = useRef<string | null>(null);
 
   const profile = useQuery({
@@ -132,7 +130,7 @@ function DirectPage() {
     retry: 2,
   });
 
-  const livePresenceCounts = useLivePresenceCounts(streams.data?.map((stream) => stream.id) ?? []);
+  const livePresenceCounts = useLivePresenceCounts(streams.data?.map((stream) => stream.id) ?? [], active?.roomId);
 
   useEffect(() => {
     const channelName = `cupido-direct-list-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -156,11 +154,6 @@ function DirectPage() {
     else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostAvatar: stream.host_avatar, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   }, [liveId, streams.data, viewerId]);
 
-  useEffect(() => () => {
-    pendingStream.current?.getTracks().forEach((track) => track.stop());
-    pendingStream.current = null;
-  }, []);
-
   const startDirect = async () => {
     if (!viewerId) {
       toast.error("Inicia sesión para transmitir en Directo.");
@@ -168,15 +161,7 @@ function DirectPage() {
     }
     if (starting) return;
     setStarting(true);
-    let stream: MediaStream | null = null;
     try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
-      await requestNativeMediaPermissions({ camera: true, microphone: true });
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "user" } },
-        audio: true,
-      });
-      pendingStream.current = stream;
       const coins = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
       const { data: roomId, error } = premiumTier === 0
         ? await supabase.rpc("cupido_start_live_room", { _title: title.trim() })
@@ -190,24 +175,27 @@ function DirectPage() {
         hostName: profile.data?.display_name?.trim() || "Tú",
         hostIsGranLiga: Boolean(profile.data?.is_gran_liga),
         role: "host",
-        stream,
       });
-      pendingStream.current = null;
       setTitle("");
       void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
     } catch (error) {
-      stream?.getTracks().forEach((track) => track.stop());
-      pendingStream.current = null;
-      toast.error(mediaPermissionMessage(error) ?? (error instanceof Error ? error.message : "No se pudo iniciar el Directo."));
+      toast.error(error instanceof Error ? error.message : "No se pudo iniciar el Directo.");
     } finally {
       setStarting(false);
     }
   };
 
-  const closeDirect = useCallback(() => {
+  const dismissDirect = useCallback(() => {
     setActive(null);
     void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
   }, [queryClient]);
+
+  const closeDirect = useCallback(() => {
+    if (active?.role === "host") {
+      void supabase.rpc("cupido_end_live_room", { _id: active.roomId });
+    }
+    dismissDirect();
+  }, [active, dismissDirect]);
 
   const enterStream = (stream: StreamRow) => {
     if (!viewerId) { toast.info("Inicia sesiÃ³n para entrar, comentar o enviar regalos."); return; }
@@ -389,7 +377,7 @@ function DirectPage() {
           initialStream={active.stream ?? null}
           premiumEndsAt={active.premium_ends_at ?? null}
           onClose={closeDirect}
-          onEnded={closeDirect}
+          onEnded={dismissDirect}
         />
       )}
 

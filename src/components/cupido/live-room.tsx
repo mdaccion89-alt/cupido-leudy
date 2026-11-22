@@ -21,6 +21,7 @@ import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { blockUser, reportUser } from "@/lib/safety";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
+import { releaseLivePresenceCount } from "@/lib/use-live-presence-counts";
 
 type LiveRoomProps = {
   roomId: string;
@@ -235,6 +236,7 @@ export function LiveRoom({
 
   useEffect(() => {
     let disposed = false;
+    let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
 
     const start = async () => {
       try {
@@ -329,42 +331,50 @@ export function LiveRoom({
       })
       .subscribe();
 
-    const presenceChannel = supabase
-      .channel(`cupido-live-presence-${roomId}`, { config: { presence: { key: viewerId } } })
-      .on("presence", { event: "join" }, (payload) => {
-        const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
-        for (const person of joined) {
-          if (person.user_id === viewerId || person.role !== "viewer") continue;
-          const name = person.display_name?.trim() || "Usuario";
-          const message = `${name.startsWith("@") ? name : `@${name}`} se unió a la transmisión`;
-          setJoinMessages((current) => [...current.slice(-4), message]);
-        }
-      })
-      .on("presence", { event: "sync" }, () => {
-        const state = presenceChannel.presenceState<PresenceMeta>();
-        const ids = new Set<string>();
-        Object.values(state)
-          .flat()
-          .forEach((meta) => {
-            if (meta.role !== "host" && meta.user_id) ids.add(meta.user_id);
-          });
-        setViewers(ids.size);
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          const { data: profile } = await supabase
-            .from("cupido_public_profiles")
-            .select("display_name")
-            .eq("id", viewerId)
-            .maybeSingle();
-          await presenceChannel.track({
-            user_id: viewerId,
-            role,
-            display_name: role === "host" ? hostName : profile?.display_name ?? "@Usuario",
-            online_at: new Date().toISOString(),
-          });
-        }
-      });
+    void (async () => {
+      // The discovery/list Presence observer uses this topic too. Supabase reuses
+      // topic instances, so wait for that observer to leave before adding room handlers.
+      await releaseLivePresenceCount(roomId);
+      if (disposed) return;
+
+      const channel = supabase.channel(`cupido-live-presence-${roomId}`, { config: { presence: { key: viewerId } } });
+      presenceChannel = channel;
+      channel
+        .on("presence", { event: "join" }, (payload) => {
+          const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
+          for (const person of joined) {
+            if (person.user_id === viewerId || person.role !== "viewer") continue;
+            const name = person.display_name?.trim() || "Usuario";
+            const message = `${name.startsWith("@") ? name : `@${name}`} se unió a la transmisión`;
+            setJoinMessages((current) => [...current.slice(-4), message]);
+          }
+        })
+        .on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState<PresenceMeta>();
+          const ids = new Set<string>();
+          Object.values(state)
+            .flat()
+            .forEach((meta) => {
+              if (meta.role !== "host" && meta.user_id) ids.add(meta.user_id);
+            });
+          setViewers(ids.size);
+        })
+        .subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            const { data: profile } = await supabase
+              .from("cupido_public_profiles")
+              .select("display_name")
+              .eq("id", viewerId)
+              .maybeSingle();
+            await channel.track({
+              user_id: viewerId,
+              role,
+              display_name: role === "host" ? hostName : profile?.display_name ?? "@Usuario",
+              online_at: new Date().toISOString(),
+            });
+          }
+        });
+    })();
 
     const signalsChannel = supabase
       .channel((`cupido-live-signals-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
@@ -434,7 +444,7 @@ export function LiveRoom({
       peersRef.current.clear();
       void supabase.removeChannel(roomChannel);
       void supabase.removeChannel(giftChannel);
-      void supabase.removeChannel(presenceChannel);
+      if (presenceChannel) void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(signalsChannel);
       if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
       if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);

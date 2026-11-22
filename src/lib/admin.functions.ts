@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { ADMIN_EMAIL } from "./credits";
 import { getAdminClient } from "./server-helpers";
+import { getSupabaseServiceClient } from "./paypal-admin.server";
 
 type AdminContext = {
   supabase: SupabaseClient<Database>;
@@ -132,7 +133,7 @@ export const getPaypalBusinessSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<PaypalBusinessSettingsResult> => {
     assertSupremeAdmin(context);
-    const db = await getAdminClient() as unknown as { from: (table: string) => any };
+    const db = getSupabaseServiceClient() as unknown as { from: (table: string) => any };
     const paymentResult = await db.from("payment_settings")
       .select("business_name,paypal_business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode")
       .eq("id", 1).maybeSingle();
@@ -187,7 +188,7 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     assertSupremeAdmin(context);
-    const admin = await getAdminClient() as unknown as {
+    const admin = getSupabaseServiceClient() as unknown as {
       from: (table: string) => { upsert: (values: Record<string, unknown>) => Promise<{ error: { message: string } | null }> };
     };
     const config = {

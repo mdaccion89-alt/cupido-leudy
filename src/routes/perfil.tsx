@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Save, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -445,7 +445,8 @@ function ProfilePage() {
   const creator = profile.data?.creator ?? null;
   const privateProfile = profile.data?.privateProfile ?? null;
   const own = Boolean(viewerId && viewerId === profileId);
-  const isAdmin = isSupremeAdminEmail(session?.user.email) && own;
+  const isSupremeAdmin = isSupremeAdminEmail(session?.user.email);
+  const isAdmin = isSupremeAdmin && own;
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
@@ -467,6 +468,11 @@ function ProfilePage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
+      {isSupremeAdmin && (
+        <Button asChild className="mb-5 h-14 w-full justify-center gap-3 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-pink-600 text-base font-bold text-white shadow-lg shadow-orange-950/30 hover:brightness-110">
+          <Link to="/admin"><ShieldCheck className="size-5" /> Panel Admin Supremo (/admin)</Link>
+        </Button>
+      )}
       <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
         <div className={`relative h-32 bg-gradient-to-r ${creator?.is_gran_liga ? "animate-pulse from-amber-400/70 via-orange-600/35 to-red-600/30" : "from-pink-600/40 via-fuchsia-600/20 to-transparent"}`}>
           {creator?.is_gran_liga && <span className="absolute bottom-3 right-5 rounded-full border border-amber-200/50 bg-black/50 px-3 py-1 text-xs font-bold tracking-wide text-amber-100">🔥 Portada VIP · GRAN LIGA 🔥</span>}

@@ -16,7 +16,7 @@ import { useAppLogo } from "@/lib/app-logo";
 import { BRAND, COUNTRIES, LOOKING_FOR, SLOGAN, countryFlag } from "@/lib/cupido";
 import { captureReferralFromUrl } from "@/lib/referral";
 import { createPhonePasswordAccount } from "@/lib/phone-auth.functions";
-import { phoneLoginEmail } from "@/lib/phone-identity";
+import { normalizeLoginPhone, phoneLoginEmail, phonePrefixForCountry } from "@/lib/phone-identity";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: (search: { ref?: string }) => ({ ref: typeof search.ref === "string" ? search.ref : "" }),
@@ -79,19 +79,6 @@ function oauthRedirectUrl(ref: string): string {
   return callback.toString();
 }
 
-function normalizePhone(value: string): string {
-  const cleaned = value.replace(/[^\d+]/g, "");
-  return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
-}
-
-const PHONE_PREFIXES: Record<string, string> = {
-  DO: "1", US: "1", CA: "1", PR: "1", JM: "1", TT: "1", BO: "591", MX: "52",
-  AR: "54", BR: "55", CL: "56", CO: "57", VE: "58", PE: "51", EC: "593",
-  ES: "34", GB: "44", FR: "33", DE: "49", IT: "39", PT: "351", AU: "61",
-  IN: "91", JP: "81", CN: "86", NG: "234", ZA: "27", PH: "63", PA: "507",
-  CR: "506", GT: "502", HN: "504", SV: "503", NI: "505", PY: "595", UY: "598",
-};
-
 function limitProfileName(value: string): string {
   return Array.from(value).slice(0, 40).join("");
 }
@@ -137,6 +124,14 @@ function AuthPage() {
   const [hasKids, setHasKids] = useState(false);
   const [hobbies, setHobbies] = useState("");
 
+  const changePhoneCountry = (value: string) => {
+    const currentPrefix = phonePrefixForCountry(countryCode);
+    const newPrefix = phonePrefixForCountry(value);
+    const currentDigits = phone.replace(/\D/g, "");
+    if (!currentDigits || (currentPrefix && currentDigits === currentPrefix)) setPhone(newPrefix ? `+${newPrefix} ` : "+");
+    setCountryCode(value);
+  };
+
   useEffect(() => {
     captureReferralFromUrl();
   }, [ref]);
@@ -153,7 +148,7 @@ function AuthPage() {
     const detected = window.localStorage.getItem("cupido-country-code")?.toUpperCase();
     if (!detected || !COUNTRIES.some(([code]) => code === detected)) return;
     setCountryCode(detected);
-    if (!phone) setPhone(`+${PHONE_PREFIXES[detected] ?? "1"} `);
+    if (!phone) setPhone(`+${phonePrefixForCountry(detected) ?? "1"} `);
   }, []);
 
   const signIn = async (event: FormEvent) => {
@@ -191,9 +186,11 @@ function AuthPage() {
       setSignupStep(1);
       return;
     }
-    const normalizedPhone = normalizePhone(phone);
-    if (!/^\+[1-9]\d{6,14}$/.test(normalizedPhone)) {
-      toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
+    let normalizedPhone: string;
+    try {
+      normalizedPhone = normalizeLoginPhone(phone, countryCode);
+    } catch {
+      toast.error("Escribe un número real en formato internacional que coincida con el país, por ejemplo +18095551234.");
       setSignupStep(1);
       return;
     }
@@ -253,9 +250,13 @@ function AuthPage() {
   };
 
   const continueWithPhonePassword = async () => {
-    const normalizedPhone = normalizePhone(phone);
-    if (!/^\+[1-9]\d{6,14}$/.test(normalizedPhone)) {
-      toast.error("Escribe tu telefono con codigo de pais, por ejemplo +18095551234.");
+    let normalizedPhone: string;
+    try {
+      normalizedPhone = normalizeLoginPhone(phone, phoneSignup ? countryCode : undefined);
+    } catch (error) {
+      toast.error(error instanceof Error && error.message === "PHONE_COUNTRY_MISMATCH"
+        ? "El código telefónico no coincide con el país elegido."
+        : "Escribe un número real en formato internacional, por ejemplo +18095551234.");
       return;
     }
     if (phonePassword.length < 8) {
@@ -296,6 +297,10 @@ function AuthPage() {
       const message = err instanceof Error ? err.message : "No se pudo acceder con telefono.";
       toast.error(message.includes("PHONE_ALREADY_REGISTERED")
         ? "Ese telefono ya tiene cuenta. Inicia sesion con tu contrasena."
+        : message.includes("PHONE_COUNTRY_MISMATCH")
+          ? "El código telefónico no coincide con el país elegido."
+          : message.includes("PHONE_INVALID") || message.includes("COUNTRY_INVALID")
+            ? "Revisa el código de país y el número de teléfono."
         : message.includes("PHONE_ACCOUNT_CREATE_FAILED")
           ? "No se pudo crear la cuenta con ese telefono. Intenta de nuevo."
           : message.includes("Invalid login credentials")
@@ -359,8 +364,10 @@ function AuthPage() {
       toast.error("Debes tener al menos 18 años. Revisa tu fecha de nacimiento.");
       return;
     }
-    if (!/^\+[1-9]\d{6,14}$/.test(normalizePhone(phone))) {
-      toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
+    try {
+      normalizeLoginPhone(phone, countryCode);
+    } catch {
+      toast.error("Escribe un número real en formato internacional que coincida con el país, por ejemplo +18095551234.");
       return;
     }
     setSignupStep(2);
@@ -449,7 +456,7 @@ function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>País</Label>
-                  <Select value={countryCode} onValueChange={setCountryCode}>
+                  <Select value={countryCode} onValueChange={changePhoneCountry}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent className="max-h-72">
                       {COUNTRIES.map(([code, name]) => <SelectItem key={code} value={code}>{countryFlag(code)} {name}</SelectItem>)}
@@ -458,7 +465,7 @@ function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="signup-phone">Teléfono con código de país</Label>
-                  <Input id="signup-phone" type="tel" autoComplete="tel" placeholder="+1 809 555 1234" value={phone} onChange={(event) => setPhone(event.target.value)} />
+                  <Input id="signup-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+1 809 555 1234" value={phone} onChange={(event) => setPhone(event.target.value)} />
                 </div>
                 <Button type="button" className="w-full" disabled={busy} onClick={continueSignup}>Continuar</Button>
               </>
@@ -547,6 +554,7 @@ function AuthPage() {
               <Input
                 id="phone"
                 type="tel"
+                inputMode="tel"
                 autoComplete="tel"
                 placeholder="+1 809 555 1234"
                 value={phone}
@@ -573,7 +581,7 @@ function AuthPage() {
                 </div>
                 <div className="space-y-2">
                   <Label>País</Label>
-                  <Select value={countryCode} onValueChange={setCountryCode}>
+                  <Select value={countryCode} onValueChange={changePhoneCountry}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent className="max-h-72">
                       {COUNTRIES.map(([code, name]) => <SelectItem key={code} value={code}>{countryFlag(code)} {name}</SelectItem>)}

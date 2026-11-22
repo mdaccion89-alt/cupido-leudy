@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Bookmark, Download, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pause, Play, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
@@ -6,8 +6,6 @@ import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
-import { StoryFeed } from "@/components/cupido/story-feed";
-import { WallFeed } from "@/components/cupido/wall-feed";
 import { GlowingEmojiOverlay, parseEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,6 +34,15 @@ import {
 type TikTokFeedProps = { initialPostId?: string | undefined };
 
 type SharePerson = { id: string; display_name: string };
+
+const StoryFeed = lazy(async () => {
+  const module = await import("@/components/cupido/story-feed");
+  return { default: module.StoryFeed };
+});
+const WallFeed = lazy(async () => {
+  const module = await import("@/components/cupido/wall-feed");
+  return { default: module.WallFeed };
+});
 
 function errorMessage(value: unknown, fallback: string): string {
   return databaseErrorMessage(value, fallback);
@@ -367,7 +374,8 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
     }
   };
 
-  const renderComment = (comment: PostComment, depth = 0): ReactNode => (
+  function renderComment(comment: PostComment, depth = 0): ReactNode {
+    return (
     <div key={comment.id} className="space-y-2">
       <div className="flex gap-2" style={{ marginLeft: `${Math.min(depth, 4) * 14}px` }}>
         <div className="relative shrink-0"><GranLigaStar active={comment.is_gran_liga} /><img src={comment.avatar_url || "/favicon.ico"} alt="" className="size-7 rounded-full border border-white/15 object-cover" /></div>
@@ -397,7 +405,8 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       </div>
       {(comments.data ?? []).filter((reply) => reply.parent_comment_id === comment.id).map((reply) => renderComment(reply, depth + 1))}
     </div>
-  );
+    );
+  }
 
   const sendShare = async (person: SharePerson) => {
     if (!viewerId || !sharePostId) return;
@@ -443,7 +452,9 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))]">
           <DialogHeader><DialogTitle>Publicar</DialogTitle></DialogHeader>
-          <WallFeed composerOnly showScopeTabs={false} />
+          <Suspense fallback={<p className="p-5 text-center text-sm text-muted-foreground">Cargando editor…</p>}>
+            <WallFeed composerOnly showScopeTabs={false} />
+          </Suspense>
         </DialogContent>
       </Dialog>
       <div ref={containerRef} translate="no" className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -547,7 +558,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       </div>
 
       <div className="pointer-events-auto absolute inset-x-3 top-[calc(env(safe-area-inset-top)+3.8rem)] z-25 mx-auto max-w-md">
-        <StoryFeed compact />
+        <Suspense fallback={null}><StoryFeed compact /></Suspense>
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">

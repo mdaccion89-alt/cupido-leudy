@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getAdminClient } from "@/lib/server-helpers";
-import { phoneLoginEmail } from "@/lib/phone-identity";
+import { getSupabaseServiceClient } from "@/lib/paypal-admin.server";
+import { COUNTRIES } from "@/lib/cupido";
+import { normalizeLoginPhone, phoneLoginEmail } from "@/lib/phone-identity";
 
 type PhoneAccountInput = {
   phone: string;
@@ -19,12 +20,14 @@ type PhoneAccountInput = {
 };
 
 function validatePhoneAccount(input: PhoneAccountInput) {
-  const phone = typeof input?.phone === "string" ? input.phone.trim() : "";
+  const countryCode = typeof input?.countryCode === "string" ? input.countryCode.trim().toUpperCase() : "";
+  if (!COUNTRIES.some(([code]) => code === countryCode)) throw new Error("COUNTRY_INVALID");
+  const phoneInput = typeof input?.phone === "string" ? input.phone : "";
+  const phone = normalizeLoginPhone(phoneInput, countryCode);
   const password = typeof input?.password === "string" ? input.password : "";
   const fullName = typeof input?.fullName === "string" ? input.fullName.trim().slice(0, 40) : "";
   const displayName = typeof input?.displayName === "string" ? input.displayName.trim().slice(0, 40) : "";
   const birthDate = typeof input?.birthDate === "string" ? input.birthDate : "";
-  if (!/^\+[1-9]\d{6,14}$/.test(phone)) throw new Error("PHONE_INVALID");
   if (password.length < 8 || password.length > 128) throw new Error("PASSWORD_INVALID");
   if (!fullName && !displayName) throw new Error("PROFILE_NAME_REQUIRED");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) throw new Error("BIRTH_DATE_INVALID");
@@ -38,7 +41,7 @@ function validatePhoneAccount(input: PhoneAccountInput) {
     fullName: fullName || displayName,
     displayName: displayName || fullName,
     birthDate,
-    countryCode: String(input.countryCode || "").slice(0, 2).toUpperCase(),
+    countryCode,
     lookingFor: String(input.lookingFor || "amistad").slice(0, 40),
     zodiac: String(input.zodiac || "").slice(0, 24),
     smokes: Boolean(input.smokes),
@@ -52,7 +55,7 @@ function validatePhoneAccount(input: PhoneAccountInput) {
 export const createPhonePasswordAccount = createServerFn({ method: "POST" })
   .validator(validatePhoneAccount)
   .handler(async ({ data }) => {
-    const admin = await getAdminClient();
+    const admin = getSupabaseServiceClient();
     const { data: created, error } = await admin.auth.admin.createUser({
       email: phoneLoginEmail(data.phone),
       password: data.password,

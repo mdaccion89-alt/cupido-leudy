@@ -5,8 +5,8 @@ const SUPABASE_PROJECT_URL = "https://grlypsxivgxrvahnjoay.supabase.co";
 
 let serviceClient: SupabaseClient<Database> | undefined;
 
-/** PayPal orders and the capture finalizer must run as service_role, never with the public key. */
-export function getPaypalServiceClient(): SupabaseClient<Database> {
+/** Trusted server operations must use service_role, never the public key. */
+export function getSupabaseServiceClient(): SupabaseClient<Database> {
   if (serviceClient) return serviceClient;
 
   const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"]?.trim();
@@ -21,3 +21,6 @@ export function getPaypalServiceClient(): SupabaseClient<Database> {
   });
   return serviceClient;
 }
+
+/** Backwards-compatible alias for the existing PayPal server handlers. */
+export const getPaypalServiceClient = getSupabaseServiceClient;
