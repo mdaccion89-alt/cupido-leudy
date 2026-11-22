@@ -637,6 +637,7 @@ export function LiveRoom({
             ref={role === "host" ? localVideoRef : remoteVideoRef}
             autoPlay
             playsInline
+            webkit-playsinline="true"
             muted={role === "host" || liveMuted}
             className="h-full w-full object-cover"
           />

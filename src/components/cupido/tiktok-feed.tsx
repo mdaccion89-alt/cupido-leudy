@@ -7,6 +7,7 @@ import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { StoryFeed } from "@/components/cupido/story-feed";
+import { WallFeed } from "@/components/cupido/wall-feed";
 import { GlowingEmojiOverlay, parseEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -95,6 +96,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const [likedLocal, setLikedLocal] = useState<Record<string, boolean>>({});
   const [savedLocal, setSavedLocal] = useState<Record<string, boolean>>({});
   const [playFeedback, setPlayFeedback] = useState<{ postId: string; playing: boolean } | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
 
   const feed = useQuery({
     queryKey: ["cupido-tiktok-feed", viewerId, followingOnly],
@@ -437,6 +439,13 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
 
   return (
     <main className="fixed inset-0 z-50 h-[100dvh] overflow-hidden bg-black text-white">
+      <Button type="button" onClick={() => setPublishOpen(true)} className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[60] gap-2 shadow-lg"><span>＋</span> Publicar</Button>
+      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))]">
+          <DialogHeader><DialogTitle>Publicar</DialogTitle></DialogHeader>
+          <WallFeed composerOnly showScopeTabs={false} />
+        </DialogContent>
+      </Dialog>
       <div ref={containerRef} className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {posts.map((post, index) => {
           const isLiked = likedLocal[post.id] ?? likedIds.has(post.id);
@@ -450,6 +459,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 src={post.media_url}
                 loop
                 playsInline
+                webkit-playsinline="true"
                 muted={muted}
                 preload={index <= currentIndex + 1 ? "auto" : "metadata"}
                 onClick={() => toggleVideoPlayback(post)}

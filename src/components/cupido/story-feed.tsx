@@ -21,8 +21,9 @@ import { mediaFilterCss } from "@/lib/media-filters";
 type Story = {
   id: string;
   user_id: string;
-  media_url: string;
-  media_type: "image" | "video";
+  media_url: string | null;
+  media_type: "image" | "video" | "text";
+  background_gradient: string;
   caption: string;
   filter_name: string;
   emoji_overlay: string;
@@ -39,6 +40,15 @@ type AnyDb = {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
 };
 const storyDb = supabase as unknown as AnyDb;
+const STORY_BACKGROUNDS = [
+  { id: "pink", label: "Rosa", className: "from-pink-600 via-fuchsia-700 to-slate-950" },
+  { id: "sunset", label: "Atardecer", className: "from-orange-500 via-rose-600 to-purple-950" },
+  { id: "ocean", label: "Océano", className: "from-cyan-500 via-blue-700 to-indigo-950" },
+  { id: "gold", label: "Dorado", className: "from-amber-400 via-orange-600 to-rose-950" },
+] as const;
+function storyBackground(id: string) {
+  return STORY_BACKGROUNDS.find((item) => item.id === id)?.className ?? STORY_BACKGROUNDS[0].className;
+}
 
 export function StoryFeed({ compact = false }: { compact?: boolean }) {
   const { session } = useAuth();
@@ -46,6 +56,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
   const client = useQueryClient();
   const [caption, setCaption] = useState("");
   const [emojiOverlay, setEmojiOverlay] = useState<string[]>([]);
+  const [backgroundGradient, setBackgroundGradient] = useState<string>(STORY_BACKGROUNDS[0].id);
   const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -59,7 +70,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
     queryKey: ["cupido-stories", viewerId],
     queryFn: async () => {
       const { data, error } = await storyDb.from("cupido_stories")
-        .select("id,user_id,media_url,media_type,caption,filter_name,emoji_overlay,created_at,expires_at")
+        .select("id,user_id,media_url,media_type,caption,filter_name,emoji_overlay,background_gradient,created_at,expires_at")
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(100);
@@ -91,9 +102,8 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
       const byId = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));
       return visibleRows.flatMap((row) => {
         const profile = byId.get(row.user_id);
-        if (!profile?.is_cupido_active) return [];
         const storyHearts = hearts.filter((heart) => heart.story_id === row.id);
-        return [{ ...row, display_name: profile.display_name ?? "Miembro de Cupido", avatar_url: profile.avatar_url ?? "", heart_count: storyHearts.length, liked: storyHearts.some((heart) => heart.user_id === viewerId), viewer_count: viewCountByStory.get(row.id) ?? 0 }];
+        return [{ ...row, display_name: profile?.display_name ?? "Miembro de Cupido", avatar_url: profile?.avatar_url ?? "", heart_count: storyHearts.length, liked: storyHearts.some((heart) => heart.user_id === viewerId), viewer_count: viewCountByStory.get(row.id) ?? 0 }];
       }) as Story[];
     },
   });
@@ -137,7 +147,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
     },
   });
 
-  const publish = async (file: File, filter: MediaFilterId) => {
+  const publishMedia = async (file: File, filter: MediaFilterId) => {
     if (!viewerId) {
       toast.error("Inicia sesión para publicar una historia.");
       return;
@@ -181,10 +191,12 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
         caption: caption.trim().slice(0, 300),
         filter_name: filter,
         emoji_overlay: serializeEmojiOverlay(emojiOverlay),
+        background_gradient: backgroundGradient,
       });
       if (error) throw error;
       setCaption("");
       setEmojiOverlay([]);
+      setBackgroundGradient(STORY_BACKGROUNDS[0].id);
       setDraft(null);
       toast.success("Historia publicada durante 24 horas.");
       await client.invalidateQueries({ queryKey: ["cupido-stories"] });
@@ -193,6 +205,36 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
       toast.error(error instanceof Error ? error.message : "No se pudo publicar la historia.");
     } finally {
       setCancelRequested(false);
+      setUploading(false);
+    }
+  };
+
+  const publishText = async () => {
+    if (!viewerId) {
+      toast.error("Inicia sesión para publicar una historia.");
+      return;
+    }
+    if (!caption.trim() && !emojiOverlay.length) return;
+    setUploading(true);
+    try {
+      const { error } = await storyDb.from("cupido_stories").insert({
+        user_id: viewerId,
+        media_url: null,
+        media_type: "text",
+        caption: caption.trim().slice(0, 300),
+        filter_name: "normal",
+        emoji_overlay: serializeEmojiOverlay(emojiOverlay),
+        background_gradient: backgroundGradient,
+      });
+      if (error) throw error;
+      setCaption("");
+      setEmojiOverlay([]);
+      setBackgroundGradient(STORY_BACKGROUNDS[0].id);
+      toast.success("Historia publicada durante 24 horas.");
+      await client.invalidateQueries({ queryKey: ["cupido-stories"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo publicar la historia.");
+    } finally {
       setUploading(false);
     }
   };
@@ -247,8 +289,8 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
           {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
           {visibleStories.map((story) => (
             <Link key={story.id} to="/historia" aria-label={`Ver historia de ${story.display_name}`} className="relative h-[72px] w-[58px] shrink-0 overflow-hidden rounded-lg border border-pink-300/40 bg-black">
-              {story.media_type === "image" ? <img src={story.media_url} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
-              <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />
+              {story.media_type === "text" ? <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br p-2 text-center text-[10px] font-semibold text-white ${storyBackground(story.background_gradient)}`}>{story.caption || "✨"}<GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "image" ? <img src={story.media_url ?? ""} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url ?? undefined} muted playsInline webkit-playsinline="true" preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
+              {story.media_type !== "text" && <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />}
               <Avatar className="absolute left-1 top-1 size-6 border border-pink-300">
                 <AvatarImage src={story.avatar_url} alt="" />
                 <AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback>
@@ -263,25 +305,40 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
 
   return (
     <section className="space-y-5">
-      <div className="rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
+      <div id="story-composer" className="scroll-mt-24 rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
         <div className="mb-3 flex items-center gap-2 font-display text-sm text-white"><Clock3 className="size-4 text-pink-300" /> Comparte una historia · desaparece en 24 h</div>
         <Input value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={300} placeholder="Escribe algo para acompañar la foto o el video..." className="mb-3" />
         {!viewerId && <p className="mb-3 text-xs text-muted-foreground">Inicia sesión para publicar historias.</p>}
         <div className="mb-3"><EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} /></div>
+        <div className="mb-3 space-y-2">
+          <p className="text-xs font-semibold text-white">Fondo para historia de texto</p>
+          <div className="flex flex-wrap gap-2">{STORY_BACKGROUNDS.map((background) => <button key={background.id} type="button" aria-label={`Fondo ${background.label}`} aria-pressed={backgroundGradient === background.id} disabled={uploading} onClick={() => setBackgroundGradient(background.id)} className={`h-9 w-14 rounded-lg border bg-gradient-to-br ${background.className} ${backgroundGradient === background.id ? "border-white ring-2 ring-pink-300" : "border-white/20"}`} />)}</div>
+        </div>
         <MediaComposer disabled={uploading || !viewerId} onFile={(file, filter) => setDraft({ file, filter })} galleryLabel="Agregar foto o video" />
         {draft && previewUrl && (
           <div className="mt-3 space-y-3 rounded-xl border border-pink-300/20 bg-black/20 p-3">
             <p className="text-xs font-semibold text-white">Vista previa</p>
             <div className="relative overflow-hidden rounded-lg bg-black">
               {draft.file.type.startsWith("video/")
-                ? <video src={previewUrl} controls playsInline className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+                ? <video src={previewUrl} controls playsInline webkit-playsinline="true" className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
                 : <img src={previewUrl} alt="Vista previa de la historia" className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />}
               <GlowingEmojiOverlay emojis={emojiOverlay} />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" disabled={uploading} onClick={() => setDraft(null)}>Quitar</Button>
-              <Button type="button" disabled={uploading} onClick={() => void publish(draft.file, draft.filter)}>{uploading ? <Loader2 className="size-4 animate-spin" /> : null} Publicar 24 h</Button>
+              <Button type="button" disabled={uploading} onClick={() => void publishMedia(draft.file, draft.filter)}>{uploading ? <Loader2 className="size-4 animate-spin" /> : null} Publicar historia</Button>
             </div>
+          </div>
+        )}
+        {!draft && (caption.trim() || emojiOverlay.length > 0) && (
+          <div className={`relative mt-3 flex min-h-56 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(backgroundGradient)}`}>
+            <span className="relative z-[1] whitespace-pre-wrap break-words">{caption.trim() || "Tu estado con emojis"}</span>
+            <GlowingEmojiOverlay emojis={emojiOverlay} />
+          </div>
+        )}
+        {!draft && (
+          <div className="mt-3 flex justify-end">
+            <Button type="button" disabled={uploading || !viewerId || (!caption.trim() && !emojiOverlay.length)} onClick={() => void publishText()}>{uploading ? <Loader2 className="size-4 animate-spin" /> : null} Publicar historia</Button>
           </div>
         )}
         {uploading && <div className="mt-3 flex items-center justify-center gap-3 text-xs text-pink-200"><span className="flex items-center gap-2"><Loader2 className="size-3.5 animate-spin" /> {cancelRequested ? "Cancelando subida..." : "Publicando..."}</span><Button type="button" size="sm" variant="outline" disabled={cancelRequested} onClick={() => { cancelUploadRef.current = true; setCancelRequested(true); }}>Cancelar subida</Button></div>}
@@ -298,8 +355,8 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
               {story.user_id === viewerId ? <><Button type="button" variant="ghost" size="icon" aria-label="Ver quién vio la historia" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /><span className="sr-only">{story.viewer_count}</span></Button><Button type="button" variant="ghost" size="icon" aria-label="Eliminar historia" onClick={() => void deleteStory(story)}><Trash2 className="size-4" /></Button></> : <details className="relative"><summary className="list-none cursor-pointer rounded p-2 text-muted-foreground hover:text-white" aria-label="Más opciones de historia"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-white/10 bg-slate-950 p-1 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void interact("cupido_hide_story_user", { _owner: story.user_id }, "Historias de este usuario ocultas.")}>Ocultar usuario</button><button className="w-full rounded px-3 py-2 text-left text-xs text-red-200 hover:bg-white/10" onClick={() => void interact("cupido_report_story", { _story: story.id, _reason: "Contenido reportado desde Historias" }, "Reporte enviado al Administrador.")}>Reportar al Admin</button></div></details>}
             </div>
             <div className="relative">
-              {story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url} filter={story.filter_name as MediaFilterId} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
-              <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />
+              {story.media_type === "text" ? <div className={`relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(story.background_gradient)}`}><span className="relative z-[1] whitespace-pre-wrap break-words">{story.caption || "✨"}</span><GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url ?? ""} filter={story.filter_name as MediaFilterId} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url ?? ""} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
+              {story.media_type !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />}
             </div>
             {story.caption && <p className="px-3 pt-3 text-sm text-foreground/90">{story.caption}</p>}
             <div className="flex items-center justify-between px-3 pt-3 text-xs text-muted-foreground"><button type="button" className="inline-flex items-center gap-1.5 hover:text-pink-200" disabled={!viewerId || story.user_id === viewerId} onClick={() => void interact("cupido_toggle_story_heart", { _story: story.id }, story.liked ? "Quitaste tu corazón." : "Enviaste un corazón.")}><Heart className={`size-4 ${story.liked ? "fill-pink-400 text-pink-400" : ""}`} /> {story.heart_count}</button>{story.user_id === viewerId && <button type="button" className="inline-flex items-center gap-1.5" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /> {story.viewer_count} vistas</button>}</div>

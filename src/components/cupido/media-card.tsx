@@ -248,7 +248,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
     <article id={`post-${postId}`} ref={visibilityRef} className="scroll-mt-24 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
       <div className={`relative w-full bg-black ${media?.kind === "text" ? "min-h-36 bg-gradient-to-br from-pink-950 to-slate-950 p-6" : "aspect-[9/14] max-h-[520px]"}`}>
         {media?.kind === "text" ? (
-          <div>
+          <div style={{ filter: mediaFilterCss(media.filter_name) }}>
             {media.title && <p className="mb-2 text-xl font-semibold leading-tight text-white">{media.title}</p>}
             <p className="whitespace-pre-wrap break-words text-lg leading-relaxed text-white"><RichPostText text={caption} onHashtag={onHashtag} /></p>
           </div>
@@ -296,7 +296,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         </span>
         {media.is_pinned && <span className="absolute right-3 top-3 rounded-full bg-pink-600/90 px-2.5 py-1 text-[11px] font-semibold text-white">📌 Fijada</span>}
         {media.is_promoted && <span className="absolute bottom-3 left-3 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-semibold text-black">Promocionada</span>}
-        {media.kind !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(media.emoji_overlay)} />}
+        <GlowingEmojiOverlay emojis={parseEmojiOverlay(media.emoji_overlay)} />
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
@@ -326,7 +326,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               {media.shared_post.title && <span className="mb-1 block font-semibold text-white">{media.shared_post.title}</span>}
               <span className="line-clamp-3 whitespace-pre-wrap text-muted-foreground"><RichPostText text={media.shared_post.caption} onHashtag={onHashtag} /></span>
               {media.shared_post.media_url && (media.shared_post.kind === "video"
-                ? <video src={media.shared_post.media_url} controls playsInline className="mt-2 max-h-48 w-full rounded-lg bg-black object-contain" />
+                ? <video src={media.shared_post.media_url} controls playsInline webkit-playsinline="true" className="mt-2 max-h-48 w-full rounded-lg bg-black object-contain" />
                 : <img src={media.shared_post.media_url} alt={media.shared_post.title || "Publicación compartida"} className="mt-2 max-h-48 w-full rounded-lg object-cover" />)}
             </Link>
           </div>

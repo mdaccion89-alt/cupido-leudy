@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.cupidoleudy.app",
+  appId: "com.cupido.leudy",
   appName: "Cupido Leudy",
   webDir: "dist",
   server: {

@@ -282,6 +282,7 @@
 html {
   overflow-x: hidden;
   overscroll-behavior: none;
+  scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
   touch-action: pan-y;
   -webkit-text-size-adjust: 100%;
 }
@@ -290,6 +291,12 @@ body {
   overflow-x: hidden;
   min-height: 100dvh;
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  scroll-margin-bottom: calc(6rem + env(safe-area-inset-bottom));
 }
 
 button,

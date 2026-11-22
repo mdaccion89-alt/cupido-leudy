@@ -1,4 +1,4 @@
-package com.cupidoleudy.app;
+package com.cupido.leudy;
 
 import com.getcapacitor.BridgeActivity;
 

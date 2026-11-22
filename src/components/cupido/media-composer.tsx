@@ -133,7 +133,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
           <Square className="size-3.5 fill-current" /> Detener y publicar ({secondsLeft}s)
         </Button>
       )}
-      <video ref={videoRef} muted playsInline className={recording ? "max-h-40 w-full rounded-xl object-cover" : "hidden"} style={{ filter: mediaFilterCss(filter) }} />
+      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={recording ? "max-h-40 w-full rounded-xl object-cover" : "hidden"} style={{ filter: mediaFilterCss(filter) }} />
     </div>
   );
 }

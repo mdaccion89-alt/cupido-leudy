@@ -137,6 +137,7 @@ export function MediaPlayer({
             src={url}
             controls
             playsInline
+            webkit-playsinline="true"
             className="absolute inset-0 h-full w-full bg-background object-contain"
             {...mediaEvents}
           />

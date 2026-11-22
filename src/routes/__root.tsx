@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { App } from "@capacitor/app";
 import {
   Outlet,
   Link,
@@ -207,7 +208,8 @@ function RootComponent() {
         <LoginMetadataSetup />
         <AdController />
         <ReferralTracker />
-        <div className="flex min-h-screen flex-col pb-20">
+        <AndroidBackHandler />
+        <div className="flex min-h-screen flex-col pb-[calc(5rem+env(safe-area-inset-bottom))]">
           <SiteHeader />
           <div className="flex-1">
             <AccountScopedOutlet />
@@ -220,6 +222,33 @@ function RootComponent() {
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function AndroidBackHandler() {
+  const router = useRouter();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  useEffect(() => {
+    let active = true;
+    let listener: Awaited<ReturnType<typeof App.addListener>> | undefined;
+    void App.addListener("backButton", ({ canGoBack }) => {
+      if (!active) return;
+      if (canGoBack || window.history.length > 1) {
+        router.history.back();
+      } else if (pathname !== "/") {
+        void router.navigate({ to: "/" });
+      }
+    }).then((handle) => {
+      if (active) listener = handle;
+      else void handle.remove();
+    });
+    return () => {
+      active = false;
+      void listener?.remove();
+    };
+  }, [pathname, router]);
+
+  return null;
 }
 
 function AccountScopedOutlet() {

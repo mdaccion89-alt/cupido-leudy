@@ -1274,8 +1274,8 @@ function CallRoom({
         </DialogHeader>
         {videoCall ? (
           <div className="relative overflow-hidden rounded-2xl bg-black">
-            <video ref={remoteVideoRef} autoPlay playsInline muted={false} className="aspect-video w-full object-cover" />
-            <video ref={localVideoRef} autoPlay playsInline muted className="absolute bottom-3 right-3 aspect-video w-28 rounded-xl border border-white/30 object-cover sm:w-40" />
+            <video ref={remoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={false} className="aspect-video w-full object-cover" />
+            <video ref={localVideoRef} autoPlay playsInline webkit-playsinline="true" muted className="absolute bottom-3 right-3 aspect-video w-28 rounded-xl border border-white/30 object-cover sm:w-40" />
           </div>
         ) : (
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/20 text-3xl">

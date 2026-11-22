@@ -41,9 +41,9 @@ export function EmojiOverlayPicker({ value, onChange, disabled = false }: { valu
 export function GlowingEmojiOverlay({ emojis, className = "" }: { emojis: readonly string[]; className?: string }) {
   if (!emojis.length) return null;
   return (
-    <div className={`pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-wrap items-center justify-center gap-3 ${className}`} aria-hidden="true">
+    <div className={`pointer-events-none absolute inset-0 z-10 flex flex-wrap items-center justify-center gap-3 overflow-hidden ${className}`} aria-hidden="true">
       {emojis.map((emoji, index) => (
-        <span key={`${emoji}-${index}`} className="animate-pulse text-5xl drop-shadow-[0_0_10px_rgba(255,70,190,0.95)] [filter:drop-shadow(0_0_18px_rgba(255,215,0,0.9))] sm:text-6xl">{emoji}</span>
+        <span key={`${emoji}-${index}`} className="animate-bounce text-5xl drop-shadow-[0_0_10px_rgba(255,70,190,0.95)] [filter:drop-shadow(0_0_18px_rgba(255,215,0,0.9))] sm:text-6xl" style={{ animationDelay: `${index * 140}ms` }}>{emoji}</span>
       ))}
     </div>
   );

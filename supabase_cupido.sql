@@ -674,10 +674,11 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.cupido_stories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  media_url TEXT NOT NULL,
-  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  media_url TEXT,
+  media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video', 'text')),
   caption TEXT NOT NULL DEFAULT '',
   filter_name TEXT NOT NULL DEFAULT 'normal',
+  background_gradient TEXT NOT NULL DEFAULT 'pink' CHECK (background_gradient IN ('pink', 'sunset', 'ocean', 'gold')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '24 hours')
 );
@@ -688,7 +689,7 @@ GRANT SELECT ON public.cupido_stories TO anon, authenticated;
 GRANT INSERT, DELETE ON public.cupido_stories TO authenticated;
 DROP POLICY IF EXISTS "cupido stories live read" ON public.cupido_stories;
 CREATE POLICY "cupido stories live read" ON public.cupido_stories FOR SELECT TO anon, authenticated
-  USING (expires_at > now() AND (SELECT is_cupido_active FROM public.creator_profiles WHERE id = user_id));
+  USING (expires_at > now());
 DROP POLICY IF EXISTS "cupido stories own insert" ON public.cupido_stories;
 CREATE POLICY "cupido stories own insert" ON public.cupido_stories FOR INSERT TO authenticated
   WITH CHECK (auth.uid() = user_id);

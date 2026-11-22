@@ -46,6 +46,7 @@ export function CupidoVideoPlayer({
         autoPlay={autoPlay}
         controls={controls}
         playsInline
+        webkit-playsinline="true"
         loop={loop}
         muted={muted}
         className={className}

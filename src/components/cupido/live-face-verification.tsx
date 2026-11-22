@@ -155,7 +155,7 @@ export function LiveFaceVerification({ onComplete }: LiveFaceVerificationProps) 
       <p className="mt-1 text-xs text-muted-foreground">Cada paso se valida con Gemini antes de continuar. Las tres poses aprobadas se envían juntas al Panel Admin.</p>
 
       <div className="relative mt-4 overflow-hidden rounded-xl border border-white/10 bg-black/40">
-        <video ref={videoRef} muted playsInline className="aspect-video w-full object-cover" />
+        <video ref={videoRef} muted playsInline webkit-playsinline="true" className="aspect-video w-full object-cover" />
         {running && (
           <div className="absolute inset-x-0 bottom-0 bg-black/70 p-3 text-center">
             <p className="text-sm font-medium text-white">Paso {step + 1} de 3 · {LIVE_STEPS[step]?.label}</p>
@@ -285,7 +285,7 @@ export function FaceVideoVerification({ onComplete }: { onComplete: (video: Blob
   return (
     <div className="space-y-3">
       <div className="relative mx-auto aspect-square w-full max-w-sm overflow-hidden rounded-2xl bg-black">
-        <video ref={videoRef} muted playsInline className="size-full object-cover" />
+        <video ref={videoRef} muted playsInline webkit-playsinline="true" className="size-full object-cover" />
         <svg aria-hidden="true" viewBox="0 0 640 640" className="absolute inset-0 size-full">
           <path d="M0 0h640v640H0z M320 72c-91 0-139 67-139 169 0 116 57 233 139 233s139-117 139-233c0-102-48-169-139-169z" fillRule="evenodd" fill="rgba(0,0,0,.48)" />
           <path d="M320 72c-91 0-139 67-139 169 0 116 57 233 139 233s139-117 139-233c0-102-48-169-139-169z" fill="none" stroke="#7dd3fc" strokeWidth="6" />

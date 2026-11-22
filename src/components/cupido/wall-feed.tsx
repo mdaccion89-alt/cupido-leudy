@@ -45,6 +45,7 @@ type WallFeedProps = {
   savedOnly?: boolean;
   likedOnly?: boolean;
   hideUpload?: boolean;
+  composerOnly?: boolean;
   emptyText?: string;
   initialFollowingOnly?: boolean;
   showScopeTabs?: boolean;
@@ -59,6 +60,7 @@ export function WallFeed({
   savedOnly = false,
   likedOnly = false,
   hideUpload = false,
+  composerOnly = false,
   emptyText,
   initialFollowingOnly = false,
   showScopeTabs = true,
@@ -83,6 +85,7 @@ export function WallFeed({
   const [selectedHashtag, setSelectedHashtag] = useState("");
 
   const feed = useQuery({
+    enabled: !composerOnly,
     queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, likedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
     queryFn: async () => {
       setLoadingPosts(true);
@@ -95,6 +98,7 @@ export function WallFeed({
   });
 
   const trending = useQuery({
+    enabled: !composerOnly,
     queryKey: ["cupido-trending-hashtags"],
     queryFn: async () => {
       const { data, error } = await supabase.from("cupido_posts").select("caption").order("created_at", { ascending: false }).limit(1000);
@@ -173,6 +177,7 @@ export function WallFeed({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["cupido-media"] }),
       queryClient.invalidateQueries({ queryKey: ["cupido-historia"] }),
+      queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
     ]);
   };
 
@@ -269,12 +274,13 @@ export function WallFeed({
       requireSession();
       return;
     }
-    if (!caption.trim()) return;
+    if (!caption.trim() && !emojiOverlay.length) return;
     setUploading(true);
     try {
-      await createPost({ userId: viewerId, caption, title, kind: "text" });
+      await createPost({ userId: viewerId, caption, title, kind: "text", filterName: mediaFilter, emojiOverlay: serializeEmojiOverlay(emojiOverlay) });
       setCaption("");
       setTitle("");
+      setEmojiOverlay([]);
       toast.success("Publicación compartida en el muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -412,11 +418,16 @@ export function WallFeed({
             <Upload className="h-4 w-4" />
             {videoOnly ? "Elegir video" : "Elegir foto o video"}
           </Button>
-          {!videoOnly && (
-            <Button onClick={() => void handleTextPost()} disabled={uploading || !caption.trim()} variant="secondary">
-              {uploading ? "Publicando…" : "Publicar texto"}
-            </Button>
-          )}
+          <Button onClick={() => void handleTextPost()} disabled={uploading || !viewerId || (!caption.trim() && !emojiOverlay.length)} variant="secondary">
+            {uploading ? "Publicando…" : "Publicar"}
+          </Button>
+        </div>
+      )}
+
+      {!hideUpload && !draft && (caption.trim() || emojiOverlay.length > 0) && (
+        <div className="relative min-h-36 overflow-hidden rounded-2xl bg-gradient-to-br from-pink-700 via-fuchsia-800 to-slate-950 p-5 text-white" style={{ filter: mediaFilterCss(mediaFilter) }}>
+          <p className="relative z-[1] whitespace-pre-wrap break-words">{title.trim() && <span className="mb-2 block text-lg font-semibold">{title}</span>}{caption || "Tu publicación con emojis"}</p>
+          <GlowingEmojiOverlay emojis={emojiOverlay} />
         </div>
       )}
 
@@ -425,7 +436,7 @@ export function WallFeed({
           <p className="mb-3 text-sm font-semibold text-white">Vista previa</p>
           <div className="relative overflow-hidden rounded-xl bg-black">
           {isVideoFile(draft.file) ? (
-            <video src={previewUrl} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+            <video src={previewUrl} controls playsInline webkit-playsinline="true" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           ) : (
             <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           )}
@@ -436,12 +447,13 @@ export function WallFeed({
               Quitar
             </Button>
             <Button type="button" onClick={() => void handleUpload(draft.file, draft.filter)} disabled={uploading} className="gap-2">
-              <Upload className="size-4" /> {uploading ? "Publicando…" : "Publicar en el muro"}
+              <Upload className="size-4" /> {uploading ? "Publicando…" : "Publicar"}
             </Button>
           </div>
         </div>
       )}
 
+      {!composerOnly && <>
       {showTabs && (
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filtrar publicaciones">
           <button
@@ -517,6 +529,7 @@ export function WallFeed({
           </Button>
         </div>
       )}
+      </>}
     </div>
   );
 }

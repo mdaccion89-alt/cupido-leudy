@@ -16,5 +16,5 @@ export function VerificationVideoPreview({ path }: { path: string }) {
   }, [path]);
 
   if (!url) return <p className="flex h-40 items-center justify-center rounded-xl bg-black/40 text-xs text-muted-foreground">{error ? "No se pudo abrir el video privado." : "Cargando video…"}</p>;
-  return <video src={url} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" />;
+  return <video src={url} controls playsInline webkit-playsinline="true" className="max-h-80 w-full rounded-xl bg-black object-contain" />;
 }
