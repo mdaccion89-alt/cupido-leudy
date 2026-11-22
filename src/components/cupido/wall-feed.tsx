@@ -143,6 +143,10 @@ export function WallFeed({
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_comments" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_comment_likes" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });

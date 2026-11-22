@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Gift, Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -581,6 +581,11 @@ function ProfilePage() {
                 <Button asChild>
                   <Link to="/chat" search={{ userId: profileId }}>
                     <MessageCircle /> Chatear
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/tienda" search={{ userId: profileId }}>
+                    <Gift /> Enviar regalo
                   </Link>
                 </Button>
               </>

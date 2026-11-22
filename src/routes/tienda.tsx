@@ -204,14 +204,13 @@ function StorePage() {
             ? "No tienes monedas brillantes suficientes para ese regalo."
             : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
         );
-      const { data, error } = await supabase.rpc("cupido_send_gift", {
+      const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
-      if (!data) throw new Error("El servidor no confirmó el envío del regalo.");
     },
     onSuccess: () => {
       account.refresh();

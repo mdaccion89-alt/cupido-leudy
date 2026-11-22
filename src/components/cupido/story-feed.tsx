@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, Eye, Heart, Loader2, MoreHorizontal, Send, Trash2 } from "lucide-react";
+import { Clock3, Eye, Heart, Loader2, MoreHorizontal, Plus, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ type AnyDb = {
 };
 const storyDb = supabase as unknown as AnyDb;
 
-export function StoryFeed() {
+export function StoryFeed({ compact = false }: { compact?: boolean }) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
@@ -99,16 +99,16 @@ export function StoryFeed() {
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [client]);
+  }, [client, viewerId]);
 
   useEffect(() => {
-    if (!viewerId) return;
+    if (compact || !viewerId) return;
     for (const story of stories.data ?? []) {
       if (story.user_id === viewerId || viewedStories.current.has(story.id)) continue;
       viewedStories.current.add(story.id);
       void storyDb.rpc("cupido_story_view", { _story: story.id });
     }
-  }, [stories.data, viewerId]);
+  }, [compact, stories.data, viewerId]);
 
   const viewers = useQuery({
     queryKey: ["cupido-story-viewers", viewersStory],
@@ -216,6 +216,34 @@ export function StoryFeed() {
   };
 
   const visibleStories = useMemo(() => stories.data ?? [], [stories.data]);
+
+  if (compact) {
+    return (
+      <section className="rounded-xl border border-pink-300/25 bg-slate-950/85 p-2.5 shadow-lg backdrop-blur-md">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-white"><Clock3 className="size-3.5 text-pink-300" /> Historias 24 h</div>
+          <Button asChild type="button" size="sm" className="h-7 gap-1 px-2 text-[11px]">
+            <Link to="/historia"><Plus className="size-3.5" /> Agregar historia</Link>
+          </Button>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {stories.isLoading && <span className="px-1 py-2 text-[11px] text-white/60">Cargando historias…</span>}
+          {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
+          {visibleStories.map((story) => (
+            <Link key={story.id} to="/historia" aria-label={`Ver historia de ${story.display_name}`} className="relative h-[72px] w-[58px] shrink-0 overflow-hidden rounded-lg border border-pink-300/40 bg-black">
+              {story.media_type === "image" ? <img src={story.media_url} alt="" className="absolute inset-0 size-full object-cover" /> : <video src={story.media_url} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" />}
+              <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />
+              <Avatar className="absolute left-1 top-1 size-6 border border-pink-300">
+                <AvatarImage src={story.avatar_url} alt="" />
+                <AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback>
+              </Avatar>
+              <span className="absolute inset-x-1 bottom-1 line-clamp-2 text-[9px] font-semibold leading-tight text-white">{story.display_name}</span>
+            </Link>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-5">

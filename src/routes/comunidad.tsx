@@ -5,6 +5,7 @@ import { Search, SlidersHorizontal, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
 import { WallFeed } from "@/components/cupido/wall-feed";
+import { StoryFeed } from "@/components/cupido/story-feed";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -303,6 +304,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
           <h2 className="font-display text-2xl text-white">Muro público</h2>
           <p className="mt-1 text-sm text-muted-foreground">Sube una foto o video y descubre las publicaciones nuevas de la comunidad.</p>
         </div>
+        <StoryFeed compact />
         <WallFeed
           highlightPostId={highlightPostId}
           searchTerm={searchTerm || search}

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Download, Heart, Loader2, MessageCircle, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
+import { Bookmark, Download, Heart, Loader2, MessageCircle, Pause, Play, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
+import { StoryFeed } from "@/components/cupido/story-feed";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +14,7 @@ import { useAuth } from "@/lib/auth-context";
 import { deliverFile, safeFilename } from "@/lib/download";
 import {
   addComment,
+  displayedLikeCount,
   fetchComments,
   fetchFeed,
   formatCount,
@@ -75,6 +77,8 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const watchRef = useRef<{ postId: string; last: number }>({ postId: "", last: 0 });
+  const manuallyPaused = useRef(new Set<string>());
+  const feedbackTimer = useRef<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [followingOnly, setFollowingOnly] = useState(false);
   const [muted, setMuted] = useState(true);
@@ -87,6 +91,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const [shareMessage, setShareMessage] = useState("");
   const [likedLocal, setLikedLocal] = useState<Record<string, boolean>>({});
   const [savedLocal, setSavedLocal] = useState<Record<string, boolean>>({});
+  const [playFeedback, setPlayFeedback] = useState<{ postId: string; playing: boolean } | null>(null);
 
   const feed = useQuery({
     queryKey: ["cupido-tiktok-feed", viewerId, followingOnly],
@@ -180,7 +185,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [commentsPostId, queryClient]);
+  }, [commentsPostId, queryClient, viewerId]);
 
   useEffect(() => {
     const root = containerRef.current;
@@ -209,12 +214,38 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
         return;
       }
       video.muted = muted;
+      if (currentPost && manuallyPaused.current.has(currentPost.id)) return;
       void video.play().catch(() => {
         setMuted(true);
       });
     });
     if (currentPost) void registerPostView(currentPost.id).catch(() => undefined);
-  }, [currentIndex, currentPost?.id, muted]);
+  }, [currentIndex, currentPost?.id]);
+
+  useEffect(() => {
+    videoRefs.current.forEach((video) => { if (video) video.muted = muted; });
+  }, [muted]);
+
+  useEffect(() => () => {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+  }, []);
+
+  const toggleVideoPlayback = (post: FeedPost) => {
+    const index = posts.findIndex((item) => item.id === post.id);
+    const video = index >= 0 ? videoRefs.current[index] : null;
+    if (!video) return;
+    const playing = video.paused;
+    if (playing) {
+      manuallyPaused.current.delete(post.id);
+      void video.play().catch(() => toast.error("No se pudo reproducir este video."));
+    } else {
+      manuallyPaused.current.add(post.id);
+      video.pause();
+    }
+    setPlayFeedback({ postId: post.id, playing });
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = window.setTimeout(() => setPlayFeedback(null), 750);
+  };
 
   useEffect(() => {
     if (!initialPostId || !feed.data) return;
@@ -407,7 +438,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
           const isLiked = likedLocal[post.id] ?? likedIds.has(post.id);
           const isSaved = savedLocal[post.id] ?? savedIds.has(post.id);
           const isFollowingAuthor = following.data?.has(post.user_id) ?? false;
-          const likeCount = Math.max(0, Number(post.likes_count) || 0) + (isLiked === likedIds.has(post.id) ? 0 : isLiked ? 1 : -1);
+          const likeCount = Math.max(0, displayedLikeCount(post) + (isLiked === likedIds.has(post.id) ? 0 : isLiked ? 1 : -1));
           return (
             <section key={post.id} data-video-slide={index} className="relative flex h-[100dvh] w-full snap-start items-center justify-center overflow-hidden">
               <video
@@ -417,11 +448,16 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 playsInline
                 muted={muted}
                 preload={index <= currentIndex + 1 ? "auto" : "metadata"}
-                onClick={() => setMuted((value) => !value)}
+                onClick={() => toggleVideoPlayback(post)}
                 onTimeUpdate={(event) => reportWatch(post.id, event.currentTarget.currentTime)}
                 className="absolute inset-0 h-full w-full bg-black object-cover"
               />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
+              {playFeedback?.postId === post.id && (
+                <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-xl backdrop-blur-sm" aria-hidden="true">
+                  {playFeedback.playing ? <Play className="size-8 fill-current" /> : <Pause className="size-8 fill-current" />}
+                </div>
+              )}
 
               <div className="absolute bottom-24 right-2 z-20 flex flex-col items-center gap-4 sm:right-5">
                 <div className="relative mb-1">
@@ -482,6 +518,10 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
             </section>
           );
         })}
+      </div>
+
+      <div className="pointer-events-auto absolute inset-x-3 top-[calc(env(safe-area-inset-top)+3.8rem)] z-25 mx-auto max-w-md">
+        <StoryFeed compact />
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">

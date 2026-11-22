@@ -116,12 +116,17 @@ export function hashInRange(id?: string | null, min = 0, max = 0, salt = 0): num
   return low + (numericHash(String(id ?? ""), salt) % (high - low + 1));
 }
 
+export function displayedLikeCount(post?: FeedPost | null): number {
+  const realLikes = Math.max(0, Number(post?.likes_count) || 0);
+  return post?.is_super_admin ? realLikes + hashInRange(post.id, 14_200, 68_900) : realLikes;
+}
+
 export function displayedMetrics(post?: FeedPost | null): { likes: string; views: string } {
   const realLikes = Math.max(0, Number(post?.likes_count) || 0);
   const realViews = Math.max(0, Number(post?.views_count) || 0);
   if (!post?.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
   return {
-    likes: formatCount(realLikes + hashInRange(post.id, 14_200, 68_900)),
+    likes: formatCount(displayedLikeCount(post)),
     views: formatCount(realViews + hashInRange(post.id, 78_400, 342_900, 0x9e3779b9)),
   };
 }

@@ -45,10 +45,7 @@ type ActiveDirect = {
   premium_ends_at?: string | null;
 };
 
-const PREMIUM_LIVE_TIERS = [
-  { coins: 150, minutes: 15 }, { coins: 300, minutes: 30 },
-  { coins: 500, minutes: 45 }, { coins: 1000, minutes: 60 },
-] as const;
+const PREMIUM_LIVE_TIERS = [150, 300, 500, 1000] as const;
 
 function DirectPage() {
   const { session } = useAuth();
@@ -159,11 +156,11 @@ function DirectPage() {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       pendingStream.current = stream;
-      const tier = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
+      const coins = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
       const { data: roomId, error } = premiumTier === 0
         ? await supabase.rpc("cupido_start_live_room", { _title: title.trim() })
         : await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: string | null; error: { message: string } | null }> })
-            .rpc("cupido_start_premium_live", { _title: title.trim(), _coins: tier.coins, _minutes: tier.minutes });
+            .rpc("cupido_start_premium_live", { _title: title.trim(), _coins: coins, _minutes: 0 });
       if (error) throw error;
       if (!roomId) throw new Error("No se recibió el id del Live.");
       setActive({
@@ -173,7 +170,6 @@ function DirectPage() {
         hostIsGranLiga: Boolean(profile.data?.is_gran_liga),
         role: "host",
         stream,
-        premium_ends_at: premiumTier === 0 ? null : new Date(Date.now() + tier.minutes * 60_000).toISOString(),
       });
       pendingStream.current = null;
       setTitle("");
@@ -209,7 +205,7 @@ function DirectPage() {
     const stream = entryStream;
     setEntryStream(null);
     account.refresh();
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer", premium_ends_at: stream.premium_ends_at });
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   };
 
   const canHost = Boolean(account.isSupremeAdmin || account.isGranLiga || profile.data?.is_gran_liga || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
@@ -265,7 +261,7 @@ function DirectPage() {
                 />
                 <select value={premiumTier} onChange={(event) => setPremiumTier(Number(event.target.value))} aria-label="Tarifa del Live" className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground">
                   <option value={0}>Gratis</option>
-                  {PREMIUM_LIVE_TIERS.map((tier, index) => <option key={tier.coins} value={index + 1}>{tier.coins.toLocaleString("es")} monedas · {tier.minutes} min</option>)}
+                  {PREMIUM_LIVE_TIERS.map((coins, index) => <option key={coins} value={index + 1}>{coins.toLocaleString("es")} monedas · entrada única</option>)}
                 </select>
                 <Button onClick={() => void startDirect()} disabled={starting} className="gap-2">
                   {starting ? <Loader2 className="size-4 animate-spin" /> : <Video className="size-4" />}
@@ -341,7 +337,7 @@ function DirectPage() {
                   <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-rose-600/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow">
                     <span className="size-1.5 animate-pulse rounded-full bg-white" /> EN VIVO
                   </span>
-                  {stream.premium_coins > 0 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/75 px-2 py-1 text-[10px] font-bold text-amber-100"><LockKeyhole className="size-3" /> {stream.premium_coins} · {stream.premium_minutes} min</span>}
+                  {stream.premium_coins > 0 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/75 px-2 py-1 text-[10px] font-bold text-amber-100"><LockKeyhole className="size-3" /> {stream.premium_coins.toLocaleString("es")} monedas · entrada única</span>}
                   <div className="absolute inset-x-0 bottom-0 p-3 pr-14">
                     <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-white">{stream.title || "Directo en vivo"} ✨</h3>
                     <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-white/85">
@@ -383,8 +379,8 @@ function DirectPage() {
       </Dialog>
       <Dialog open={Boolean(entryStream)} onOpenChange={(open) => !open && setEntryStream(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><LockKeyhole className="size-5 text-amber-200" /> Live Premium</DialogTitle><DialogDescription>La entrada desbloquea el video y chat real durante el tiempo restante del Live. El pago se acredita al saldo retirable del anfitrión.</DialogDescription></DialogHeader>
-          <p className="text-center font-display text-2xl text-amber-100">{entryStream?.premium_coins.toLocaleString("es")} monedas · {entryStream?.premium_minutes} min</p>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><LockKeyhole className="size-5 text-amber-200" /> Live Premium</DialogTitle><DialogDescription>La entrada única desbloquea el video y el chat mientras el Live siga activo. El pago se acredita al saldo retirable del anfitrión.</DialogDescription></DialogHeader>
+          <p className="text-center font-display text-2xl text-amber-100">{entryStream?.premium_coins.toLocaleString("es")} monedas · entrada única</p>
           <div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void payAndEnter()} disabled={payingEntry}>{payingEntry ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />} Pagar y desbloquear</Button><Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar con PayPal / tarjeta</Link></Button></div>
         </DialogContent>
       </Dialog>

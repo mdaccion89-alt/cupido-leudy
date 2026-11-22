@@ -6,8 +6,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
-import { useAuth } from "@/lib/auth-context";
+import { getSavedAccounts, switchSavedAccount, useAuth } from "@/lib/auth-context";
 import { updateCupidoSoundPreference } from "@/lib/cupido-sounds";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type ProfileSettingsProps = { email?: string | null | undefined; phone?: string | null | undefined };
 type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sound_enabled: boolean };
@@ -19,6 +20,9 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   const navigate = useNavigate();
   const userId = session?.user.id ?? null;
   const [busy, setBusy] = useState(false);
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [savedAccounts, setSavedAccounts] = useState(getSavedAccounts);
   const preferences = useQuery({
     queryKey: ["cupido-preferences", userId],
     enabled: Boolean(userId),
@@ -43,6 +47,10 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
     localStorage.setItem("cupido-sounds", String(preferences.data.sound_enabled));
     localStorage.setItem("cupido-dark", String(preferences.data.theme_mode === "dark"));
   }, [preferences.data]);
+
+  useEffect(() => {
+    setSavedAccounts(getSavedAccounts());
+  }, [session?.user.id]);
 
   const savePreference = async (key: keyof Preferences, value: Preferences[keyof Preferences]) => {
     if (!userId) return;
@@ -78,11 +86,30 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   const notificationsOn = preferences.data?.notifications_enabled !== false;
   const soundsOn = preferences.data?.sound_enabled !== false;
   const leaveAccount = async (switchAccount: boolean) => {
+    if (switchAccount) {
+      setAccountPickerOpen(true);
+      return;
+    }
+    setAccountPickerOpen(false);
+    await supabase.removeAllChannels();
     const { error } = await supabase.auth.signOut();
     if (error) { toast.error("No se pudo cerrar la sesión."); return; }
     queryClient.clear();
     await navigate({ to: "/auth", search: { ref: "" } });
-    if (switchAccount) toast.info("Inicia sesión con otra cuenta.");
+  };
+
+  const selectSavedAccount = async (savedUserId: string) => {
+    setSwitchingAccount(true);
+    queryClient.clear();
+    try {
+      await switchSavedAccount(savedUserId);
+      setAccountPickerOpen(false);
+      toast.success("Cambiaste de cuenta.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo cambiar de cuenta. Inicia sesión de nuevo.");
+    } finally {
+      setSwitchingAccount(false);
+    }
   };
 
   return (
@@ -131,6 +158,27 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
         <Button variant="destructive" onClick={() => void leaveAccount(false)}><LogOut className="size-4" /> Cerrar sesión</Button>
         <Button variant="outline" onClick={() => void leaveAccount(true)}><LogOut className="size-4" /> Cambiar de cuenta</Button>
       </div>
+      <Dialog open={accountPickerOpen} onOpenChange={setAccountPickerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar de cuenta</DialogTitle>
+            <DialogDescription>Elige una cuenta guardada en este dispositivo.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {savedAccounts.filter((saved) => saved.user_id !== userId).map((saved) => (
+              <Button key={saved.user_id} variant="outline" className="w-full justify-start" disabled={switchingAccount} onClick={() => void selectSavedAccount(saved.user_id)}>
+                <span className="truncate">{saved.email || saved.user_id}</span>
+              </Button>
+            ))}
+            {!savedAccounts.some((saved) => saved.user_id !== userId) && (
+              <p className="rounded-lg border border-white/10 p-3 text-sm text-muted-foreground">Aún no hay otra cuenta guardada. Inicia sesión con otra cuenta y aparecerá aquí.</p>
+            )}
+            <Button variant="secondary" className="w-full" disabled={switchingAccount} onClick={() => void leaveAccount(false)}>
+              <LogOut className="size-4" /> Iniciar sesión con otra cuenta
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

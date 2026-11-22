@@ -210,7 +210,7 @@ function RootComponent() {
         <div className="flex min-h-screen flex-col pb-20">
           <SiteHeader />
           <div className="flex-1">
-            <Outlet />
+            <AccountScopedOutlet />
           </div>
           <BottomNav />
         </div>
@@ -220,6 +220,11 @@ function RootComponent() {
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function AccountScopedOutlet() {
+  const { session } = useAuth();
+  return <Outlet key={session?.user.id ?? "guest"} />;
 }
 
 function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light") => void }) {

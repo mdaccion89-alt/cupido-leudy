@@ -181,28 +181,6 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
     queryFn: () => fetchComments(postId),
   });
 
-  useEffect(() => {
-    if (!commentsOpen) return;
-    const channel = supabase
-      .channel((`cupido-comments-${postId}`) + "-" + crypto.randomUUID())
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${postId}` },
-        () => {
-          void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "cupido_comment_likes" },
-        () => { void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", postId] }); },
-      )
-      .subscribe();
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [commentsOpen, postId, queryClient]);
-
   const submitComment = async (parentCommentId: string | null = null) => {
     const value = parentCommentId ? replyText : commentText;
     if (!value.trim()) return;

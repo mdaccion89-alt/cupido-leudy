@@ -38,6 +38,7 @@ type LiveSignal =
   | { kind: "end"; sender: string; receiver?: string };
 
 type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
+type GiftAnimation = { id: number; emoji: string; name: string; sender: string };
 type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean };
 type PkRequest = { id: string; room_id: string; host_id: string; requester_id: string; status: string; expires_at: string; requester_name?: string };
 
@@ -72,6 +73,8 @@ export function LiveRoom({
   const pendingJoinsRef = useRef<string[]>([]);
   const [ready, setReady] = useState(false);
   const [sendingGift, setSendingGift] = useState(false);
+  const [giftAnimation, setGiftAnimation] = useState<GiftAnimation | null>(null);
+  const giftAnimationTimerRef = useRef<number | null>(null);
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
@@ -242,6 +245,22 @@ export function LiveRoom({
       )
       .subscribe();
 
+    const giftChannel = supabase
+      .channel(`cupido-live-gifts-${roomId}-${crypto.randomUUID()}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "gift" }, ({ payload }) => {
+        const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown };
+        const next: GiftAnimation = {
+          id: Date.now(),
+          emoji: typeof gift.emoji === "string" ? gift.emoji : "🎁",
+          name: typeof gift.name === "string" ? gift.name : "Regalo",
+          sender: typeof gift.sender === "string" ? gift.sender : "Un espectador",
+        };
+        setGiftAnimation(next);
+        if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
+        giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
+      })
+      .subscribe();
+
     const presenceChannel = supabase
       .channel((`cupido-live-presence-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on("presence", { event: "join" }, (payload) => {
@@ -346,8 +365,10 @@ export function LiveRoom({
       peersRef.current.forEach((peer) => peer.close());
       peersRef.current.clear();
       void supabase.removeChannel(roomChannel);
+      void supabase.removeChannel(giftChannel);
       void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(signalsChannel);
+      if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
     };
   }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, sendSignal]);
 
@@ -522,7 +543,7 @@ export function LiveRoom({
       return;
     }
     setSendingGift(true);
-    const { data, error } = await supabase.rpc("cupido_send_live_gift", {
+    const { error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
       _receiver: hostId,
       _gift_id: gift.id,
@@ -530,12 +551,19 @@ export function LiveRoom({
       _cash_value: gift.cash,
     });
     setSendingGift(false);
-    if (error || !data) {
+    if (error) {
       toast.error(giftErrorMessage(error?.message ?? "", "El servidor no confirmó el envío. Intenta de nuevo."));
       return;
     }
     account.refresh();
     setPendingGiftPurchase(null);
+    setGiftAnimation({ id: Date.now(), emoji: gift.emoji, name: gift.name, sender: "Un espectador" });
+    if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
+    giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
+    const giftChannel = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
+    if (giftChannel) {
+      void giftChannel.send({ type: "broadcast", event: "gift", payload: { emoji: gift.emoji, name: gift.name, sender: "Un espectador" } });
+    }
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
 
@@ -593,6 +621,14 @@ export function LiveRoom({
             className="h-full w-full object-cover"
           />
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
+          {giftAnimation && (
+            <div key={giftAnimation.id} className="pointer-events-none absolute inset-x-0 bottom-8 z-10 flex justify-center" aria-live="polite">
+              <div className="animate-in slide-in-from-bottom-4 fade-in duration-300 rounded-full border border-pink-300/50 bg-black/75 px-5 py-3 text-center text-white shadow-xl shadow-pink-500/20">
+                <span className="block animate-bounce text-5xl leading-none">{giftAnimation.emoji}</span>
+                <span className="mt-2 block text-sm font-bold">{giftAnimation.sender} envió {giftAnimation.name} ❤️</span>
+              </div>
+            </div>
+          )}
           <Button
             type="button"
             size="icon"

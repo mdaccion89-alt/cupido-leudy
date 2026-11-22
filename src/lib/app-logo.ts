@@ -1,8 +1,12 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/lib/auth-context";
+
+let appLogoChannel: ReturnType<typeof supabase.channel> | null = null;
 
 export function useAppLogo(): string {
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const setting = useQuery({
     queryKey: ["cupido-app-logo"],
@@ -32,14 +36,16 @@ export function useAppLogo(): string {
   }, [logoUrl]);
 
   useEffect(() => {
-    const channel = supabase
-      .channel(("cupido-app-logo-live") + "-" + crypto.randomUUID())
-      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "id=eq.1" }, () => {
-        void queryClient.invalidateQueries({ queryKey: ["cupido-app-logo"] });
-      })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [queryClient]);
+    const activeChannels = supabase.getChannels();
+    if (!appLogoChannel || !activeChannels.includes(appLogoChannel)) {
+      appLogoChannel = supabase
+        .channel("cupido-app-logo-live")
+        .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "id=eq.1" }, () => {
+          void queryClient.invalidateQueries({ queryKey: ["cupido-app-logo"] });
+        })
+        .subscribe();
+    }
+  }, [queryClient, session?.user.id]);
 
   return logoUrl;
 }
