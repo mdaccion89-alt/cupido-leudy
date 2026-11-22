@@ -15,6 +15,40 @@ type PaypalConfig = {
 
 let cachedToken: { key: string; value: string; expiresAt: number } | undefined;
 
+type PaypalErrorDetail = {
+  name?: string;
+  message?: string;
+  debug_id?: string;
+  details?: Array<{ issue?: string; description?: string }>;
+};
+
+function logPaypalError(path: string, status: number, body: string) {
+  let parsed: PaypalErrorDetail = {};
+  try {
+    parsed = JSON.parse(body) as PaypalErrorDetail;
+  } catch {
+    parsed.message = body.slice(0, 300);
+  }
+  console.error("[PayPal] API request failed", {
+    path,
+    status,
+    name: parsed.name,
+    message: parsed.message,
+    debugId: parsed.debug_id,
+    details: parsed.details?.map((detail) => ({ issue: detail.issue, description: detail.description })),
+  });
+  const issue = parsed.details?.map((detail) => detail.issue).filter(Boolean).join(",");
+  throw new Error(`PAYPAL_${status}${issue ? `:${issue}` : ""}`);
+}
+
+function usdCents(value: unknown): number | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
+  const cents = Math.round(Number(text) * 100);
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
 async function getPaypalConfig(): Promise<PaypalConfig> {
   const admin = await getAdminClient();
   const db = admin as unknown as { from: (table: string) => any };
@@ -70,9 +104,21 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
     fromConfig("paypal_mode", "mode") === "sandbox"
       ? "sandbox"
       : "live";
-  const apiBase =
-    process.env["PAYPAL_API_BASE"] ??
-    (mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com");
+  const defaultApiBase = mode === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+  const configuredApiBase = process.env["PAYPAL_API_BASE"]?.trim().replace(/\/+$/, "");
+  let apiBase = defaultApiBase;
+  if (configuredApiBase) {
+    try {
+      const configuredHost = new URL(configuredApiBase).hostname.toLowerCase();
+      const modeMatchesHost = mode === "live"
+        ? configuredHost === "api-m.paypal.com"
+        : configuredHost === "api-m.sandbox.paypal.com";
+      if (modeMatchesHost) apiBase = configuredApiBase;
+      else console.warn("[PayPal] Ignoring PAYPAL_API_BASE because its host conflicts with the selected mode", { mode, configuredHost });
+    } catch {
+      console.warn("[PayPal] Ignoring an invalid PAYPAL_API_BASE; using the selected PayPal mode", { mode });
+    }
+  }
   return {
     apiBase,
     clientId:
@@ -134,17 +180,25 @@ async function paypalToken(config: PaypalConfig) {
     return cachedToken.value;
   if (!config.clientId || !config.secret) throw new Error("PAYPAL_NOT_CONFIGURED");
   const basic = Buffer.from(`${config.clientId}:${config.secret}`).toString("base64");
-  const res = await fetch(`${config.apiBase}/v1/oauth2/token`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basic}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${config.apiBase}/v1/oauth2/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basic}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+  } catch (error) {
+    console.error("[PayPal] OAuth request failed before an HTTP response", {
+      message: error instanceof Error ? error.message : String(error),
+      mode: config.mode,
+    });
+    throw new Error("PAYPAL_NETWORK_ERROR");
+  }
   if (!res.ok) {
-    console.error(`PayPal token failed [${res.status}]: ${(await res.text()).slice(0, 400)}`);
-    throw new Error(`PAYPAL_${res.status}`);
+    logPaypalError("/v1/oauth2/token", res.status, await res.text());
   }
   const json = (await res.json()) as { access_token?: string; expires_in?: number };
   if (!json.access_token) throw new Error("PAYPAL_NO_TOKEN");
@@ -159,19 +213,28 @@ async function paypalToken(config: PaypalConfig) {
 export async function paypal(path: string, init: RequestInit = {}, config?: PaypalConfig) {
   const activeConfig = config ?? (await getPaypalConfig());
   const token = await paypalToken(activeConfig);
-  const res = await fetch(`${activeConfig.apiBase}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${activeConfig.apiBase}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    console.error("[PayPal] API request failed before an HTTP response", {
+      path,
+      message: error instanceof Error ? error.message : String(error),
+      mode: activeConfig.mode,
+    });
+    throw new Error("PAYPAL_NETWORK_ERROR");
+  }
   const text = await res.text();
   if (!res.ok) {
-    console.error(`PayPal ${path} failed [${res.status}]: ${text.slice(0, 600)}`);
-    throw new Error(`PAYPAL_${res.status}`);
+    logPaypalError(path, res.status, text);
   }
   return JSON.parse(text) as Record<string, unknown>;
 }
@@ -180,7 +243,8 @@ export function paypalMessage(err: unknown) {
   const code = err instanceof Error ? err.message : "";
   if (code === "PAYPAL_NOT_CONFIGURED")
     return "El Admin Supremo debe configurar PayPal Business en el panel Admin antes de comprar.";
-  if (code === "PAYPAL_422") return "PayPal rechazó el pago. Revisa tu método de pago.";
+  if (code.startsWith("PAYPAL_422")) return "PayPal rechazó el pago. Revisa tu método de pago e inténtalo de nuevo.";
+  if (code.startsWith("PAYPAL_")) return "PayPal no pudo procesar la operación. El detalle quedó registrado para soporte.";
   return "No se pudo completar el pago con PayPal. Inténtalo de nuevo.";
 }
 
@@ -269,16 +333,35 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }): Promise<CaptureResult> => {
     const admin = await getAdminClient();
-    const { data: order } = await admin
+    const { data: order, error: orderLookupError } = await admin
       .from("paypal_orders")
       .select("*")
       .eq("paypal_order_id", data.orderId)
       .eq("user_id", context.userId)
       .maybeSingle();
+    if (orderLookupError) {
+      console.error("[PayPal] Could not load the pending order", {
+        paypalOrderId: data.orderId,
+        databaseCode: orderLookupError.code,
+        databaseMessage: orderLookupError.message,
+      });
+      return { ok: false, message: "No se pudo verificar el pedido. Inténtalo de nuevo." };
+    }
     if (!order) return { ok: false, message: "No se encontró el pedido." };
     if (order.status === "captured") return { ok: true, credits: order.credits, hasPurchased: true, isGranLiga: order.package_id === GRAN_LIGA_PACKAGE_ID };
     const pack = findPackage(order.package_id);
     if (!pack) return { ok: false, message: "Paquete no válido." };
+    if (order.credits !== pack.credits || usdCents(order.amount) !== usdCents(pack.price)) {
+      console.error("[PayPal] Stored package amount or credits do not match the catalog", {
+        orderId: order.id,
+        packageId: order.package_id,
+        storedAmount: order.amount,
+        catalogAmount: pack.price,
+        storedCredits: order.credits,
+        catalogCredits: pack.credits,
+      });
+      return { ok: false, message: "El pedido no coincide con el paquete elegido. Contacta a soporte antes de volver a pagar." };
+    }
 
     try {
       const config = await getPaypalConfig();
@@ -306,24 +389,40 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
       const paid =
         captured["status"] === "COMPLETED" &&
         capture?.status === "COMPLETED" &&
-        capture.amount?.currency_code === "USD" &&
-        capture.amount?.value === pack.price;
+        capture.amount?.currency_code?.toUpperCase() === "USD" &&
+        usdCents(capture.amount.value) === usdCents(pack.price);
       if (!paid) {
-        console.error("PayPal capture mismatch", JSON.stringify(captured).slice(0, 600));
-        await admin
-          .from("paypal_orders")
-          .update({ status: "failed" })
-          .eq("id", order.id)
-          .eq("status", "created");
+        console.error("[PayPal] Capture is incomplete or does not match its order", {
+          orderId: data.orderId,
+          packageId: pack.id,
+          expectedAmount: pack.price,
+          orderStatus: captured["status"],
+          captureStatus: capture?.status,
+          capturedAmount: capture?.amount?.value,
+          currency: capture?.amount?.currency_code,
+        });
+        if (capture?.status === "COMPLETED" || captured["status"] === "COMPLETED") {
+          await admin.from("paypal_orders").update({ status: "failed" }).eq("id", order.id).eq("status", "created");
+        }
         return { ok: false, message: "El pago no se completó." };
       }
-      const { error: finalizeError } = await admin.rpc("cupido_finalize_paypal_package", {
+      const { data: finalized, error: finalizeError } = await admin.rpc("cupido_finalize_paypal_package", {
         _order_id: order.id,
         _user_id: context.userId,
         _credits: pack.credits,
         _gran_liga: pack.id === GRAN_LIGA_PACKAGE_ID,
       });
-      if (finalizeError) throw finalizeError;
+      if (finalizeError || finalized !== true) {
+        console.error("[PayPal] Capture succeeded but credit finalization failed", {
+          paypalOrderId: data.orderId,
+          databaseCode: finalizeError?.code,
+          databaseMessage: finalizeError?.message,
+          details: finalizeError?.details,
+          hint: finalizeError?.hint,
+          finalized,
+        });
+        throw new Error("PAYPAL_FINALIZE_FAILED");
+      }
       return { ok: true, credits: pack.credits, hasPurchased: true, isGranLiga: pack.id === GRAN_LIGA_PACKAGE_ID };
     } catch (err) {
       return { ok: false, message: paypalMessage(err) };

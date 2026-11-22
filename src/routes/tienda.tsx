@@ -179,13 +179,14 @@ function StorePage() {
           ? "No tienes monedas brillantes suficientes para ese regalo."
           : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.");
       }
-      const { error } = await supabase.rpc("cupido_send_gift", {
+      const { data: sendId, error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
+      if (typeof sendId !== "string" || !sendId) throw new Error("GIFT_NOT_CONFIRMED");
     },
     onSuccess: () => {
       account.refresh();

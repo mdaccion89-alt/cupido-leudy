@@ -40,6 +40,7 @@ import { CREDIT_PACKAGES } from "@/lib/credits";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import {
   CALL_COSTS,
   callErrorMessage,
@@ -535,6 +536,7 @@ function ChatPage() {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
         throw new Error("Este dispositivo o navegador no admite grabar notas de voz.");
       }
+      await requestNativeMediaPermissions({ camera: false, microphone: true });
       const recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream = recordingStream;
       const recorder = new MediaRecorder(recordingStream);
@@ -553,13 +555,13 @@ function ChatPage() {
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       const name = error instanceof DOMException ? error.name : "";
-      const message = error instanceof Error && error.message.includes("no admite")
+      const message = mediaPermissionMessage(error) ?? (error instanceof Error && error.message.includes("no admite")
         ? error.message
         : name === "NotFoundError" || name === "DevicesNotFoundError"
           ? "No encontramos un micrófono conectado a este dispositivo."
           : name === "NotAllowedError" || name === "PermissionDeniedError"
             ? "Permite el acceso al micrófono en los ajustes del navegador y vuelve a intentar."
-            : "No se pudo iniciar la grabación. Revisa los permisos del micrófono.";
+            : "No se pudo iniciar la grabación. Revisa los permisos del micrófono.");
       toast.error(message);
     }
   };
@@ -641,13 +643,14 @@ function ChatPage() {
             ? "No tienes monedas brillantes suficientes."
             : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
         );
-      const { error } = await supabase.rpc("cupido_send_gift", {
+      const { data: sendId, error } = await supabase.rpc("cupido_send_gift", {
         _receiver: activeConversation.other.id,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
+      if (typeof sendId !== "string" || !sendId) throw new Error("GIFT_NOT_CONFIRMED");
       return activeConversation.other.id;
     },
     onSuccess: (receiverId) => {
@@ -1212,6 +1215,7 @@ function CallRoom({
 
     void (async () => {
       try {
+        await requestNativeMediaPermissions({ camera: videoCall, microphone: true });
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoCall });
         if (closedRef.current) {
           stream.getTracks().forEach((track) => track.stop());
@@ -1229,9 +1233,9 @@ function CallRoom({
             void channel.send({ type: "broadcast", event: "ready", payload: { role } });
           }
         });
-      } catch {
+      } catch (error) {
         setStatus(videoCall ? "Cámara o micrófono no disponible" : "Micrófono no disponible");
-        toast.error(videoCall ? "No se pudo acceder a la cámara y el micrófono para la videollamada." : "No se pudo acceder al micrófono para la llamada.");
+        toast.error(mediaPermissionMessage(error) ?? (videoCall ? "No se pudo acceder a la cámara y el micrófono para la videollamada." : "No se pudo acceder al micrófono para la llamada."));
       }
     })();
 

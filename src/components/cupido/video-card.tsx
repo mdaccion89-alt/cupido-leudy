@@ -35,7 +35,7 @@ export function VideoCard({ video, liked, onLike }: VideoCardProps) {
         <Avatar className="h-10 w-10 border border-pink-400/40">
           <AvatarImage src={video.avatar_url} alt={video.display_name} />
           <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
-            {video.display_name.slice(0, 2).toUpperCase()}
+            {(video.display_name ?? "Miembro").slice(0, 2).toUpperCase()}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">

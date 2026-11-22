@@ -13,6 +13,7 @@ import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND } from "@/lib/cupido";
 import { fetchBlockedUserIds } from "@/lib/safety";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
 export const Route = createFileRoute("/directo")({
   validateSearch: (search: { liveId?: string }) => ({ liveId: typeof search.liveId === "string" ? search.liveId : undefined }),
@@ -165,6 +166,7 @@ function DirectPage() {
     let stream: MediaStream | null = null;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
+      await requestNativeMediaPermissions();
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       pendingStream.current = stream;
       const coins = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
@@ -188,7 +190,7 @@ function DirectPage() {
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       pendingStream.current = null;
-      toast.error(error instanceof Error ? error.message : "No se pudo iniciar el Directo.");
+      toast.error(mediaPermissionMessage(error) ?? (error instanceof Error ? error.message : "No se pudo iniciar el Directo."));
     } finally {
       setStarting(false);
     }

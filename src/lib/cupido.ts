@@ -71,6 +71,7 @@ export function giftErrorMessage(message: string, fallback: string): string {
   if (message.includes("INVALID_RECEIVER")) return "No se pudo encontrar a la persona que recibirá el regalo.";
   if (message.includes("LIVE_NOT_ACTIVE")) return "Este Live ya terminó; el regalo no se envió.";
   if (message.includes("NOT_AUTHENTICATED")) return "Inicia sesión para enviar un regalo.";
+  if (message.includes("GIFT_NOT_CONFIRMED")) return "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.";
   if (message.includes("PGRST202") || message.includes("42P01")) return "El servicio de regalos se está actualizando. Intenta de nuevo en un momento.";
   return message || fallback;
 }

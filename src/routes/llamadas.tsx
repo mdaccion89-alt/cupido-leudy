@@ -13,6 +13,7 @@ import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, CALL_COSTS } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
 export const Route = createFileRoute("/llamadas")({
   head: () => ({ meta: [{ title: `Llamadas en vivo — ${BRAND}` }] }),
@@ -160,8 +161,10 @@ function CallsPage() {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("CAMERA_UNAVAILABLE");
       let stream: MediaStream;
       try {
+        await requestNativeMediaPermissions();
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("ANDROID_MEDIA_PERMISSION_")) throw error;
         throw new Error("CAMERA_DENIED");
       }
       pendingStreamRef.current = stream;
@@ -193,7 +196,8 @@ function CallsPage() {
     onError: (error) => {
       const code = error instanceof Error ? error.message : "";
       if (code === "CAMERA_DENIED")
-        toast.error("Permite cámara y micrófono antes de iniciar el Live.");
+        toast.error("Permite cámara y micrófono en Android antes de iniciar el Live.");
+      else if (mediaPermissionMessage(error)) toast.error(mediaPermissionMessage(error)!);
       else if (code === "CAMERA_UNAVAILABLE")
         toast.error("Este navegador no permite usar cámara o micrófono.");
       else if (code.includes("NOT_VERIFIED"))

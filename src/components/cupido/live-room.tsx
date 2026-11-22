@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { blockUser, reportUser } from "@/lib/safety";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
 type LiveRoomProps = {
   roomId: string;
@@ -192,6 +193,7 @@ export function LiveRoom({
     const start = async () => {
       try {
         if (role === "host") {
+          if (!initialStream) await requestNativeMediaPermissions();
           const stream = initialStream ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
           if (disposed) {
             stream.getTracks().forEach((track) => track.stop());
@@ -202,6 +204,7 @@ export function LiveRoom({
           for (const peerId of pendingJoinsRef.current) await createHostPeer(peerId);
           pendingJoinsRef.current = [];
         } else {
+          await requestNativeMediaPermissions({ camera: false, microphone: true });
           const viewerStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }).catch(() => null);
           if (viewerStream) localStreamRef.current = viewerStream;
           else toast.info("El Live se reproducirá sin micrófono. Puedes revisar los permisos del dispositivo.");
@@ -223,10 +226,10 @@ export function LiveRoom({
         }
         setReady(true);
       } catch (error) {
-        const message =
+        const message = mediaPermissionMessage(error) ?? (
           error instanceof Error && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError")
             ? "Permite cámara y micrófono para iniciar el Live."
-            : "No se pudo iniciar el video en vivo. Revisa permisos de cámara y micrófono.";
+            : "No se pudo iniciar el video en vivo. Revisa permisos de cámara y micrófono.");
         toast.error(message);
         onClose();
       }
@@ -544,7 +547,7 @@ export function LiveRoom({
       return;
     }
     setSendingGift(true);
-    const { error } = await supabase.rpc("cupido_send_live_gift", {
+    const { data: sendId, error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
       _receiver: hostId,
       _gift_id: gift.id,
@@ -554,6 +557,10 @@ export function LiveRoom({
     setSendingGift(false);
     if (error) {
       toast.error(giftErrorMessage(error?.message ?? "", "El servidor no confirmó el envío. Intenta de nuevo."));
+      return;
+    }
+    if (typeof sendId !== "string" || !sendId) {
+      toast.error(giftErrorMessage("GIFT_NOT_CONFIRMED", "El servidor no confirmó el envío. Intenta de nuevo."));
       return;
     }
     account.refresh();

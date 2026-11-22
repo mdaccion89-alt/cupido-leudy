@@ -532,8 +532,8 @@ function ProfilePage() {
                 {followersList.isLoading ? <p className="py-6 text-center text-sm text-muted-foreground">Cargando seguidores...</p> : null}
                 {followersList.data?.map((follower) => (
                   <Link key={follower.follower_id} to="/perfil" search={{ userId: follower.follower_id }} onClick={() => setFollowersOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent">
-                    <Avatar className="size-10"><AvatarImage src={follower.avatar_url} alt={follower.display_name} /><AvatarFallback>{follower.display_name.slice(0, 1)}</AvatarFallback></Avatar>
-                    <span className="text-sm font-medium">{follower.display_name}</span>
+                    <Avatar className="size-10"><AvatarImage src={follower.avatar_url ?? ""} alt={safeText(follower.display_name, "Miembro")} /><AvatarFallback>{safeText(follower.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar>
+                    <span className="text-sm font-medium">{safeText(follower.display_name, "Miembro")}</span>
                   </Link>
                 ))}
                 {!followersList.isLoading && !followersList.data?.length ? <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay seguidores activos.</p> : null}
@@ -545,7 +545,7 @@ function ProfilePage() {
               <DialogHeader><DialogTitle>Amigos reales</DialogTitle></DialogHeader>
               <div className="max-h-80 space-y-2 overflow-y-auto">
                 {friendsList.isLoading && <p className="py-6 text-center text-sm text-muted-foreground">Cargando amigos...</p>}
-                {friendsList.data?.map((friend) => <Link key={friend.friend_id} to="/perfil" search={{ userId: friend.friend_id }} onClick={() => setFriendsOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent"><Avatar className="size-10"><AvatarImage src={friend.avatar_url} alt={friend.display_name} /><AvatarFallback>{friend.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{friend.display_name}</span></Link>)}
+                {(friendsList.data ?? []).map((friend) => <Link key={friend.friend_id} to="/perfil" search={{ userId: friend.friend_id }} onClick={() => setFriendsOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent"><Avatar className="size-10"><AvatarImage src={friend.avatar_url ?? ""} alt={safeText(friend.display_name, "Miembro")} /><AvatarFallback>{safeText(friend.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{safeText(friend.display_name, "Miembro")}</span></Link>)}
                 {!friendsList.isLoading && !friendsList.data?.length && <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay amigos activos.</p>}
               </div>
             </DialogContent>
