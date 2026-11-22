@@ -18,6 +18,10 @@ async function assertAdmin({ supabase, userId, claims }: AdminContext) {
   if (!data) throw new Error("Forbidden");
 }
 
+function assertSupremeAdmin({ claims }: AdminContext) {
+  if (claims?.email?.trim().toLowerCase() !== ADMIN_EMAIL) throw new Error("Forbidden");
+}
+
 export type AdminSettings = {
   site_title: string;
   site_tagline: string;
@@ -121,6 +125,55 @@ export type PaypalBusinessInput = {
   mode: "sandbox" | "live";
 };
 
+export type PaypalBusinessSettingsResult = PaypalBusinessInput & {
+  configured: boolean;
+  source: "supabase" | "environment" | "missing";
+};
+
+export const getPaypalBusinessSettings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<PaypalBusinessSettingsResult> => {
+    assertSupremeAdmin(context);
+    const db = await getAdminClient() as unknown as { from: (table: string) => any };
+    const paymentResult = await db.from("payment_settings")
+      .select("business_name,paypal_business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+      .eq("id", 1).maybeSingle();
+    const paymentFallback = paymentResult.error
+      ? await db.from("payment_settings").select("paypal_business_name,paypal_email,paypal_client_id,paypal_secret,paypal_mode").eq("id", 1).maybeSingle()
+      : paymentResult;
+    const appResult = await db.from("app_settings")
+      .select("business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode,config")
+      .eq("id", 1).maybeSingle();
+    const appFallback = appResult.error
+      ? await db.from("app_settings").select("paypal_email,config").eq("id", 1).maybeSingle()
+      : appResult;
+    if (paymentFallback.error && appFallback.error) {
+      throw new Error(`No se pudo leer la configuración PayPal: ${paymentFallback.error.message}; ${appFallback.error.message}`);
+    }
+    const payment = paymentFallback.data as Record<string, unknown> | null;
+    const app = appFallback.data as Record<string, unknown> | null;
+    const config = app?.["config"] && typeof app["config"] === "object"
+      ? app["config"] as Record<string, unknown>
+      : {};
+    const first = (...values: unknown[]) => values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
+    const databaseClientId = first(payment?.["paypal_client_id"], app?.["paypal_client_id"], config["paypal_client_id"], config["paypalClientId"], config["clientId"]);
+    const databaseSecret = first(payment?.["paypal_secret"], app?.["paypal_secret"], config["paypal_secret"], config["paypalSecret"]);
+    const environmentClientId = first(process.env["PAYPAL_CLIENT_ID"], import.meta.env["VITE_PAYPAL_CLIENT_ID"]);
+    const environmentSecret = first(process.env["PAYPAL_SECRET"]);
+    const clientId = databaseClientId || environmentClientId;
+    const secret = databaseSecret || environmentSecret;
+    const configured = Boolean(clientId && secret);
+    return {
+      email: first(payment?.["paypal_email"], payment?.["admin_paypal_email"], app?.["paypal_email"], app?.["admin_paypal_email"], config["paypal_email"], config["admin_paypal_email"]),
+      businessName: first(payment?.["business_name"], payment?.["paypal_business_name"], app?.["business_name"], config["business_name"], config["paypal_business_name"], config["businessName"]),
+      clientId,
+      secret,
+      mode: first(payment?.["paypal_mode"], app?.["paypal_mode"], config["paypal_mode"], config["mode"]) === "sandbox" ? "sandbox" : "live",
+      configured,
+      source: databaseClientId || databaseSecret ? "supabase" : configured ? "environment" : "missing",
+    };
+  });
+
 export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((input: PaypalBusinessInput) => {
@@ -135,7 +188,7 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data, context }) => {
-    await assertAdmin(context);
+    assertSupremeAdmin(context);
     const admin = await getAdminClient() as unknown as {
       from: (table: string) => { upsert: (values: Record<string, unknown>) => Promise<{ error: { message: string } | null }> };
     };
@@ -145,10 +198,9 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
       paypal_email: data.email,
       admin_paypal_email: data.email,
       paypal_client_id: data.clientId,
-      paypal_secret: data.secret,
       paypal_mode: data.mode,
     };
-    const paymentBase = { id: 1, ...config };
+    const paymentBase = { id: 1, ...config, paypal_secret: data.secret };
     let paymentSaved = false;
     let paymentError = "";
     for (const payload of [
@@ -166,10 +218,18 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
 
     let appSaved = false;
     let appError = "";
+    const appConfig = {
+      business_name: data.businessName,
+      paypal_business_name: data.businessName,
+      paypal_email: data.email,
+      admin_paypal_email: data.email,
+      paypal_client_id: data.clientId,
+      paypal_mode: data.mode,
+    };
     for (const payload of [
-      { id: 1, ...config, config },
-      { id: 1, paypal_email: data.email, config },
-      { id: 1, ...config },
+      { id: 1, ...config, paypal_secret: data.secret, config: appConfig },
+      { id: 1, paypal_email: data.email, paypal_client_id: data.clientId, paypal_secret: data.secret, paypal_mode: data.mode, config: appConfig },
+      { id: 1, paypal_email: data.email, config: appConfig },
     ]) {
       const { error } = await admin.from("app_settings").upsert(payload);
       if (!error) {

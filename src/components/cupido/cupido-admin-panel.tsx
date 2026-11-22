@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
+import { Check, Eye, EyeOff, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,8 +10,9 @@ import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { VerificationVideoPreview } from "@/components/cupido/verification-video-preview";
 import { supabase } from "@/integrations/supabase/client";
 import { countryFlag, countryName } from "@/lib/cupido";
-import { savePaypalBusinessSettings as savePaypalBusinessSettingsServer } from "@/lib/admin.functions";
-import { loadPaypalBusinessSettings, savePaypalBusinessSettings } from "@/lib/paypal-settings";
+import { getPaypalBusinessSettings as getPaypalBusinessSettingsServer, savePaypalBusinessSettings as savePaypalBusinessSettingsServer } from "@/lib/admin.functions";
+import { useAuth } from "@/lib/auth-context";
+import { isSupremeAdminEmail } from "@/lib/account";
 
 const LIVE_POSES = ["Frente", "Derecha", "Izquierda"];
 
@@ -67,6 +68,9 @@ type GiftRow = {
 
 export function CupidoAdminPanel() {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
+  const canManagePaypal = isSupremeAdminEmail(session?.user.email);
+  const getPaypalServer = useServerFn(getPaypalBusinessSettingsServer);
   const savePaypalServer = useServerFn(savePaypalBusinessSettingsServer);
   const [paypalConfig, setPaypalConfig] = useState<PaypalBusinessInput>({
     email: "",
@@ -77,6 +81,7 @@ export function CupidoAdminPanel() {
   });
   const [paypalSaved, setPaypalSaved] = useState(false);
   const [paypalError, setPaypalError] = useState("");
+  const [showPaypalSecret, setShowPaypalSecret] = useState(false);
 
   const updatePaypal = (patch: Partial<PaypalBusinessInput>) => {
     setPaypalSaved(false);
@@ -171,9 +176,10 @@ export function CupidoAdminPanel() {
 
   const paypal = useQuery({
     queryKey: ["cupido-admin", "paypal"],
+    enabled: canManagePaypal,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const next = await loadPaypalBusinessSettings();
+      const next = await getPaypalServer();
       setPaypalConfig({
         email: next.email,
         businessName: next.businessName,
@@ -232,40 +238,18 @@ export function CupidoAdminPanel() {
       const input = {
         businessName: paypalConfig.businessName,
         email: paypalConfig.email,
-        businessEmail: paypalConfig.email,
         clientId: paypalConfig.clientId,
         secret: paypalConfig.secret,
         mode: paypalConfig.mode,
       };
-      let serverError: unknown;
-      try {
-        await savePaypalServer({
-          data: {
-            email: input.email,
-            businessName: input.businessName,
-            clientId: input.clientId,
-            secret: input.secret,
-            mode: input.mode,
-          },
-        });
-        return;
-      } catch (error) {
-        serverError = error;
-      }
-      try {
-        await savePaypalBusinessSettings(input);
-      } catch (clientError) {
-        const details = [serverError, clientError]
-          .map((error) => (error instanceof Error ? error.message : String(error)))
-          .filter(Boolean);
-        throw new Error(details.join(" | ") || "No se pudo guardar PayPal.");
-      }
+      await savePaypalServer({ data: input });
     },
     onSuccess: () => {
       setPaypalSaved(true);
       setPaypalError("");
       toast.success("PayPal Business guardado correctamente");
       void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "paypal"] });
     },
     onError: (error) => {
       const message = error instanceof Error ? error.message : "No se pudo guardar PayPal.";
@@ -282,6 +266,62 @@ export function CupidoAdminPanel() {
 
   return (
     <div className="space-y-6">
+      {canManagePaypal && (
+        <section id="cupido-paypal-live-settings" className="rounded-3xl border border-emerald-300/30 bg-gradient-to-br from-emerald-500/[0.08] to-white/[0.03] p-5 shadow-lg shadow-emerald-950/15">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Wallet className="size-5 text-emerald-300" />
+              <div>
+                <h2 className="font-display text-lg text-white">Configuración de Pagos PayPal Business Live</h2>
+                <p className="text-xs text-muted-foreground">Credenciales privadas; solo el Admin Supremo puede verlas y editarlas.</p>
+              </div>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${paypal.data?.configured ? "bg-emerald-400/15 text-emerald-200" : "bg-amber-400/15 text-amber-200"}`}>
+              {paypal.isLoading ? "Leyendo configuración…" : paypal.data?.configured ? `Activo · ${paypal.data.source === "environment" ? "variables de entorno" : "Supabase"}` : "Sin configurar"}
+            </span>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            La tienda usa primero las credenciales guardadas en Supabase y recurre a <code>PAYPAL_CLIENT_ID</code> / <code>PAYPAL_SECRET</code> del servidor cuando corresponda. El secreto nunca se entrega a la tienda.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="cupido-paypal-business">Nombre del negocio</Label>
+              <Input id="cupido-paypal-business" value={paypalConfig.businessName} onChange={(event) => updatePaypal({ businessName: event.target.value })} placeholder="Cupido Leudy" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cupido-paypal-email">Correo Business</Label>
+              <Input id="cupido-paypal-email" type="email" value={paypalConfig.email} onChange={(event) => updatePaypal({ email: event.target.value })} placeholder="pagos@cupidoleudy.com" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cupido-paypal-client">PAYPAL_CLIENT_ID Live</Label>
+              <Input id="cupido-paypal-client" autoComplete="off" value={paypalConfig.clientId} onChange={(event) => updatePaypal({ clientId: event.target.value })} placeholder="Client ID de la aplicación PayPal Live" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cupido-paypal-secret">PAYPAL_SECRET Live</Label>
+              <div className="flex gap-2">
+                <Input id="cupido-paypal-secret" type={showPaypalSecret ? "text" : "password"} autoComplete="new-password" value={paypalConfig.secret} onChange={(event) => updatePaypal({ secret: event.target.value })} placeholder="Secreto de la aplicación PayPal Live" />
+                <Button type="button" variant="outline" size="icon" aria-label={showPaypalSecret ? "Ocultar secreto" : "Mostrar secreto"} onClick={() => setShowPaypalSecret((visible) => !visible)}>
+                  {showPaypalSecret ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="cupido-paypal-mode">Entorno de cobro</Label>
+              <select id="cupido-paypal-mode" value={paypalConfig.mode} onChange={(event) => updatePaypal({ mode: event.target.value === "sandbox" ? "sandbox" : "live" })} className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm">
+                <option value="live">Live (producción)</option>
+                <option value="sandbox">Sandbox (pruebas)</option>
+              </select>
+            </div>
+          </div>
+          {(paypal.isError || paypalError) && <p className="mt-3 break-words text-xs text-red-300" role="alert">{paypalError || (paypal.error instanceof Error ? paypal.error.message : "No se pudo leer la configuración PayPal.")}</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button disabled={savePaypalConfig.isPending || paypal.isLoading} onClick={() => savePaypalConfig.mutate()}>
+              {savePaypalConfig.isPending ? <Loader2 className="size-4 animate-spin" /> : null} Guardar y activar PayPal Business
+            </Button>
+            {paypalSaved && <p className="text-sm font-medium text-emerald-300">Credenciales guardadas; la tienda ya puede verificar los paquetes y acreditar pagos confirmados.</p>}
+          </div>
+        </section>
+      )}
       <section className="rounded-3xl border border-sky-400/20 bg-sky-500/[0.06] p-5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-5 text-sky-300" />
@@ -453,84 +493,6 @@ export function CupidoAdminPanel() {
                   </span>
                 </div>
               ))
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="flex items-center gap-3">
-            <Wallet className="size-5 text-emerald-300" />
-            <h2 className="font-display text-lg text-white">
-              PayPal del Admin Supremo · Integraciones PayPal Business (Checkout Real)
-            </h2>
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Los pagos de créditos y tarjeta llegan a esta cuenta Business. Nunca compartas el secreto de PayPal.
-          </p>
-          <div className="mt-4 space-y-2">
-            <Label htmlFor="cupido-paypal-business">Nombre del negocio</Label>
-            <Input
-              id="cupido-paypal-business"
-              value={paypalConfig.businessName}
-              onChange={(event) => updatePaypal({ businessName: event.target.value })}
-              placeholder="Cupido Leudy"
-            />
-            <Label htmlFor="cupido-paypal-email">Correo Business</Label>
-            <Input
-              id="cupido-paypal-email"
-              type="email"
-              value={paypalConfig.email}
-              onChange={(event) => updatePaypal({ email: event.target.value })}
-              placeholder="pagos@cupidoleudy.com"
-            />
-            <Label htmlFor="cupido-paypal-client">Client ID</Label>
-            <Input
-              id="cupido-paypal-client"
-              value={paypalConfig.clientId}
-              onChange={(event) => updatePaypal({ clientId: event.target.value })}
-              placeholder="Client ID de la app PayPal"
-            />
-            <Label htmlFor="cupido-paypal-secret">Secret</Label>
-            <Input
-              id="cupido-paypal-secret"
-              type="password"
-              value={paypalConfig.secret}
-              onChange={(event) => updatePaypal({ secret: event.target.value })}
-              placeholder="Secreto de la app PayPal"
-            />
-            <Label htmlFor="cupido-paypal-mode">Modo</Label>
-            <select
-              id="cupido-paypal-mode"
-              value={paypalConfig.mode}
-              onChange={(event) =>
-                updatePaypal({ mode: event.target.value === "sandbox" ? "sandbox" : "live" })
-              }
-              className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-            >
-              <option value="live">Live (producción)</option>
-              <option value="sandbox">Sandbox (pruebas)</option>
-            </select>
-            {paypal.isLoading ? (
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" /> Cargando configuración…
-              </p>
-            ) : null}
-            <Button
-              className="mt-2"
-              disabled={savePaypalConfig.isPending}
-              onClick={() => savePaypalConfig.mutate()}
-            >
-              Guardar PayPal Business
-            </Button>
-            {paypalSaved && (
-              <p className="text-sm font-medium text-emerald-300">
-                PayPal Business guardado correctamente
-              </p>
-            )}
-            {paypalError && (
-              <p className="break-words text-xs text-red-300" role="alert">
-                Error: {paypalError}
-              </p>
             )}
           </div>
         </div>
