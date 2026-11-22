@@ -5,6 +5,7 @@ import android.content.pm.PackageManager;
 import com.getcapacitor.BridgeActivity;
 import android.os.Bundle;
 import android.os.Build;
+import android.media.AudioManager;
 import androidx.core.content.ContextCompat;
 
 public class MainActivity extends BridgeActivity {
@@ -14,6 +15,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AndroidMediaPermissionsPlugin.class);
         super.onCreate(savedInstanceState);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().setWebChromeClient(new CupidoWebChromeClient(getBridge()));

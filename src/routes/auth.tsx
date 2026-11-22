@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, Heart, KeyRound, Loader2, Mail, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
 import heroWaves from "@/assets/hero-waves.jpg";
 import { Button } from "@/components/ui/button";
 import { LegalLinks } from "@/components/cupido/legal-links";
@@ -56,6 +57,23 @@ function GoogleIcon() {
       />
     </svg>
   );
+}
+
+function authRedirectUrl(ref: string): string {
+  if (Capacitor.isNativePlatform()) {
+    const callback = new URL("com.cupido.leudy://auth");
+    if (ref) callback.searchParams.set("ref", ref);
+    return callback.toString();
+  }
+  const callback = new URL("/auth", window.location.origin);
+  if (ref) callback.searchParams.set("ref", ref);
+  return callback.toString();
+}
+
+function oauthRedirectUrl(ref: string): string {
+  const callback = new URL(Capacitor.isNativePlatform() ? "https://localhost/auth" : "/auth", window.location.origin);
+  if (ref) callback.searchParams.set("ref", ref);
+  return callback.toString();
 }
 
 function normalizePhone(value: string): string {
@@ -183,7 +201,7 @@ function AuthPage() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin,
+          emailRedirectTo: authRedirectUrl(ref),
           data: {
             full_name: fullName.trim() || displayName.trim(),
             display_name: displayName.trim() || fullName.trim(),
@@ -220,7 +238,7 @@ function AuthPage() {
     setBusy(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(address, {
-        redirectTo: `${window.location.origin}/auth`,
+        redirectTo: authRedirectUrl(ref),
       });
       if (error) throw error;
       setRecoverySent(true);
@@ -301,11 +319,17 @@ function AuthPage() {
   const continueWithGoogle = async () => {
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const native = Capacitor.isNativePlatform();
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: ref ? `${window.location.origin}/auth?ref=${ref}` : window.location.origin },
+        options: { redirectTo: oauthRedirectUrl(ref), ...(native ? { skipBrowserRedirect: true } : {}) },
       });
       if (error) throw error;
+      if (native) {
+        if (!data.url) throw new Error("No se pudo iniciar el acceso de Google dentro de Cupido Leudy.");
+        // Keep OAuth inside Capacitor's WebView; it returns to the packaged https://localhost origin.
+        window.location.assign(data.url);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo conectar con Google.");
       setBusy(false);

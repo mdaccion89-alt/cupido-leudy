@@ -1313,6 +1313,8 @@ export type Database = {
     };
     Functions: {
       cupido_count_followers: { Args: { _following: string }; Returns: number };
+      cupido_claim_daily_reward: { Args: never; Returns: Json };
+      cupido_public_paypal_client_id: { Args: never; Returns: string };
       cupido_count_followers_batch: {
         Args: { _following: string[] };
         Returns: { following_id: string; follower_count: number }[];

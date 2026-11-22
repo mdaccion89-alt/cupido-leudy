@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import type { Session } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
@@ -85,6 +87,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    let active = true;
+    let appUrlListener: Awaited<ReturnType<typeof App.addListener>> | undefined;
+    const handleNativeAuthUrl = async (url: string) => {
+      if (!url.startsWith("com.cupido.leudy://auth")) return;
+      try {
+        const callback = new URL(url);
+        const hash = new URLSearchParams(callback.hash.replace(/^#/, ""));
+        const code = callback.searchParams.get("code") ?? hash.get("code");
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(url);
+          if (error) throw error;
+        } else {
+          const accessToken = hash.get("access_token") ?? callback.searchParams.get("access_token");
+          const refreshToken = hash.get("refresh_token") ?? callback.searchParams.get("refresh_token");
+          if (!accessToken || !refreshToken) throw new Error("El enlace de acceso no contiene una sesión válida.");
+          const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          if (error) throw error;
+        }
+        await router.navigate({ to: "/" });
+      } catch (error) {
+        console.error("[Auth] No se pudo completar el callback nativo", error);
+      }
+    };
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       rememberSession(session);
       setState({ session, loading: false });
@@ -93,13 +118,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_OUT") queryClient.removeQueries({ queryKey: ["songs"] });
       else void ensureMyProfile().then(() => queryClient.invalidateQueries());
     });
+    if (Capacitor.isNativePlatform()) {
+      void App.addListener("appUrlOpen", ({ url }) => handleNativeAuthUrl(url)).then((listener) => {
+        if (active) appUrlListener = listener;
+        else void listener.remove();
+      });
+      void App.getLaunchUrl().then((launch) => {
+        if (launch?.url) void handleNativeAuthUrl(launch.url);
+      });
+    }
     supabase.auth
       .getSession()
       .then(({ data }) => {
         rememberSession(data.session);
         setState({ session: data.session, loading: false });
       });
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+      void appUrlListener?.remove();
+    };
   }, [router, queryClient]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;

@@ -13,6 +13,7 @@ import { useAccount } from "@/lib/account";
 import { showInterstitialAd } from "@/lib/admob";
 import { canSendGift, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
 import { CREDIT_PACKAGES } from "@/lib/credits";
+import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
@@ -122,7 +123,10 @@ export function LiveRoom({
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     enabled: Boolean(pendingGiftPurchase),
-    queryFn: () => getPaypalCheckoutConfig(),
+    queryFn: async () => {
+      const config = await getPaypalCheckoutConfig();
+      return { ...config, clientId: await loadPaypalClientId(config.clientId) };
+    },
     staleTime: 30_000,
   });
 

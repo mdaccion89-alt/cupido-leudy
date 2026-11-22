@@ -525,7 +525,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 )}
               </div>
 
-              <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pr-20 sm:pr-24">
+              <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] pr-20 sm:pr-24">
                 <div className="flex items-center gap-2">
                   <Link to="/perfil" search={{ userId: post.user_id }} className="text-sm font-bold text-white drop-shadow hover:underline">
                     {post.display_name}
@@ -539,6 +539,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                   </p>
                 )}
                 <p className="mt-2 text-[11px] text-white/60">{new Date(post.created_at).toLocaleDateString("es")}</p>
+                <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/70"><span aria-hidden="true">♫</span> Audio original · {post.display_name}</p>
               </div>
             </section>
           );
@@ -553,20 +554,21 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
         <button type="button" onClick={() => void navigate({ to: "/muro", search: { post: undefined, q: undefined } })} aria-label="Cerrar videos" className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/45 backdrop-blur">
           <X className="size-5" />
         </button>
-        <div className="pointer-events-auto flex gap-2 rounded-full bg-black/45 p-1 backdrop-blur">
-          <button
-            type="button"
-            onClick={() => { setFollowingOnly(false); setActiveIndex(0); containerRef.current?.scrollTo({ top: 0 }); }}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${!followingOnly ? "bg-white text-black" : "text-white/80"}`}
-          >
-            Para ti
-          </button>
+        <div className="pointer-events-auto flex gap-1 rounded-full bg-black/45 p-1 backdrop-blur">
+          <button type="button" onClick={() => void navigate({ to: "/directo", search: { liveId: undefined } })} className="rounded-full px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10">Live</button>
           <button
             type="button"
             onClick={() => { setFollowingOnly(true); setActiveIndex(0); containerRef.current?.scrollTo({ top: 0 }); }}
-            className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${followingOnly ? "bg-white text-black" : "text-white/80"}`}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${followingOnly ? "bg-white text-black" : "text-white/80"}`}
           >
             Siguiendo
+          </button>
+          <button
+            type="button"
+            onClick={() => { setFollowingOnly(false); setActiveIndex(0); containerRef.current?.scrollTo({ top: 0 }); }}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${!followingOnly ? "bg-white text-black" : "text-white/80"}`}
+          >
+            Para ti
           </button>
         </div>
         <button type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Activar sonido" : "Silenciar"} className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/45 backdrop-blur">

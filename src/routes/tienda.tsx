@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount } from "@/lib/account";
 import { CREDIT_PACKAGES, GRAN_LIGA_PACKAGE_ID } from "@/lib/credits";
+import { loadPaypalClientId } from "@/lib/paypal-public";
 import {
   COUNTRIES,
   MIN_WITHDRAWAL,
@@ -121,7 +122,10 @@ function StorePage() {
 
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
-    queryFn: () => getPaypalCheckoutConfig(),
+    queryFn: async () => {
+      const config = await getPaypalCheckoutConfig();
+      return { ...config, clientId: await loadPaypalClientId(config.clientId) };
+    },
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock3, Eye, Heart, Loader2, MoreHorizontal, Plus, Send, Trash2 } from "lucide-react";
+import { Clock3, Eye, Gift, Heart, Loader2, MessageCircle, MoreHorizontal, Plus, Send, Trash2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { notifyUser } from "@/lib/posts";
 import { compressImageFile, safeExtension } from "@/lib/storage";
 import type { MediaFilterId } from "@/lib/media-filters";
 import { mediaFilterCss } from "@/lib/media-filters";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 
 type Story = {
   id: string;
@@ -31,6 +32,8 @@ type Story = {
   expires_at: string;
   display_name: string;
   avatar_url: string;
+  age: number | null;
+  is_verified_blue: boolean;
   viewer_count: number;
   heart_count: number;
   liked: boolean;
@@ -64,6 +67,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
   const [cancelRequested, setCancelRequested] = useState(false);
   const cancelUploadRef = useRef(false);
   const [viewersStory, setViewersStory] = useState<string | null>(null);
+  const [storyViewerId, setStoryViewerId] = useState<string | null>(null);
   const viewedStories = useRef(new Set<string>());
 
   const stories = useQuery({
@@ -96,14 +100,14 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
       const viewCountByStory = new Map(viewCounts);
       const ids = [...new Set(visibleRows.map((row) => row.user_id))];
       const profiles = ids.length
-        ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_cupido_active").in("id", ids)
+        ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,age,is_verified_blue,is_cupido_active").in("id", ids)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
       const byId = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));
       return visibleRows.flatMap((row) => {
         const profile = byId.get(row.user_id);
         const storyHearts = hearts.filter((heart) => heart.story_id === row.id);
-        return [{ ...row, display_name: profile?.display_name ?? "Miembro de Cupido", avatar_url: profile?.avatar_url ?? "", heart_count: storyHearts.length, liked: storyHearts.some((heart) => heart.user_id === viewerId), viewer_count: viewCountByStory.get(row.id) ?? 0 }];
+        return [{ ...row, display_name: profile?.display_name ?? "Miembro de Cupido", avatar_url: profile?.avatar_url ?? "", age: profile?.age ?? null, is_verified_blue: profile?.is_verified_blue ?? false, heart_count: storyHearts.length, liked: storyHearts.some((heart) => heart.user_id === viewerId), viewer_count: viewCountByStory.get(row.id) ?? 0 }];
       }) as Story[];
     },
   });
@@ -274,6 +278,20 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
   };
 
   const visibleStories = useMemo(() => stories.data ?? [], [stories.data]);
+  const activeStory = visibleStories.find((story) => story.id === storyViewerId) ?? null;
+  const storySequence = useMemo(
+    () => activeStory ? visibleStories.filter((story) => story.user_id === activeStory.user_id) : [],
+    [activeStory, visibleStories],
+  );
+  const activeStoryIndex = storySequence.findIndex((story) => story.id === activeStory?.id);
+
+  useEffect(() => {
+    if (!activeStory) return;
+    const timer = window.setTimeout(() => {
+      setStoryViewerId(storySequence[activeStoryIndex + 1]?.id ?? null);
+    }, 6_000);
+    return () => window.clearTimeout(timer);
+  }, [activeStory?.id, activeStoryIndex, storySequence]);
 
   if (compact) {
     return (
@@ -357,6 +375,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
             <div className="relative">
               {story.media_type === "text" ? <div className={`relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(story.background_gradient)}`}><span className="relative z-[1] whitespace-pre-wrap break-words">{story.caption || "✨"}</span><GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url ?? ""} filter={story.filter_name as MediaFilterId} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url ?? ""} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
               {story.media_type !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />}
+              <button type="button" aria-label={`Ver historia de ${story.display_name}`} onClick={() => setStoryViewerId(story.id)} className="absolute inset-0 z-[2] grid place-items-center bg-black/0 text-sm font-semibold text-white opacity-0 transition hover:bg-black/15 hover:opacity-100 focus-visible:bg-black/25 focus-visible:opacity-100"><span className="rounded-full bg-black/60 px-4 py-2 backdrop-blur">Ver historia</span></button>
             </div>
             {story.caption && <p className="px-3 pt-3 text-sm text-foreground/90">{story.caption}</p>}
             <div className="flex items-center justify-between px-3 pt-3 text-xs text-muted-foreground"><button type="button" className="inline-flex items-center gap-1.5 hover:text-pink-200" disabled={!viewerId || story.user_id === viewerId} onClick={() => void interact("cupido_toggle_story_heart", { _story: story.id }, story.liked ? "Quitaste tu corazón." : "Enviaste un corazón.")}><Heart className={`size-4 ${story.liked ? "fill-pink-400 text-pink-400" : ""}`} /> {story.heart_count}</button>{story.user_id === viewerId && <button type="button" className="inline-flex items-center gap-1.5" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /> {story.viewer_count} vistas</button>}</div>
@@ -369,6 +388,44 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
           </article>
         ))}
       </div>
+      {activeStory && (
+        <div role="dialog" aria-modal="true" aria-label={`Historia de ${activeStory.display_name}`} className="fixed inset-0 z-[70] h-[100dvh] overflow-hidden bg-black text-white">
+          <div className="absolute inset-0">
+            {activeStory.media_type === "text" ? (
+              <div className={`flex size-full items-center justify-center bg-gradient-to-br px-8 pb-28 pt-36 text-center text-3xl font-semibold ${storyBackground(activeStory.background_gradient)}`}><p className="whitespace-pre-wrap break-words">{activeStory.caption || "✨"}</p></div>
+            ) : activeStory.media_type === "video" ? (
+              <video src={activeStory.media_url ?? undefined} autoPlay muted loop playsInline webkit-playsinline="true" className="size-full object-cover" style={{ filter: mediaFilterCss(activeStory.filter_name as MediaFilterId) }} />
+            ) : (
+              <img src={activeStory.media_url ?? ""} alt={activeStory.caption || `Historia de ${activeStory.display_name}`} className="size-full object-cover" style={{ filter: mediaFilterCss(activeStory.filter_name as MediaFilterId) }} />
+            )}
+            <GlowingEmojiOverlay emojis={parseEmojiOverlay(activeStory.emoji_overlay)} />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/75" />
+          </div>
+          <div className="absolute inset-x-0 top-0 z-10 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+            <div className="flex gap-1">
+              {storySequence.map((story, index) => <span key={story.id} className="h-1 flex-1 overflow-hidden rounded-full bg-white/30"><span key={`${story.id}-${activeStory.id}`} className={`block h-full bg-white ${index < activeStoryIndex ? "w-full" : index === activeStoryIndex ? "story-progress-fill w-full origin-left" : "w-0"}`} /></span>)}
+            </div>
+            <div className="mt-3 flex items-center gap-2.5">
+              <Avatar className="size-10 border border-white/60"><AvatarImage src={activeStory.avatar_url} alt={activeStory.display_name} /><AvatarFallback>{activeStory.display_name.slice(0, 1)}</AvatarFallback></Avatar>
+              <Link to="/perfil" search={{ userId: activeStory.user_id }} className="min-w-0 flex-1 text-sm font-semibold text-white drop-shadow">{activeStory.display_name}{activeStory.age ? ` · ${activeStory.age}` : ""}<span className="ml-1 inline-flex align-middle"><VerifiedBadge verified={activeStory.is_verified_blue} className="size-4" /></span></Link>
+              <span className="text-[11px] text-white/80">{new Date(activeStory.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</span>
+              <Button type="button" variant="ghost" size="icon" aria-label="Cerrar historia" className="size-9 shrink-0 text-white hover:bg-white/15" onClick={() => setStoryViewerId(null)}><X className="size-5" /></Button>
+            </div>
+          </div>
+          <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4 pb-[calc(6.25rem+env(safe-area-inset-bottom))]">
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm" className="rounded-full bg-violet-600 text-white hover:bg-violet-500"><Link to="/chat" search={{ userId: activeStory.user_id }}><Video className="size-4" /> Videollamada</Link></Button>
+              <Button asChild size="sm" variant="outline" className="rounded-full border-white/40 bg-black/30 text-white hover:bg-white/15"><Link to="/chat" search={{ userId: activeStory.user_id }}><MessageCircle className="size-4" /> Chat</Link></Button>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button type="button" size="icon" aria-label={activeStory.liked ? "Quitar corazón" : "Enviar corazón"} variant="outline" className="size-11 rounded-full border-pink-200/40 bg-black/35 text-white hover:bg-pink-500/40" onClick={() => void interact("cupido_toggle_story_heart", { _story: activeStory.id }, activeStory.liked ? "Quitaste tu corazón." : "Enviaste un corazón.")}><Heart className={`size-5 ${activeStory.liked ? "fill-pink-400 text-pink-400" : ""}`} /></Button>
+              <Button asChild size="icon" aria-label="Enviar un regalo" className="size-11 rounded-full bg-amber-400 text-amber-950 hover:bg-amber-300"><Link to="/tienda" search={{ userId: activeStory.user_id }}><Gift className="size-5" /></Link></Button>
+            </div>
+          </div>
+          <button type="button" aria-label="Historia anterior" className="absolute bottom-28 left-0 top-24 z-[5] w-1/4" onClick={() => setStoryViewerId(storySequence[Math.max(0, activeStoryIndex - 1)]?.id ?? activeStory.id)} />
+          <button type="button" aria-label="Siguiente historia" className="absolute bottom-28 right-0 top-24 z-[5] w-1/4" onClick={() => setStoryViewerId(storySequence[activeStoryIndex + 1]?.id ?? null)} />
+        </div>
+      )}
       <Dialog open={Boolean(viewersStory)} onOpenChange={(open) => !open && setViewersStory(null)}>
         <DialogContent><DialogHeader><DialogTitle>Vieron tu historia</DialogTitle><DialogDescription>{viewers.data?.length ?? 0} personas</DialogDescription></DialogHeader><div className="max-h-72 space-y-2 overflow-y-auto">{viewers.data?.map((row) => <Link key={row.viewer_id} to="/perfil" search={{ userId: row.viewer_id }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-white/5"><Avatar className="size-9"><AvatarImage src={row.profile?.avatar_url ?? ""} /><AvatarFallback>{row.profile?.display_name?.slice(0, 1) ?? "?"}</AvatarFallback></Avatar><span className="text-sm text-white">{row.profile?.display_name ?? "Miembro de Cupido"}</span><span className="ml-auto text-[10px] text-muted-foreground">{new Date(row.viewed_at).toLocaleString("es", { hour: "2-digit", minute: "2-digit" })}</span></Link>)}</div></DialogContent>
       </Dialog>

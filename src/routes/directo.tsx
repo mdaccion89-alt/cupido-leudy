@@ -167,7 +167,7 @@ function DirectPage() {
     let stream: MediaStream | null = null;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
-      await requestNativeMediaPermissions();
+      await requestNativeMediaPermissions({ camera: true, microphone: true });
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "user" } },
         audio: true,

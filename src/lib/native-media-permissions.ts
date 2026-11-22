@@ -37,7 +37,10 @@ export function mediaPermissionMessage(error: unknown): string | null {
   if (code === "ANDROID_MEDIA_PERMISSION_UNAVAILABLE") {
     return "No se pudieron solicitar los permisos nativos. Revisa los permisos de Cupido Leudy en Ajustes de Android.";
   }
-  if (typeof DOMException !== "undefined" && error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "PermissionDeniedError")) {
+  const errorName = error && typeof error === "object" && "name" in error
+    ? String((error as { name?: unknown }).name ?? "")
+    : "";
+  if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError" || /permission denied/i.test(code)) {
     return "Android denegó el acceso a la cámara o al micrófono. Actívalos en Ajustes de Cupido Leudy y vuelve a intentarlo.";
   }
   return null;

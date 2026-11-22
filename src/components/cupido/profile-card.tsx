@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, X } from "lucide-react";
+import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Video, X } from "lucide-react";
 import { displayedFollowerCount } from "@/lib/account";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -22,6 +22,7 @@ export type CupidoProfile = {
   friend_count: number;
   follower_count: number;
   survey_completed: boolean;
+  is_cupido_active?: boolean;
 };
 
 type ProfileCardProps = {
@@ -57,7 +58,39 @@ export function ProfileCard({
   const displayFollowers = displayedFollowerCount(profile.follower_count, profile.email);
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-0 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
+      <div className="relative aspect-[3/4] overflow-hidden rounded-t-3xl bg-slate-900 sm:hidden">
+        <Link to="/perfil" search={{ userId: profile.id }} aria-label={`Ver perfil de ${profile.display_name}`} className="absolute inset-0 block">
+          {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.display_name} className="size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center bg-gradient-to-br from-violet-950 to-rose-950 text-4xl font-bold text-white/80">{initials}</div>}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/95" />
+          <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/25 bg-emerald-950/70 px-2 py-1 text-[10px] font-semibold text-emerald-100 backdrop-blur">
+            <span className={`size-1.5 rounded-full ${profile.is_cupido_active === false ? "bg-slate-400" : "animate-pulse bg-emerald-400"}`} />
+            {profile.is_cupido_active === false ? "Ahora no" : "Disponible"}
+          </span>
+          <span className="absolute inset-x-2.5 bottom-2.5">
+            <span className="flex min-w-0 items-center gap-1 text-sm font-semibold leading-tight text-white drop-shadow">
+              <span className="truncate">{profile.display_name}</span>
+              <VerifiedBadge email={profile.email} official={profile.official} verified={profile.is_verified_blue} granLiga={profile.is_gran_liga} className="size-4 shrink-0" />
+            </span>
+            <span className="mt-1 block truncate text-[10px] text-white/80">{countryFlag(profile.country_code)} {countryName(profile.country_code)}</span>
+          </span>
+        </Link>
+        {!isMe && (
+          <Button asChild size="icon" aria-label={`Videollamada con ${profile.display_name}`} className="absolute right-2.5 top-2.5 size-9 rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500">
+            <Link to="/chat" search={{ userId: profile.id }}><Video className="size-4" /></Link>
+          </Button>
+        )}
+      </div>
+      {isMe ? (
+        <Button asChild className="m-2.5 sm:hidden"><Link to="/perfil">Editar perfil</Link></Button>
+      ) : (
+        <div className="grid grid-cols-2 gap-1.5 p-2.5 sm:hidden">
+          <Button variant={interested ? "secondary" : "default"} onClick={() => onInterested("interested")} className="min-h-10 whitespace-normal px-1.5 text-[10px] leading-tight"><Heart className="size-3.5 shrink-0" /> Me interesa</Button>
+          <Button variant="outline" onClick={() => onInterested("pass")} className="min-h-10 whitespace-normal px-1.5 text-[10px] leading-tight"><X className="size-3.5 shrink-0" /> No me interesa</Button>
+          <Button variant={liked ? "default" : "outline"} onClick={onLike} className="col-span-2 min-h-10 whitespace-normal px-1.5 text-[10px] leading-tight"><Heart className={`size-3.5 shrink-0 ${liked ? "fill-white" : ""}`} /> Me gusta</Button>
+        </div>
+      )}
+      <div className="hidden sm:flex sm:h-full sm:flex-col">
       <div className="flex items-start gap-3 sm:gap-4">
         <Link to="/perfil" search={{ userId: profile.id }} className="relative block shrink-0">
           <GranLigaStar active={profile.is_gran_liga} />
@@ -143,6 +176,7 @@ export function ProfileCard({
             </Button>
           </>
         )}
+      </div>
       </div>
     </article>
   );

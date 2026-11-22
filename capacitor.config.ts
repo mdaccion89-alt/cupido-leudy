@@ -7,6 +7,11 @@ const config: CapacitorConfig = {
   // Keep server.url unset so Android always loads this packaged dist bundle locally.
   server: {
     androidScheme: "https",
+    allowNavigation: [
+      "grlypsxivgxrvahnjoay.supabase.co",
+      "accounts.google.com",
+      "www.google.com",
+    ],
   },
 };
 

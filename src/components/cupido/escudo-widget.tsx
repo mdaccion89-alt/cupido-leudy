@@ -121,7 +121,7 @@ export function EscudoWidget() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-[0_10px_40px_rgba(236,72,153,0.45)] transition hover:scale-105"
-        aria-label="Abrir Escudo Cupido"
+        aria-label="Abrir Cupi Support"
       >
         {open ? <X className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
       </button>
@@ -130,7 +130,7 @@ export function EscudoWidget() {
           <div className="flex items-center gap-2 border-b border-white/10 bg-gradient-to-r from-pink-600/30 to-rose-600/20 px-4 py-3">
             <ShieldCheck className="h-5 w-5 text-pink-300" />
             <div>
-              <p className="text-sm font-semibold text-white">Escudo Cupido</p>
+              <p className="text-sm font-semibold text-white">Cupi Support</p>
               <p className="text-[11px] text-pink-200/70">Soporte de cuenta y seguridad · Gemini 2.5 Flash</p>
             </div>
           </div>

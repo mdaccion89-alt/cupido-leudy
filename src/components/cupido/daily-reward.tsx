@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
-import { Coins, Gift, Loader2, Play } from "lucide-react";
+import { Check, Coins, Gift, Loader2, LockKeyhole, Play, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { DAILY_REWARDS, DAY_MS, formatCountdown, nextDailyDay } from "@/lib/rewards";
-import { claimDailyReward } from "@/lib/rewards.functions";
+import { supabase } from "@/integrations/supabase/client";
+
+const rewardsRpc = supabase as unknown as {
+  rpc: (name: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+};
 
 export function DailyReward() {
   const account = useAccount();
@@ -17,7 +20,6 @@ export function DailyReward() {
   const [now, setNow] = useState(() => Date.now());
   const [claiming, setClaiming] = useState(false);
   const [adOpen, setAdOpen] = useState(false);
-  const claimDaily = useServerFn(claimDailyReward);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -37,7 +39,12 @@ export function DailyReward() {
     }
     setClaiming(true);
     try {
-      const result = await claimDaily({ data: { day: nextDay } });
+      const { data, error } = await rewardsRpc.rpc("cupido_claim_daily_reward");
+      if (error) throw error;
+      if (!data || typeof data !== "object" || !("awarded" in data) || !("day" in data)) {
+        throw new Error("Supabase no confirmó el premio diario.");
+      }
+      const result = data as { awarded: number; day: number };
       toast.success(`Día ${result.day}: +${result.awarded} monedas brillantes ✨`);
       void queryClient.invalidateQueries({ queryKey: ["account"] });
       account.refresh();
@@ -55,14 +62,14 @@ export function DailyReward() {
         <Gift className="size-4 text-amber-200" />
         <p className="text-sm font-medium text-white">Premio diario · 5 días</p>
       </div>
-      <div className="mt-3 grid grid-cols-5 gap-2">
+      <div className="mt-3 grid grid-cols-5 gap-1.5 sm:gap-2">
         {DAILY_REWARDS.map((amount, index) => {
           const day = index + 1;
           const done = day <= account.dailyStreak && day !== nextDay;
           return (
             <div
               key={day}
-              className={`rounded-xl border px-1 py-2 text-center text-[11px] ${
+              className={`relative flex min-w-0 flex-col items-center rounded-xl border px-1 py-2 text-center text-[10px] sm:text-[11px] ${
                 done
                   ? "border-amber-300/40 bg-amber-400/15 text-amber-100"
                   : day === nextDay
@@ -70,15 +77,18 @@ export function DailyReward() {
                     : "border-white/10 text-muted-foreground"
               }`}
             >
-              <p className="font-display text-sm text-amber-200">+{amount}</p>
-              <p>Día {day}</p>
+              <span className={`mb-1 grid size-8 place-items-center rounded-xl ${day === nextDay ? "bg-amber-300/20 text-amber-100 shadow-[0_0_20px_rgba(251,191,36,0.2)]" : done ? "bg-emerald-300/10 text-emerald-200" : "bg-white/[0.04] text-white/45"}`}>
+                {done ? <Check className="size-4" /> : day === nextDay ? <Gift className="size-4" /> : <LockKeyhole className="size-3.5" />}
+              </span>
+              <p className="font-display text-xs text-amber-200 sm:text-sm"><Coins className="mr-0.5 inline size-3" />{amount}</p>
+              <p className="mt-0.5 whitespace-nowrap">Día {day}</p>
             </div>
           );
         })}
       </div>
       <div className="mt-3 grid gap-2">
         <Button className="w-full gap-2" disabled={locked} onClick={() => void claim()}>
-          {claiming ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
+          {claiming ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           {claiming ? "Reclamando…" : locked ? `Vuelve en ${formatCountdown(waitingMs)}` : claimLabel}
         </Button>
         <Button variant="outline" className="w-full gap-2 border-amber-200/25" onClick={() => setAdOpen(true)}>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
   Coffee,
   Copy,
   CreditCard,
@@ -37,6 +38,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_PACKAGES } from "@/lib/credits";
+import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
@@ -137,6 +139,7 @@ function ChatPage() {
   const [giftOpen, setGiftOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
   const [text, setText] = useState("");
   const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null);
@@ -154,7 +157,10 @@ function ChatPage() {
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     enabled: Boolean(giftOpen && pendingGiftPurchase),
-    queryFn: () => getPaypalCheckoutConfig(),
+    queryFn: async () => {
+      const config = await getPaypalCheckoutConfig();
+      return { ...config, clientId: await loadPaypalClientId(config.clientId) };
+    },
     staleTime: 30_000,
   });
 
@@ -237,6 +243,7 @@ function ChatPage() {
         ]);
         openedRef.current = searchUserId;
         setActiveId(conversationId);
+        setMobileShowChat(true);
         void queryClient.invalidateQueries({ queryKey: ["cupido-conversations", viewerId] });
       } catch (error) {
         if (!cancelled) {
@@ -716,10 +723,10 @@ function ChatPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+    <main className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-6 sm:py-8">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display text-3xl text-white">Chat</h1>
+        <div className="min-w-0">
+          <h1 className="font-display text-2xl text-white sm:text-3xl">Chat</h1>
           <p className="text-sm text-muted-foreground">Conversaciones privadas, notas de voz y llamadas Café o Hot.</p>
         </div>
         <div className="flex gap-2">
@@ -728,8 +735,8 @@ function ChatPage() {
         </div>
       </div>
 
-      <div className="grid overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
-        <aside className="max-h-[70vh] overflow-y-auto border-b border-white/10 lg:border-b-0 lg:border-r">
+      <div className="grid min-w-0 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
+        <aside className={`${mobileShowChat ? "hidden" : "block"} max-h-[calc(100dvh-15rem)] overflow-y-auto border-b border-white/10 md:block lg:max-h-[70vh] lg:border-b-0 lg:border-r`}>
           <div className="border-b border-white/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Conversaciones
           </div>
@@ -748,7 +755,7 @@ function ChatPage() {
             <button
               key={row.id}
               type="button"
-              onClick={() => setActiveId(row.id)}
+              onClick={() => { setActiveId(row.id); setMobileShowChat(true); }}
               className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/[0.06] ${
                 row.id === activeId ? "bg-pink-500/10" : ""
               }`}
@@ -770,10 +777,11 @@ function ChatPage() {
           ))}
         </aside>
 
-        <section className="flex min-h-[60vh] flex-col">
+        <section className={`${mobileShowChat ? "flex" : "hidden md:flex"} min-h-[calc(100dvh-15rem)] min-w-0 flex-col md:min-h-[60vh]`}>
           {activeConversation ? (
             <>
-              <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3">
+              <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-3 sm:gap-3 sm:px-4">
+                <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 md:hidden" aria-label="Volver a conversaciones" onClick={() => setMobileShowChat(false)}><ArrowLeft className="size-4" /></Button>
                 <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar className="h-10 w-10">
                   <AvatarImage src={activeConversation.other?.avatar_url ?? ""} alt={activeConversation.other?.display_name ?? ""} />
                   <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">

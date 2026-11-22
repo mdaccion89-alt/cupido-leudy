@@ -135,6 +135,7 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
       app?.paypal_client_id?.trim() ||
       fromConfig("paypal_client_id", "paypalClientId", "clientId") ||
       process.env["PAYPAL_CLIENT_ID"] ||
+      import.meta.env["VITE_PAYPAL_CLIENT_ID"] ||
       "",
     secret:
       data?.paypal_secret?.trim() ||
