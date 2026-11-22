@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Video, X } from "lucide-react";
+import { Beer, Baby, Eye, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, Video, X } from "lucide-react";
 import { displayedFollowerCount } from "@/lib/account";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -23,6 +23,8 @@ export type CupidoProfile = {
   follower_count: number;
   survey_completed: boolean;
   is_cupido_active?: boolean;
+  live_id?: string;
+  live_viewers?: number;
 };
 
 type ProfileCardProps = {
@@ -67,6 +69,7 @@ export function ProfileCard({
             <span className={`size-1.5 rounded-full ${profile.is_cupido_active === false ? "bg-slate-400" : "animate-pulse bg-emerald-400"}`} />
             {profile.is_cupido_active === false ? "Ahora no" : "Disponible"}
           </span>
+          {profile.live_id && <span className="absolute left-2.5 top-10 inline-flex items-center gap-1 rounded-full bg-rose-600/95 px-2 py-1 text-[10px] font-bold text-white shadow"><span className="size-1.5 animate-pulse rounded-full bg-white" /> LIVE <Eye className="ml-1 size-3" /> {profile.live_viewers ?? 0}</span>}
           <span className="absolute inset-x-2.5 bottom-2.5">
             <span className="flex min-w-0 items-center gap-1 text-sm font-semibold leading-tight text-white drop-shadow">
               <span className="truncate">{profile.display_name}</span>
@@ -76,9 +79,11 @@ export function ProfileCard({
           </span>
         </Link>
         {!isMe && (
-          <Button asChild size="icon" aria-label={`Videollamada con ${profile.display_name}`} className="absolute right-2.5 top-2.5 size-9 rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500">
-            <Link to="/chat" search={{ userId: profile.id }}><Video className="size-4" /></Link>
-          </Button>
+          profile.live_id ? (
+            <Link to="/directo" search={{ liveId: profile.live_id }} aria-label={`Entrar al Live de ${profile.display_name}`} className="absolute bottom-2.5 right-2.5 grid size-10 place-items-center rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500"><Video className="size-4" /></Link>
+          ) : (
+            <Link to="/chat" search={{ userId: profile.id }} aria-label={`Videollamada con ${profile.display_name}`} className="absolute bottom-2.5 right-2.5 grid size-10 place-items-center rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500"><Video className="size-4" /></Link>
+          )
         )}
       </div>
       {isMe ? (

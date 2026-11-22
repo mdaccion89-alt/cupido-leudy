@@ -1,10 +1,12 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { App } from "@capacitor/app";
+import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
 import type { Session } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type AuthState = { session: Session | null; loading: boolean };
 const AuthContext = createContext<AuthState>({ session: null, loading: true });
@@ -89,14 +91,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let appUrlListener: Awaited<ReturnType<typeof App.addListener>> | undefined;
+    const handledAuthUrls = new Set<string>();
     const handleNativeAuthUrl = async (url: string) => {
-      if (!url.startsWith("com.cupido.leudy://auth")) return;
+      let callback: URL;
       try {
-        const callback = new URL(url);
+        callback = new URL(url);
+      } catch {
+        return;
+      }
+      if (callback.protocol !== "com.cupido.leudy:" || callback.hostname !== "auth" || handledAuthUrls.has(url)) return;
+      handledAuthUrls.add(url);
+      try {
+        await Browser.close().catch(() => undefined);
+        const authError = callback.searchParams.get("error_description") ?? callback.searchParams.get("error");
+        if (authError) throw new Error(authError);
         const hash = new URLSearchParams(callback.hash.replace(/^#/, ""));
         const code = callback.searchParams.get("code") ?? hash.get("code");
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(url);
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
         } else {
           const accessToken = hash.get("access_token") ?? callback.searchParams.get("access_token");
@@ -108,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await router.navigate({ to: "/" });
       } catch (error) {
         console.error("[Auth] No se pudo completar el callback nativo", error);
+        toast.error(error instanceof Error ? error.message : "No se pudo completar el acceso de Google.");
       }
     };
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {

@@ -53,7 +53,7 @@ function storyBackground(id: string) {
   return STORY_BACKGROUNDS.find((item) => item.id === id)?.className ?? STORY_BACKGROUNDS[0].className;
 }
 
-export function StoryFeed({ compact = false }: { compact?: boolean }) {
+export function StoryFeed({ compact = false, initialStoryId }: { compact?: boolean; initialStoryId?: string }) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
@@ -129,13 +129,15 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
   }, [draft]);
 
   useEffect(() => {
-    if (compact || !viewerId) return;
-    for (const story of stories.data ?? []) {
-      if (story.user_id === viewerId || viewedStories.current.has(story.id)) continue;
-      viewedStories.current.add(story.id);
-      void storyDb.rpc("cupido_story_view", { _story: story.id });
-    }
-  }, [compact, stories.data, viewerId]);
+    if (!initialStoryId || !visibleStories.some((story) => story.id === initialStoryId)) return;
+    setStoryViewerId(initialStoryId);
+  }, [initialStoryId, visibleStories]);
+
+  useEffect(() => {
+    if (!activeStory || !viewerId || activeStory.user_id === viewerId || viewedStories.current.has(activeStory.id)) return;
+    viewedStories.current.add(activeStory.id);
+    void storyDb.rpc("cupido_story_view", { _story: activeStory.id });
+  }, [activeStory, viewerId]);
 
   const viewers = useQuery({
     queryKey: ["cupido-story-viewers", viewersStory],
@@ -306,10 +308,10 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
           {stories.isLoading && <span className="px-1 py-2 text-[11px] text-white/60">Cargando historias…</span>}
           {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
           {visibleStories.map((story) => (
-            <Link key={story.id} to="/historia" aria-label={`Ver historia de ${story.display_name}`} className="relative h-[72px] w-[58px] shrink-0 overflow-hidden rounded-lg border border-pink-300/40 bg-black">
+            <Link key={story.id} to="/historia" search={{ story: story.id }} aria-label={`Ver historia de ${story.display_name}`} className="relative h-[88px] w-[66px] shrink-0 overflow-hidden rounded-xl border border-pink-300/50 bg-black p-0.5 shadow-[0_0_18px_rgba(236,72,153,0.2)]">
               {story.media_type === "text" ? <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br p-2 text-center text-[10px] font-semibold text-white ${storyBackground(story.background_gradient)}`}>{story.caption || "✨"}<GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "image" ? <img src={story.media_url ?? ""} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url ?? undefined} muted playsInline webkit-playsinline="true" preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
               {story.media_type !== "text" && <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />}
-              <Avatar className="absolute left-1 top-1 size-6 border border-pink-300">
+              <Avatar className="absolute left-1.5 top-1.5 size-7 border-2 border-pink-300 shadow-[0_0_12px_rgba(244,114,182,0.8)]">
                 <AvatarImage src={story.avatar_url} alt="" />
                 <AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback>
               </Avatar>
@@ -338,8 +340,8 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
             <p className="text-xs font-semibold text-white">Vista previa</p>
             <div className="relative overflow-hidden rounded-lg bg-black">
               {draft.file.type.startsWith("video/")
-                ? <video src={previewUrl} controls playsInline webkit-playsinline="true" className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
-                : <img src={previewUrl} alt="Vista previa de la historia" className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />}
+                ? <video src={previewUrl} controls playsInline webkit-playsinline="true" className="mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-sm object-cover" style={{ filter: mediaFilterCss(draft.filter) }} />
+                : <img src={previewUrl} alt="Vista previa de la historia" className="mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-sm object-cover" style={{ filter: mediaFilterCss(draft.filter) }} />}
               <GlowingEmojiOverlay emojis={emojiOverlay} />
             </div>
             <div className="flex justify-end gap-2">
@@ -373,7 +375,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
               {story.user_id === viewerId ? <><Button type="button" variant="ghost" size="icon" aria-label="Ver quién vio la historia" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /><span className="sr-only">{story.viewer_count}</span></Button><Button type="button" variant="ghost" size="icon" aria-label="Eliminar historia" onClick={() => void deleteStory(story)}><Trash2 className="size-4" /></Button></> : <details className="relative"><summary className="list-none cursor-pointer rounded p-2 text-muted-foreground hover:text-white" aria-label="Más opciones de historia"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-white/10 bg-slate-950 p-1 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void interact("cupido_hide_story_user", { _owner: story.user_id }, "Historias de este usuario ocultas.")}>Ocultar usuario</button><button className="w-full rounded px-3 py-2 text-left text-xs text-red-200 hover:bg-white/10" onClick={() => void interact("cupido_report_story", { _story: story.id, _reason: "Contenido reportado desde Historias" }, "Reporte enviado al Administrador.")}>Reportar al Admin</button></div></details>}
             </div>
             <div className="relative">
-              {story.media_type === "text" ? <div className={`relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(story.background_gradient)}`}><span className="relative z-[1] whitespace-pre-wrap break-words">{story.caption || "✨"}</span><GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url ?? ""} filter={story.filter_name as MediaFilterId} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url ?? ""} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
+              {story.media_type === "text" ? <div className={`relative flex aspect-[9/16] items-center justify-center overflow-hidden bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(story.background_gradient)}`}><span className="relative z-[1] whitespace-pre-wrap break-words">{story.caption || "✨"}</span><GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url ?? ""} filter={story.filter_name as MediaFilterId} className="aspect-[9/16] w-full bg-black object-cover" /> : <img src={story.media_url ?? ""} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[9/16] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
               {story.media_type !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />}
               <button type="button" aria-label={`Ver historia de ${story.display_name}`} onClick={() => setStoryViewerId(story.id)} className="absolute inset-0 z-[2] grid place-items-center bg-black/0 text-sm font-semibold text-white opacity-0 transition hover:bg-black/15 hover:opacity-100 focus-visible:bg-black/25 focus-visible:opacity-100"><span className="rounded-full bg-black/60 px-4 py-2 backdrop-blur">Ver historia</span></button>
             </div>

@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { COUNTRIES, LOOKING_FOR, countryFlag } from "@/lib/cupido";
 import { databaseErrorMessage, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { useLivePresenceCounts } from "@/lib/use-live-presence-counts";
 
 export const Route = createFileRoute("/comunidad")({
   head: () => ({ meta: [{ title: "Comunidad — Cupido Leudy ❤️" }] }),
@@ -109,11 +110,28 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     },
   });
 
+  const activeLives = useQuery({
+    queryKey: ["cupido-discovery-live-streams"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("live_streams").select("id,host_id,viewers_count").eq("status", "live").order("started_at", { ascending: false }).limit(40);
+      if (error) {
+        console.warn("[comunidad] No se pudo cargar la lista de Lives activos.", error);
+        return [];
+      }
+      return data ?? [];
+    },
+    staleTime: 0,
+  });
+  const livePresenceCounts = useLivePresenceCounts(activeLives.data?.map((live) => live.id) ?? []);
+
   useEffect(() => {
     const channel = supabase
       .channel((`cupido-discovery-live-${viewerId ?? "guest"}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_streams" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-discovery-live-streams"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
@@ -186,8 +204,13 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         friend_count: person.friend_count ?? 0,
         follower_count: person.follower_count ?? 0,
         survey_completed: Boolean(person.survey_completed),
+        live_id: activeLives.data?.find((live) => live.host_id === person.id)?.id,
+        live_viewers: (() => {
+          const live = activeLives.data?.find((stream) => stream.host_id === person.id);
+          return live ? livePresenceCounts[live.id] ?? live.viewers_count : undefined;
+        })(),
       })),
-    [people.data, relations.data?.passed, optimisticPasses, viewerId],
+    [people.data, relations.data?.passed, optimisticPasses, viewerId, activeLives.data, livePresenceCounts],
   );
 
   const requireLogin = () => {

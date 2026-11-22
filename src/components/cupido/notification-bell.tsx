@@ -176,7 +176,7 @@ export function NotificationBell() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-2">
+      <PopoverContent align="end" className="w-80 border-white/10 bg-[#160b12] p-2 text-white shadow-2xl">
         <div className="flex items-center justify-between px-2 py-2">
           <p className="font-display text-sm text-white">Notificaciones</p>
           <span className="text-[11px] text-muted-foreground">{unread} sin leer</span>

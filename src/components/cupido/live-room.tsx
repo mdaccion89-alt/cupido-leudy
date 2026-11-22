@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Check, CreditCard, Flag, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Ban, Check, CreditCard, Flag, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -18,6 +18,7 @@ import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { blockUser, reportUser } from "@/lib/safety";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
@@ -25,6 +26,7 @@ type LiveRoomProps = {
   roomId: string;
   hostId: string;
   hostName: string;
+  hostAvatar?: string;
   hostIsGranLiga?: boolean;
   viewerId: string;
   role: "host" | "viewer";
@@ -75,6 +77,7 @@ export function LiveRoom({
   roomId,
   hostId,
   hostName,
+  hostAvatar = "",
   hostIsGranLiga = false,
   viewerId,
   role,
@@ -94,6 +97,7 @@ export function LiveRoom({
     },
   });
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftType | null>(null);
+  const [giftPanelOpen, setGiftPanelOpen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -107,6 +111,15 @@ export function LiveRoom({
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
+  const followed = useQuery({
+    queryKey: ["cupido-live-follow", viewerId, hostId],
+    enabled: role === "viewer" && viewerId !== hostId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("follows").select("following_id").eq("follower_id", viewerId).eq("following_id", hostId).maybeSingle();
+      if (error) throw error;
+      return Boolean(data);
+    },
+  });
   const [comments, setComments] = useState<LiveComment[]>([]);
   const [joinMessages, setJoinMessages] = useState<string[]>([]);
   const [commentText, setCommentText] = useState("");
@@ -303,7 +316,7 @@ export function LiveRoom({
       .subscribe();
 
     const presenceChannel = supabase
-      .channel((`cupido-live-presence-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
+      .channel(`cupido-live-presence-${roomId}`, { config: { presence: { key: viewerId } } })
       .on("presence", { event: "join" }, (payload) => {
         const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
         for (const person of joined) {
@@ -612,6 +625,16 @@ export function LiveRoom({
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
 
+  const toggleFollow = async () => {
+    if (!viewerId || viewerId === hostId) return;
+    const result = followed.data
+      ? await supabase.from("follows").delete().eq("follower_id", viewerId).eq("following_id", hostId)
+      : await supabase.from("follows").insert({ follower_id: viewerId, following_id: hostId });
+    if (result.error) { toast.error("No se pudo actualizar el seguimiento."); return; }
+    await followed.refetch();
+    toast.success(followed.data ? "Dejaste de seguir a este anfitrión." : "Ahora sigues a este anfitrión.");
+  };
+
   const selectGift = (gift: GiftType) => {
     if (account.loading || account.balanceUnavailable) return;
     if (!canSendGift(gift, account)) {
@@ -663,9 +686,10 @@ export function LiveRoom({
 
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !z-[80] !h-[100dvh] !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white sm:!max-w-none">
+        <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-w-[72vw] rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
           <DialogTitle className="flex items-center gap-2">
+            <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
             <Radio className="size-5 animate-pulse text-pink-400" />
             {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
             <VerifiedBadge granLiga={hostIsGranLiga} className="size-5" />
@@ -673,10 +697,11 @@ export function LiveRoom({
           <DialogDescription className="flex items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
             <span className="flex items-center gap-1"><CoinIcon className="size-3.5" /> Monedas brillantes activas</span>
+            {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
         </DialogHeader>
-        <div className="relative aspect-video overflow-hidden rounded-2xl bg-black">
+        <div className="absolute inset-0 z-0 overflow-hidden bg-black">
           <video
             ref={role === "host" ? localVideoRef : remoteVideoRef}
             autoPlay
@@ -709,27 +734,27 @@ export function LiveRoom({
             ● EN VIVO
           </span>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"}>
+        <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-20 flex flex-col gap-2">
+          <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"} className="rounded-full border-white/30 bg-black/55 text-white">
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
           {role === "viewer" ? (
             <>
-              <Button variant="outline" onClick={() => void reportHost()} className="gap-2"><Flag className="size-4" /> Reportar</Button>
-              <Button variant="destructive" onClick={() => void blockHost()} className="gap-2"><Ban className="size-4" /> Bloquear</Button>
-              <Button variant="destructive" onClick={exitLive} className="gap-2"><X className="size-4" /> Salir</Button>
+              <Button variant="outline" size="icon" onClick={() => void reportHost()} aria-label="Reportar anfitrión" className="rounded-full border-white/30 bg-black/55 text-white"><Flag className="size-4" /></Button>
+              <Button variant="destructive" size="icon" onClick={() => void blockHost()} aria-label="Bloquear anfitrión" className="rounded-full"><Ban className="size-4" /></Button>
+              <Button variant="destructive" size="icon" onClick={exitLive} aria-label="Salir" className="rounded-full"><X className="size-4" /></Button>
             </>
           ) : (
-            <Button variant="destructive" onClick={() => void endLive()} className="gap-2">
-              <PhoneOff className="size-4" /> Finalizar Live
+            <Button variant="destructive" size="icon" onClick={() => void endLive()} aria-label="Finalizar Live" className="rounded-full">
+              <PhoneOff className="size-4" />
             </Button>
           )}
-          <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })}>
+          <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })} className="rounded-full border-white/30 bg-black/55 text-white">
             <Shield className="size-4 text-sky-300" />
           </Button>
         </div>
         {role === "host" && pendingPk && (
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/40 bg-amber-400/10 p-3" aria-live="polite">
+          <section className="absolute inset-x-3 bottom-[calc(18rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/40 bg-black/75 p-3" aria-live="polite">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-100"><Swords className="size-4" /> {pendingPk.requester_name} solicita una Batalla PK · {pkSeconds}s</p>
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void answerPk(true)}><Check className="mr-1 size-4" />Aceptar</Button>
@@ -738,7 +763,7 @@ export function LiveRoom({
           </section>
         )}
         {role === "viewer" && (
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-300/25 bg-violet-500/[0.06] p-3">
+          <section className="absolute bottom-[calc(18rem+env(safe-area-inset-bottom))] left-3 right-16 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-300/25 bg-black/65 p-2">
             <p className="flex items-center gap-2 text-sm text-violet-100"><Swords className="size-4" />{activePkName ? `Batalla PK 1 vs 1 contra ${activePkName}` : pkRequestStatus === "pending" ? `Solicitud PK enviada · ${pkSeconds}s` : pkRequestStatus === "accepted" ? "Batalla PK aceptada · 1 vs 1" : "Desafía al anfitrión a una batalla PK 1 vs 1"}</p>
             {!activePkName && pkRequestStatus !== "pending" && pkRequestStatus !== "accepted" && (
               <Button size="sm" variant="outline" disabled={(!pkProfile.data?.is_verified_blue && !pkProfile.data?.is_gran_liga) || pkProfile.isLoading} onClick={() => void requestPk()}>
@@ -748,18 +773,18 @@ export function LiveRoom({
             {!activePkName && pkRequestStatus === "pending" && <span className="text-xs text-violet-200">Esperando respuesta del anfitrión</span>}
           </section>
         )}
-        <section className="rounded-2xl border border-white/10 bg-black/25 p-3" aria-label="Chat en vivo">
-          <h3 className="mb-2 flex items-center gap-2 font-display text-base text-white">
+        <section className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-3 z-20 w-[min(70vw,26rem)] rounded-2xl border border-white/15 bg-black/45 p-2.5 backdrop-blur-md" aria-label="Chat en vivo">
+          <h3 className="mb-1 flex items-center gap-2 font-display text-xs text-white">
             <MessageCircle className="size-4 text-pink-300" /> Chat del directo
           </h3>
-          <div translate="no" className="max-h-44 space-y-2 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
+          <div translate="no" className="max-h-[22dvh] space-y-1 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
             {joinMessages.map((message, index) => (
               <p key={`${message}-${index}`} className="rounded-full bg-pink-500/10 px-3 py-1 text-center text-[11px] text-pink-200">
                 {message}
               </p>
             ))}
             {comments.map((comment) => (
-              <p key={comment.id} className="break-words text-xs text-slate-200">
+              <p key={comment.id} className="break-words text-[11px] leading-snug text-slate-200">
                 <Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> <VerifiedBadge granLiga={comment.is_gran_liga} className="inline size-3 align-text-bottom" /> {comment.body}
               </p>
             ))}
@@ -786,16 +811,14 @@ export function LiveRoom({
             </Button>
           </div>
         </section>
-        {role === "viewer" && (
-          <div className="mt-3 rounded-2xl border border-pink-400/20 bg-pink-500/[0.06] p-3">
+        {role === "viewer" && <Button type="button" size="icon" onClick={() => setGiftPanelOpen((open) => !open)} aria-label="Abrir regalos" className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 size-12 rounded-full bg-pink-600 text-white shadow-lg shadow-pink-900/40"><Gift className="size-5" /></Button>}
+        {role === "viewer" && giftPanelOpen && (
+          <div className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 max-h-[68dvh] w-[min(88vw,24rem)] overflow-y-auto rounded-2xl border border-pink-400/30 bg-[#160b12]/95 p-3 shadow-2xl backdrop-blur-xl">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-2 font-display text-base text-white">
                 <Gift className="size-4 text-pink-300" /> Regalos virtuales para {hostName}
               </p>
-              <p className="flex items-center gap-1 text-xs text-amber-200">
-                <CoinIcon className="size-3.5" />
-                {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
-              </p>
+              <div className="flex items-center gap-2"><p className="flex items-center gap-1 text-xs text-amber-200"><CoinIcon className="size-3.5" />{account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}</p><Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => setGiftPanelOpen(false)} aria-label="Cerrar regalos"><X className="size-4" /></Button></div>
             </div>
             <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />
             {pendingGiftPurchase && (() => {

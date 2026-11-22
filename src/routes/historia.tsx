@@ -5,8 +5,11 @@ import { StoryFeed } from "@/components/cupido/story-feed";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/historia")({
+  validateSearch: (search: { story?: string }) => ({ story: typeof search.story === "string" ? search.story : undefined }),
   head: () => ({ meta: [{ title: "Historias · Cupido Leudy ❤️" }] }),
-  component: () => (
+  component: () => {
+    const { story } = Route.useSearch();
+    return (
     <SafeViewBoundary label="las historias">
       <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-8">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
@@ -21,8 +24,9 @@ export const Route = createFileRoute("/historia")({
             <a href="#story-composer"><Plus className="size-4" /> Publicar historia</a>
           </Button>
         </header>
-        <StoryFeed />
+        <StoryFeed initialStoryId={story} />
       </main>
     </SafeViewBoundary>
-  ),
+    );
+  },
 });

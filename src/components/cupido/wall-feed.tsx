@@ -383,7 +383,7 @@ export function WallFeed({
   const showTabs = showScopeTabs && !videoOnly && !onlyUserId && !savedOnly;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-0">
       {!hideUpload && (
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:flex-row sm:items-center">
           <div className="flex-1">
@@ -436,7 +436,7 @@ export function WallFeed({
           <p className="mb-3 text-sm font-semibold text-white">Vista previa</p>
           <div className="relative overflow-hidden rounded-xl bg-black">
           {isVideoFile(draft.file) ? (
-            <video src={previewUrl} controls playsInline webkit-playsinline="true" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+            <video src={previewUrl} controls playsInline webkit-playsinline="true" className="mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-sm rounded-xl bg-black object-cover" style={{ filter: mediaFilterCss(draft.filter) }} />
           ) : (
             <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           )}

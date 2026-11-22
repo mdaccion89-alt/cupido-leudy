@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowLeft, Heart, KeyRound, Loader2, Mail, Phone, UserRound } from "lucide-react";
 import { toast } from "sonner";
+import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
 import heroWaves from "@/assets/hero-waves.jpg";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,8 @@ import { useAuth } from "@/lib/auth-context";
 import { useAppLogo } from "@/lib/app-logo";
 import { BRAND, COUNTRIES, LOOKING_FOR, SLOGAN, countryFlag } from "@/lib/cupido";
 import { captureReferralFromUrl } from "@/lib/referral";
+import { createPhonePasswordAccount } from "@/lib/phone-auth.functions";
+import { phoneLoginEmail } from "@/lib/phone-identity";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: (search: { ref?: string }) => ({ ref: typeof search.ref === "string" ? search.ref : "" }),
@@ -71,7 +74,7 @@ function authRedirectUrl(ref: string): string {
 }
 
 function oauthRedirectUrl(ref: string): string {
-  const callback = new URL(Capacitor.isNativePlatform() ? "https://localhost/auth" : "/auth", window.location.origin);
+  const callback = new URL(Capacitor.isNativePlatform() ? "com.cupido.leudy://auth" : "/auth", window.location.origin);
   if (ref) callback.searchParams.set("ref", ref);
   return callback.toString();
 }
@@ -116,8 +119,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
+  const [phonePassword, setPhonePassword] = useState("");
   const [recoverySent, setRecoverySent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [guestUsed, setGuestUsed] = useState(false);
@@ -250,67 +252,55 @@ function AuthPage() {
     }
   };
 
-  const sendOtp = async () => {
-    const normalized = normalizePhone(phone);
-    if (!/^\+[1-9]\d{6,14}$/.test(normalized)) {
-      toast.error("Escribe tu teléfono con código de país, por ejemplo +18095551234.");
+  const continueWithPhonePassword = async () => {
+    const normalizedPhone = normalizePhone(phone);
+    if (!/^\+[1-9]\d{6,14}$/.test(normalizedPhone)) {
+      toast.error("Escribe tu telefono con codigo de pais, por ejemplo +18095551234.");
+      return;
+    }
+    if (phonePassword.length < 8) {
+      toast.error("La contrasena debe tener al menos 8 caracteres.");
       return;
     }
     if (phoneSignup && (!validSignupNames(fullName, displayName) || !isAdultDate(birthDate))) {
-      toast.error("Para crear la cuenta, escribe un nombre de hasta 40 caracteres y confirma que tienes 18 años o más.");
+      toast.error("Para crear la cuenta, completa tu nombre y confirma que tienes 18 anos o mas.");
       return;
     }
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: normalized,
-        options: {
-          shouldCreateUser: phoneSignup,
-          ...(phoneSignup ? {
-            data: {
-              full_name: fullName.trim() || displayName.trim(),
-              display_name: displayName.trim() || fullName.trim(),
-              birth_date: birthDate,
-              phone: normalized,
-              country_code: countryCode,
-              looking_for: phoneSurveySkipped ? "amistad" : lookingFor,
-              zodiac: phoneSurveySkipped ? "" : zodiac,
-              smokes: phoneSurveySkipped ? false : smokes,
-              drinks: phoneSurveySkipped ? false : drinks,
-              has_kids: phoneSurveySkipped ? false : hasKids,
-              hobbies: phoneSurveySkipped ? "" : hobbies.trim(),
-              survey_completed: !phoneSurveySkipped,
-            },
-          } : {}),
-        },
+      if (phoneSignup) {
+        const result = await createPhonePasswordAccount({ data: {
+          phone: normalizedPhone,
+          password: phonePassword,
+          fullName: fullName.trim() || displayName.trim(),
+          displayName: displayName.trim() || fullName.trim(),
+          birthDate,
+          countryCode,
+          lookingFor: phoneSurveySkipped ? "amistad" : lookingFor,
+          zodiac: phoneSurveySkipped ? "" : zodiac,
+          smokes: phoneSurveySkipped ? false : smokes,
+          drinks: phoneSurveySkipped ? false : drinks,
+          hasKids: phoneSurveySkipped ? false : hasKids,
+          hobbies: phoneSurveySkipped ? "" : hobbies.trim(),
+          surveyCompleted: !phoneSurveySkipped,
+        } });
+        if (!result.ok) throw new Error("PHONE_ACCOUNT_CREATE_FAILED");
+      }
+      const { error } = await supabase.auth.signInWithPassword({
+        email: phoneLoginEmail(normalizedPhone),
+        password: phonePassword,
       });
       if (error) throw error;
-      setPhone(normalized);
-      setOtpSent(true);
-      toast.success("Te enviamos un código por SMS.");
+      toast.success(phoneSignup ? "Cuenta creada y sesion iniciada." : "Sesion iniciada.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo enviar el código.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const verifyOtp = async () => {
-    if (!/^\d{4,8}$/.test(otp.trim())) {
-      toast.error("Escribe el código que recibiste por SMS.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone: normalizePhone(phone),
-        token: otp.trim(),
-        type: "sms",
-      });
-      if (error) throw error;
-      toast.success("Teléfono verificado ❤️");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "El código no es válido.");
+      const message = err instanceof Error ? err.message : "No se pudo acceder con telefono.";
+      toast.error(message.includes("PHONE_ALREADY_REGISTERED")
+        ? "Ese telefono ya tiene cuenta. Inicia sesion con tu contrasena."
+        : message.includes("PHONE_ACCOUNT_CREATE_FAILED")
+          ? "No se pudo crear la cuenta con ese telefono. Intenta de nuevo."
+          : message.includes("Invalid login credentials")
+            ? "El telefono o la contrasena no coinciden."
+            : message);
     } finally {
       setBusy(false);
     }
@@ -327,8 +317,8 @@ function AuthPage() {
       if (error) throw error;
       if (native) {
         if (!data.url) throw new Error("No se pudo iniciar el acceso de Google dentro de Cupido Leudy.");
-        // Keep OAuth inside Capacitor's WebView; it returns to the packaged https://localhost origin.
-        window.location.assign(data.url);
+        await Browser.open({ url: data.url });
+        setBusy(false);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo conectar con Google.");
@@ -561,7 +551,6 @@ function AuthPage() {
                 placeholder="+1 809 555 1234"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
-                disabled={otpSent}
                 className="h-11 rounded-xl bg-surface/80"
               />
             </div>
@@ -618,41 +607,21 @@ function AuthPage() {
                 )}
               </div>
             )}
-            {otpSent && (
-              <div className="space-y-2">
-                <Label htmlFor="otp">Código SMS</Label>
-                <Input
-                  id="otp"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123456"
-                  value={otp}
-                  onChange={(event) => setOtp(event.target.value)}
-                  className="h-11 rounded-xl bg-surface/80"
-                />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="phone-password">Contrasena</Label>
+              <Input id="phone-password" type="password" autoComplete={phoneSignup ? "new-password" : "current-password"} value={phonePassword} onChange={(event) => setPhonePassword(event.target.value)} className="h-11 rounded-xl bg-surface/80" minLength={8} />
+            </div>
+            <p className="text-xs text-muted-foreground">Usa el telefono como usuario; no enviamos codigos SMS.</p>
             <Button
               type="button"
               className="h-12 w-full rounded-xl"
               disabled={busy}
-              onClick={() => void (otpSent ? verifyOtp() : sendOtp())}
+              onClick={() => void continueWithPhonePassword()}
             >
               {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
-              {otpSent ? "Verificar código" : "Enviar código por SMS"}
+              {phoneSignup ? "Crear cuenta con telefono" : "Entrar con telefono"}
             </Button>
-            {otpSent && (
-              <button
-                type="button"
-                className="text-xs text-muted-foreground underline hover:text-foreground"
-                onClick={() => {
-                  setOtpSent(false);
-                  setOtp("");
-                }}
-              >
-                Cambiar número
-              </button>
-            )}
+
           </div>
         )}
 

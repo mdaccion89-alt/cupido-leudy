@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth-context";
 import { BRAND } from "@/lib/cupido";
 import { fetchBlockedUserIds } from "@/lib/safety";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
+import { useLivePresenceCounts } from "@/lib/use-live-presence-counts";
 
 export const Route = createFileRoute("/directo")({
   validateSearch: (search: { liveId?: string }) => ({ liveId: typeof search.liveId === "string" ? search.liveId : undefined }),
@@ -41,6 +42,7 @@ type ActiveDirect = {
   roomId: string;
   hostId: string;
   hostName: string;
+  hostAvatar?: string;
   hostIsGranLiga: boolean;
   role: "host" | "viewer";
   stream?: MediaStream | null;
@@ -130,6 +132,8 @@ function DirectPage() {
     retry: 2,
   });
 
+  const livePresenceCounts = useLivePresenceCounts(streams.data?.map((stream) => stream.id) ?? []);
+
   useEffect(() => {
     const channelName = `cupido-direct-list-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
@@ -149,7 +153,7 @@ function DirectPage() {
     if (!stream || stream.host_id === viewerId) return;
     autoOpened.current = liveId;
     if (stream.premium_coins > 0) setEntryStream(stream);
-    else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
+    else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostAvatar: stream.host_avatar, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   }, [liveId, streams.data, viewerId]);
 
   useEffect(() => () => {
@@ -209,7 +213,7 @@ function DirectPage() {
     if (!viewerId) { toast.info("Inicia sesiÃ³n para entrar, comentar o enviar regalos."); return; }
     if (stream.host_id === viewerId) { toast.info("Tu transmisiÃ³n ya estÃ¡ activa."); return; }
     if (stream.premium_coins > 0) { setEntryStream(stream); return; }
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostAvatar: stream.host_avatar, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   };
 
   const payAndEnter = async () => {
@@ -222,7 +226,7 @@ function DirectPage() {
     const stream = entryStream;
     setEntryStream(null);
     account.refresh();
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostAvatar: stream.host_avatar, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   };
 
   const canHost = Boolean(account.isSupremeAdmin || account.isGranLiga || profile.data?.is_gran_liga || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
@@ -361,7 +365,7 @@ function DirectPage() {
                       <Link to="/perfil" search={{ userId: stream.host_id }} onClick={(event) => event.stopPropagation()} className="truncate hover:underline">{stream.host_name} ❤️</Link>
                       <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} granLiga={stream.is_gran_liga} className="size-4" />
                     </p>
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {stream.viewers_count} viendo</p>
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {livePresenceCounts[stream.id] ?? stream.viewers_count} viendo</p>
                   </div>
                   <span className="absolute bottom-3 right-3 flex size-10 items-center justify-center rounded-full bg-purple-600 text-white shadow-[0_0_18px_rgba(168,85,247,0.7)] transition group-hover:bg-purple-500">
                     <Video className="size-5" />
@@ -378,6 +382,7 @@ function DirectPage() {
           roomId={active.roomId}
           hostId={active.hostId}
           hostName={active.hostName}
+          hostAvatar={active.hostAvatar}
           hostIsGranLiga={active.hostIsGranLiga}
           viewerId={viewerId}
           role={active.role}

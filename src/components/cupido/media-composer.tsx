@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Camera, ImagePlus, Loader2, Square } from "lucide-react";
+import { Camera, ImagePlus, Loader2, RefreshCw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { MEDIA_FILTERS, mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
 type MediaComposerProps = {
   disabled?: boolean;
@@ -24,6 +25,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
   const [recording, setRecording] = useState(false);
   const [working, setWorking] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(30);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
 
   const stopCamera = () => {
     if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
@@ -57,11 +59,12 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
       return;
     }
     try {
+      await requestNativeMediaPermissions({ camera: true, microphone: true });
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode }, width: { ideal: 720 }, height: { ideal: 1280 }, aspectRatio: { ideal: 9 / 16 } }, audio: true });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facingMode }, width: { ideal: 720 }, height: { ideal: 1280 }, aspectRatio: { ideal: 9 / 16 } }, audio: false });
       }
       streamRef.current = stream;
       const video = videoRef.current;
@@ -86,7 +89,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
           const file = new File([blob], `cupido-${Date.now()}.${extension}`, { type: blob.type });
           setWorking(true);
           void Promise.resolve(onFile(file, filter)).catch((error: unknown) => {
-            toast.error(error instanceof Error ? error.message : "No se pudo publicar el video.");
+            toast.error(mediaPermissionMessage(error) ?? (error instanceof Error ? error.message : "No se pudo publicar el video."));
           }).finally(() => setWorking(false));
         }
       };
@@ -117,6 +120,9 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
       >
         {MEDIA_FILTERS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
+      <Button type="button" variant="outline" size="icon" onClick={() => setFacingMode((mode) => mode === "user" ? "environment" : "user")} disabled={disabled || working || recording} aria-label={facingMode === "user" ? "Cambiar a camara trasera" : "Cambiar a camara frontal"} title={facingMode === "user" ? "Camara frontal" : "Camara trasera"}>
+        <RefreshCw className="size-4" />
+      </Button>
       {!cameraOnly && <>
         <input ref={inputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(event) => void chooseFile(event)} />
         <Button variant="outline" size="sm" className="gap-2" onClick={() => inputRef.current?.click()} disabled={disabled || working || recording}>
@@ -133,7 +139,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
           <Square className="size-3.5 fill-current" /> Detener y publicar ({secondsLeft}s)
         </Button>
       )}
-      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={recording ? "max-h-40 w-full rounded-xl object-cover" : "hidden"} style={{ filter: mediaFilterCss(filter) }} />
+      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={recording ? "aspect-[9/16] max-h-[75dvh] w-full max-w-sm rounded-xl object-cover" : "hidden"} style={{ filter: mediaFilterCss(filter) }} />
     </div>
   );
 }
