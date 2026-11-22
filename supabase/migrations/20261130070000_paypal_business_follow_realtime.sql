@@ -6,13 +6,28 @@ ALTER TABLE public.payment_settings
 
 ALTER TABLE public.app_settings
   ADD COLUMN IF NOT EXISTS paypal_client_id text,
-  ADD COLUMN IF NOT EXISTS paypal_secret text,
   ADD COLUMN IF NOT EXISTS paypal_mode text;
 
--- Move legacy credentials out of the general-purpose JSON config before removing those keys.
+-- Keep the secret only in payment_settings; app_settings may have public read access.
+INSERT INTO public.payment_settings AS existing (id, paypal_business_name, paypal_email, paypal_client_id, paypal_secret, paypal_mode)
+SELECT 1,
+       coalesce(nullif(app.config->>'paypal_business_name', ''), nullif(app.config->>'business_name', ''), ''),
+       coalesce(nullif(app.config->>'paypal_email', ''), nullif(app.config->>'admin_paypal_email', ''), ''),
+       coalesce(nullif(app.config->>'paypal_client_id', ''), nullif(app.config->>'paypalClientId', ''), nullif(app.config->>'clientId', ''), ''),
+       coalesce(nullif(app.config->>'paypal_secret', ''), nullif(app.config->>'paypalSecret', ''), ''),
+       coalesce(nullif(app.config->>'paypal_mode', ''), nullif(app.config->>'mode', ''), 'live')
+  FROM public.app_settings AS app
+ WHERE app.id = 1 AND app.config ?| ARRAY['paypal_secret', 'paypalSecret']
+ON CONFLICT (id) DO UPDATE
+   SET paypal_secret = coalesce(nullif(existing.paypal_secret, ''), EXCLUDED.paypal_secret),
+       paypal_client_id = coalesce(nullif(existing.paypal_client_id, ''), EXCLUDED.paypal_client_id),
+       paypal_email = coalesce(nullif(existing.paypal_email, ''), EXCLUDED.paypal_email),
+       paypal_business_name = coalesce(nullif(existing.paypal_business_name, ''), EXCLUDED.paypal_business_name),
+       paypal_mode = coalesce(nullif(existing.paypal_mode, ''), EXCLUDED.paypal_mode);
+
+-- Move the public client ID and mode, then remove any legacy secret from JSON.
 UPDATE public.app_settings
    SET paypal_client_id = coalesce(nullif(paypal_client_id, ''), nullif(config->>'paypal_client_id', ''), nullif(config->>'paypalClientId', '')),
-       paypal_secret = coalesce(nullif(paypal_secret, ''), nullif(config->>'paypal_secret', ''), nullif(config->>'paypalSecret', '')),
        paypal_mode = coalesce(nullif(paypal_mode, ''), nullif(config->>'paypal_mode', ''), nullif(config->>'mode', '')),
        config = config - 'paypal_secret' - 'paypalSecret'
  WHERE config ?| ARRAY['paypal_secret', 'paypalSecret'];
@@ -42,15 +57,20 @@ GRANT EXECUTE ON FUNCTION public.cupido_public_paypal_client_id()
 
 -- Publish follows so profile, video and Live follow state updates immediately.
 DO $$
+DECLARE table_name text;
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
-     AND NOT EXISTS (
-       SELECT 1 FROM pg_publication_tables
-        WHERE pubname = 'supabase_realtime'
-          AND schemaname = 'public'
-          AND tablename = 'follows'
-     ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    FOREACH table_name IN ARRAY ARRAY['follows', 'cupido_follower_count_events'] LOOP
+      IF to_regclass('public.' || table_name) IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_publication_tables
+            WHERE pubname = 'supabase_realtime'
+              AND schemaname = 'public'
+              AND tablename = table_name
+         ) THEN
+        EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', table_name);
+      END IF;
+    END LOOP;
   END IF;
 END;
 $$;

@@ -142,7 +142,7 @@ export const getPaypalBusinessSettings = createServerFn({ method: "GET" })
       ? await db.from("payment_settings").select("paypal_business_name,paypal_email,paypal_client_id,paypal_secret,paypal_mode").eq("id", 1).maybeSingle()
       : paymentResult;
     const appResult = await db.from("app_settings")
-      .select("business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode,config")
+      .select("business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_mode,config")
       .eq("id", 1).maybeSingle();
     const appFallback = appResult.error
       ? await db.from("app_settings").select("paypal_email,config").eq("id", 1).maybeSingle()
@@ -157,7 +157,7 @@ export const getPaypalBusinessSettings = createServerFn({ method: "GET" })
       : {};
     const first = (...values: unknown[]) => values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
     const databaseClientId = first(payment?.["paypal_client_id"], app?.["paypal_client_id"], config["paypal_client_id"], config["paypalClientId"], config["clientId"]);
-    const databaseSecret = first(payment?.["paypal_secret"], app?.["paypal_secret"], config["paypal_secret"], config["paypalSecret"]);
+    const databaseSecret = first(payment?.["paypal_secret"], config["paypal_secret"], config["paypalSecret"]);
     const environmentClientId = first(process.env["PAYPAL_CLIENT_ID"], import.meta.env["VITE_PAYPAL_CLIENT_ID"]);
     const environmentSecret = first(process.env["PAYPAL_SECRET"]);
     const clientId = databaseClientId || environmentClientId;
@@ -227,8 +227,8 @@ export const savePaypalBusinessSettings = createServerFn({ method: "POST" })
       paypal_mode: data.mode,
     };
     for (const payload of [
-      { id: 1, ...config, paypal_secret: data.secret, config: appConfig },
-      { id: 1, paypal_email: data.email, paypal_client_id: data.clientId, paypal_secret: data.secret, paypal_mode: data.mode, config: appConfig },
+      { id: 1, ...appConfig, config: appConfig },
+      { id: 1, paypal_email: data.email, paypal_client_id: data.clientId, paypal_mode: data.mode, config: appConfig },
       { id: 1, paypal_email: data.email, config: appConfig },
     ]) {
       const { error } = await admin.from("app_settings").upsert(payload);

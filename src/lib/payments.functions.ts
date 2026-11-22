@@ -79,7 +79,7 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
   let appQuery = await db
     .from("app_settings")
     .select(
-      "id,business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode,paypal_me_link,config",
+      "id,business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_mode,paypal_me_link,config",
     )
     .eq("id", 1)
     .maybeSingle();
@@ -93,7 +93,6 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
         paypal_email?: string | null;
         admin_paypal_email?: string | null;
         paypal_client_id?: string | null;
-        paypal_secret?: string | null;
         paypal_mode?: string | null;
         paypal_me_link?: string | null;
         config?: Record<string, unknown> | null;
@@ -139,8 +138,6 @@ async function getPaypalConfig(): Promise<PaypalConfig> {
       "",
     secret:
       data?.paypal_secret?.trim() ||
-      app?.paypal_secret?.trim() ||
-      fromConfig("paypal_secret", "paypalSecret") ||
       process.env["PAYPAL_SECRET"] ||
       "",
     email:
