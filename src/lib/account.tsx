@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getSiteSettings, type PublicSettings } from "./studio.functions";
 import { useAuth } from "./auth-context";
@@ -23,13 +23,15 @@ export function displayedFollowerCount(
 
 export function useAccount() {
   const { session } = useAuth();
+  const queryClient = useQueryClient();
   const userId = session?.user.id ?? null;
   const isImmediateAdmin = session?.user.email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
   const query = useQuery({
     queryKey: ["account", userId],
     enabled: Boolean(userId),
     queryFn: async () => {
-      await supabase.rpc("refresh_my_credits");
+      const { error: refreshError } = await supabase.rpc("refresh_my_credits");
+      if (refreshError) throw refreshError;
       const [credits, roles, profile, privateProfile, capturedOrders] = await Promise.all([
         supabase
           .from("user_credits")
@@ -44,7 +46,7 @@ export function useAccount() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("credits,credits_balance,daily_streak,last_daily_claim")
+          .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -54,18 +56,20 @@ export function useAccount() {
           .eq("status", "captured")
           .limit(1),
       ]);
+      if (privateProfile.error) throw privateProfile.error;
+      if (credits.error) throw credits.error;
       return {
         balance:
           privateProfile.data?.credits_balance ??
           privateProfile.data?.credits ??
           credits.data?.balance ??
-          500,
+          0,
         nextReset: credits.data?.daily_reset_at ?? null,
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
         isSupremeAdmin: isImmediateAdmin || (roles.data ?? []).some((r) => r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
         plan: profile.data?.is_premium ? "premium" : "free",
-        hasPurchased: Boolean(capturedOrders.data?.length),
+        hasPurchased: Boolean(privateProfile.data?.has_purchased || capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
         lastDailyClaim: privateProfile.data?.last_daily_claim ?? null,
       };
@@ -73,7 +77,8 @@ export function useAccount() {
   });
   return {
     userId,
-    balance: isImmediateAdmin || query.data?.balance === -1 ? Infinity : (query.data?.balance ?? 500),
+    balance: isImmediateAdmin || query.data?.balance === -1 ? Infinity : (query.data?.balance ?? 0),
+    balanceUnavailable: query.isError && !query.data,
     nextReset: query.data?.nextReset ?? null,
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
     isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
@@ -84,6 +89,12 @@ export function useAccount() {
     lastDailyClaim: query.data?.lastDailyClaim ?? null,
     loading: query.isLoading,
     refresh: () => query.refetch(),
+    addPurchasedCredits: (credits: number) => {
+      if (!userId || !Number.isFinite(credits) || credits <= 0) return;
+      queryClient.setQueryData(["account", userId], (current: typeof query.data) => current
+        ? { ...current, balance: current.balance === -1 ? -1 : current.balance + credits, hasPurchased: true }
+        : current);
+    },
   };
 }
 

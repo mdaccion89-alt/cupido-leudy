@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CreditCard, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,8 @@ import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
 import { showInterstitialAd } from "@/lib/admob";
 import { canSendGift, FREE_GIFT_MAX_CREDITS, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
+import { CREDIT_PACKAGES } from "@/lib/credits";
+import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
 
@@ -46,6 +50,7 @@ export function LiveRoom({
   premiumEndsAt,
 }: LiveRoomProps) {
   const account = useAccount();
+  const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftType | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -64,6 +69,12 @@ export function LiveRoom({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const moderationWarningShown = useRef(false);
   const moderationRequestPending = useRef(false);
+  const paypalConfig = useQuery({
+    queryKey: ["paypal-checkout-config"],
+    enabled: Boolean(pendingGiftPurchase),
+    queryFn: () => getPaypalCheckoutConfig(),
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     if (role !== "host" || !premiumEndsAt) return;
@@ -427,7 +438,18 @@ export function LiveRoom({
       return;
     }
     account.refresh();
+    setPendingGiftPurchase(null);
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
+  };
+
+  const selectGift = (gift: GiftType) => {
+    if (account.loading || account.balanceUnavailable) return;
+    if (!canSendGift(gift, account)) {
+      setPendingGiftPurchase(gift);
+      return;
+    }
+    setPendingGiftPurchase(null);
+    void sendGift(gift);
   };
 
   const toggleMicrophone = () => {
@@ -548,11 +570,46 @@ export function LiveRoom({
               </p>
               <p className="flex items-center gap-1 text-xs text-amber-200">
                 <CoinIcon className="size-3.5" />
-                {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+                {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
               </p>
             </div>
-            <GiftGrid compact onSelect={(gift) => void sendGift(gift)} disabled={sendingGift} />
-            {account.balance < 10 && !account.isAdmin && (
+            <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />
+            {pendingGiftPurchase && (() => {
+              const shortage = Math.max(pendingGiftPurchase.credits - account.balance, !account.hasPurchased && pendingGiftPurchase.credits > FREE_GIFT_MAX_CREDITS ? 1 : 0);
+              const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+              const readyToSend = canSendGift(pendingGiftPurchase, account);
+              return (
+                <section className="mt-3 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
+                  <div>
+                    <p className="font-semibold text-white">{readyToSend ? `${pendingGiftPurchase.name} está listo para enviar` : `Desbloquea ${pendingGiftPurchase.name}`}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{readyToSend ? "Envíalo ahora si quieres. Las monedas restantes se quedan en tu saldo." : `Compra ${pack?.credits.toLocaleString("es")} monedas por US$${pack?.price}. Tú decides si envías el regalo; el saldo no gastado permanece disponible.`}</p>
+                  </div>
+                  {readyToSend ? (
+                    <Button type="button" className="w-full" disabled={sendingGift} onClick={() => void sendGift(pendingGiftPurchase)}>
+                      {sendingGift ? <Loader2 className="size-4 animate-spin" /> : <Gift className="size-4" />} Enviar {pendingGiftPurchase.name}
+                    </Button>
+                  ) : paypalConfig.isLoading ? (
+                    <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando compra segura...</p>
+                  ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pack ? (
+                    <PayPalCheckoutButtons
+                      clientId={paypalConfig.data.clientId}
+                      packageId={pack.id}
+                      onSuccess={(credits) => {
+                        account.addPurchasedCredits(credits);
+                        void account.refresh();
+                        toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
+                      }}
+                      onError={(message) => toast.error(message)}
+                    />
+                  ) : (
+                    <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
+                  )}
+                  <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
+                  <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>
+                </section>
+              );
+            })()}
+            {!account.loading && !account.balanceUnavailable && account.balance < 10 && !account.isAdmin && (
               <Button asChild variant="outline" size="sm" className="mt-2 gap-1.5">
                 <Link to="/tienda"><CreditCard className="size-3.5" /> Recargar monedas con PayPal</Link>
               </Button>

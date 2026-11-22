@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Coffee,
   Copy,
+  CreditCard,
   Flame,
   Forward,
   Gift,
@@ -25,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +36,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
+import { CREDIT_PACKAGES } from "@/lib/credits";
+import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import {
@@ -118,6 +122,11 @@ function actionErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) {
+  const shortage = Math.max(gift.credits - balance, !hasPurchased && gift.credits > FREE_GIFT_MAX_CREDITS ? 1 : 0);
+  return CREDIT_PACKAGES.find((pack) => pack.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+}
+
 function ChatPage() {
   const { session, loading: authLoading } = useAuth();
   const account = useAccount();
@@ -125,6 +134,7 @@ function ChatPage() {
   const { userId: searchUserId } = Route.useSearch();
   const queryClient = useQueryClient();
   const [giftOpen, setGiftOpen] = useState(false);
+  const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
@@ -139,6 +149,13 @@ function ChatPage() {
   const chunksRef = useRef<Blob[]>([]);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const paypalConfig = useQuery({
+    queryKey: ["paypal-checkout-config"],
+    enabled: Boolean(giftOpen && pendingGiftPurchase),
+    queryFn: () => getPaypalCheckoutConfig(),
+    staleTime: 30_000,
+  });
 
   const conversations = useQuery({
     queryKey: ["cupido-conversations", viewerId],
@@ -636,6 +653,7 @@ function ChatPage() {
     },
     onSuccess: (receiverId) => {
       account.refresh();
+      setPendingGiftPurchase(null);
       setGiftOpen(false);
       toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
 
@@ -644,6 +662,16 @@ function ChatPage() {
     onError: (error) =>
       toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.")),
   });
+
+  const selectGift = (gift: GiftItem) => {
+    if (account.loading || account.balanceUnavailable) return;
+    if (!canSendGift(gift, account)) {
+      setPendingGiftPurchase(gift);
+      return;
+    }
+    setPendingGiftPurchase(null);
+    sendGift.mutate(gift);
+  };
 
   const answerCall = async (accept: boolean) => {
     if (!incoming) return;
@@ -763,7 +791,7 @@ function ChatPage() {
                 </div>
                 <span className="flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-100" title="Tus monedas brillantes">
                   <CoinIcon className="size-4" />
-                  {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+                  {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
                 </span>
                 <Button size="sm" variant="outline" onClick={() => setGiftOpen(true)} className="gap-1">
                   <Gift className="h-4 w-4" /> Regalar
@@ -930,21 +958,55 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={giftOpen} onOpenChange={setGiftOpen}>
+      <Dialog open={giftOpen} onOpenChange={(open) => { setGiftOpen(open); if (!open) setPendingGiftPurchase(null); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}
             </DialogTitle>
             <DialogDescription className="flex items-center gap-1.5">
-              <CoinIcon className="size-4" /> Tienes {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
+              <CoinIcon className="size-4" /> Tienes {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
             </DialogDescription>
           </DialogHeader>
           <GiftGrid
-            onSelect={(gift) => sendGift.mutate(gift)}
-            disabled={sendGift.isPending || !activeConversation?.other}
+            onSelect={selectGift}
+            disabled={sendGift.isPending || account.loading || account.balanceUnavailable || !activeConversation?.other}
             compact
           />
+          {pendingGiftPurchase && (() => {
+            const pack = packageForGift(pendingGiftPurchase, account.balance, account.hasPurchased);
+            const readyToSend = canSendGift(pendingGiftPurchase, account);
+            return (
+              <section className="space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
+                <div>
+                  <p className="font-semibold text-white">{readyToSend ? `${pendingGiftPurchase.name} está listo para enviar` : `Desbloquea ${pendingGiftPurchase.name}`}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{readyToSend ? "Elige si quieres enviarlo ahora. El saldo restante se queda en tu cuenta." : `Compra ${pack?.credits.toLocaleString("es")} monedas por US$${pack?.price}. El regalo no se enviará hasta que pulses el botón; las monedas restantes seguirán disponibles.`}</p>
+                </div>
+                {readyToSend ? (
+                  <Button type="button" className="w-full" disabled={sendGift.isPending} onClick={() => sendGift.mutate(pendingGiftPurchase)}>
+                    {sendGift.isPending ? <Loader2 className="size-4 animate-spin" /> : <Gift className="size-4" />} Enviar {pendingGiftPurchase.name}
+                  </Button>
+                ) : paypalConfig.isLoading ? (
+                  <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando compra segura...</p>
+                ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pack ? (
+                  <PayPalCheckoutButtons
+                    clientId={paypalConfig.data.clientId}
+                    packageId={pack.id}
+                    onSuccess={(credits) => {
+                      account.addPurchasedCredits(credits);
+                      void account.refresh();
+                      toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
+                    }}
+                    onError={(message) => toast.error(message)}
+                  />
+                ) : (
+                  <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
+                )}
+                <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
+                <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>
+              </section>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

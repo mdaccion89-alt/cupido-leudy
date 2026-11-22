@@ -95,7 +95,7 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <div className="rounded-xl border border-amber-300/20 bg-amber-400/[0.06] p-3">
           <p className="text-[11px] text-amber-100/70">Monedas brillantes</p>
-          <p className="font-display text-xl text-amber-200">{Number.isFinite(account.balance) ? account.balance.toLocaleString("es") : "∞"}</p>
+          <p className="font-display text-xl text-amber-200">{account.loading ? "..." : account.balanceUnavailable ? "—" : Number.isFinite(account.balance) ? account.balance.toLocaleString("es") : "∞"}</p>
         </div>
         <div className="rounded-xl border border-violet-300/20 bg-violet-400/[0.06] p-3">
           <p className="text-[11px] text-violet-100/70">Plan actual</p>

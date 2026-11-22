@@ -326,7 +326,7 @@ function CallsPage() {
           <h2 className="font-display text-xl text-white">Tus monedas brillantes</h2>
           <p className="flex items-center gap-1.5 font-display text-2xl text-amber-200">
             <CoinIcon className="size-6" />
-            {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+            {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
           </p>
         </div>
         <h3 className="mt-6 font-display text-lg text-white">Historial reciente</h3>

@@ -275,7 +275,7 @@ function StorePage() {
             <CoinIcon className="size-4" /> Monedas brillantes disponibles
           </p>
           <p className="font-display text-2xl text-white">
-            {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
+            {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
           </p>
         </div>
       </header>
@@ -325,7 +325,7 @@ function StorePage() {
             500 créditos gratis de bienvenida: regalos hasta 500 monedas. Los regalos más caros y las llamadas requieren una recarga real.
           </p>
           <div className="mt-3">
-            <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending} />
+            <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending || account.loading || account.balanceUnavailable} />
           </div>
         </section>
       )}
