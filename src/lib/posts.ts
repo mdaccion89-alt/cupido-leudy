@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { fetchBlockedUserIds } from "@/lib/safety";
 import type { MediaFilterId } from "@/lib/media-filters";
 
 export const SUPREME_ADMIN_EMAIL = "leudyfeliz81@gmail.com";
@@ -213,8 +214,11 @@ export async function fetchFeed(options: {
     if (error) throw error;
     followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
   }
-  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId, likedOnly);
-  const filtered = videoOnly ? rows.filter((row) => row.kind === "video") : rows;
+  const blockedIds = await fetchBlockedUserIds(viewerId);
+  const rows = await selectPosts(Math.min(limit + blockedIds.length + 24, 200), onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId, likedOnly);
+  const filtered = (videoOnly ? rows.filter((row) => row.kind === "video") : rows)
+    .filter((row) => !blockedIds.includes(String(row.user_id)))
+    .slice(0, limit);
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
   const creatorRows = ids.length
     ? await supabase
@@ -277,8 +281,8 @@ export async function fetchFeed(options: {
       display_name: creator?.display_name ?? "Miembro de Cupido",
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
-      is_gran_liga: Boolean(creator?.is_gran_liga),
-      is_promoted: Boolean(row.is_promoted),
+      is_gran_liga: Boolean(creator?.["is_gran_liga"]),
+      is_promoted: Boolean(row["is_promoted"]),
       email: null,
       is_super_admin: Boolean(row.is_super_admin ?? creator?.is_super_admin ?? creator?.["is_official"]),
     }];
@@ -413,7 +417,7 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
       parent_comment_id: typeof row.parent_comment_id === "string" ? row.parent_comment_id : null,
       display_name: profile?.display_name ?? "Miembro de Cupido",
       avatar_url: profile?.avatar_url ?? "",
-      is_gran_liga: Boolean(profile?.is_gran_liga),
+      is_gran_liga: Boolean(profile?.["is_gran_liga"]),
       likes_count: likeCounts.get(String(row.id)) ?? 0,
       liked: likedIds.has(String(row.id)),
     };

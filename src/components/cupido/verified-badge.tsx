@@ -56,7 +56,7 @@ export function VerifiedBadge({ email, verified = false, official = false, granL
   );
 }
 
-export function GranLigaStar({ active = false }: { active?: boolean }) {
+export function GranLigaStar({ active = false }: { active?: boolean | undefined }) {
   if (!active) return null;
   return <span aria-label="Estrella Gran Liga" className="pointer-events-none absolute -top-2 left-1/2 z-10 -translate-x-1/2 text-sm leading-none text-amber-200 drop-shadow-[0_0_8px_rgba(251,191,36,0.95)] animate-pulse">⭐</span>;
 }

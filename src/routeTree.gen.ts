@@ -17,6 +17,7 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
 import { Route as DirectoRouteImport } from './routes/directo'
 import { Route as HistoriaRouteImport } from './routes/historia'
+import { Route as LegalRouteImport } from './routes/legal'
 import { Route as LlamadasRouteImport } from './routes/llamadas'
 import { Route as MuroRouteImport } from './routes/muro'
 import { Route as PerfilRouteImport } from './routes/perfil'
@@ -64,6 +65,11 @@ const HistoriaRoute = HistoriaRouteImport.update({
   path: '/historia',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LegalRoute = LegalRouteImport.update({
+  id: '/legal',
+  path: '/legal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LlamadasRoute = LlamadasRouteImport.update({
   id: '/llamadas',
   path: '/llamadas',
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/comunidad': typeof ComunidadRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
+  '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
   '/perfil': typeof PerfilRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/comunidad': typeof ComunidadRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
+  '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
   '/perfil': typeof PerfilRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/comunidad': typeof ComunidadRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
+  '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
   '/muro': typeof MuroRoute
   '/perfil': typeof PerfilRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/directo'
     | '/historia'
+    | '/legal'
     | '/llamadas'
     | '/muro'
     | '/perfil'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/directo'
     | '/historia'
+    | '/legal'
     | '/llamadas'
     | '/muro'
     | '/perfil'
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/directo'
     | '/historia'
+    | '/legal'
     | '/llamadas'
     | '/muro'
     | '/perfil'
@@ -204,6 +216,7 @@ export interface RootRouteChildren {
   ComunidadRoute: typeof ComunidadRoute
   DirectoRoute: typeof DirectoRoute
   HistoriaRoute: typeof HistoriaRoute
+  LegalRoute: typeof LegalRoute
   LlamadasRoute: typeof LlamadasRoute
   MuroRoute: typeof MuroRoute
   PerfilRoute: typeof PerfilRoute
@@ -270,6 +283,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HistoriaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/legal': {
+      id: '/legal'
+      path: '/legal'
+      fullPath: '/legal'
+      preLoaderRoute: typeof LegalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/llamadas': {
       id: '/llamadas'
       path: '/llamadas'
@@ -324,6 +344,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComunidadRoute: ComunidadRoute,
   DirectoRoute: DirectoRoute,
   HistoriaRoute: HistoriaRoute,
+  LegalRoute: LegalRoute,
   LlamadasRoute: LlamadasRoute,
   MuroRoute: MuroRoute,
   PerfilRoute: PerfilRoute,

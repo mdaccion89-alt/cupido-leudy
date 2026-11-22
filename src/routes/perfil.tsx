@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gift, Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InviteButton } from "@/components/cupido/invite-button";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
+import { LegalLinks } from "@/components/cupido/legal-links";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
 import { CupidoGroupInvites, GranLigaGroups } from "@/components/cupido/gran-liga-groups";
 import { CupidoStudioPanel } from "@/components/cupido/cupido-studio-panel";
@@ -28,6 +29,7 @@ import { COUNTRIES, LOOKING_FOR, countryFlag, countryName } from "@/lib/cupido";
 import { moderateCupidoPhoto } from "@/lib/cupido.functions";
 import { extraField, saveAvatarDirect, saveProfileDirect } from "@/lib/profile-write";
 import { compressImageFile } from "@/lib/storage";
+import { blockUser, reportUser } from "@/lib/safety";
 
 export const Route = createFileRoute("/perfil")({
   validateSearch: (search: { userId?: string }) => search,
@@ -588,6 +590,12 @@ function ProfilePage() {
                     <Gift /> Enviar regalo
                   </Link>
                 </Button>
+                <Button variant="outline" onClick={() => void reportUser(profileId!, "Perfil reportado desde su página").then(() => toast.success("Reporte enviado al equipo de moderación.")).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo enviar el reporte.")))}>
+                  <Flag /> Reportar
+                </Button>
+                <Button variant="destructive" onClick={() => void blockUser(profileId!).then(() => { toast.success("Usuario bloqueado. Sus publicaciones se ocultarán."); window.location.assign("/muro"); }).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo bloquear al usuario.")))}>
+                  <Ban /> Bloquear
+                </Button>
               </>
             ) : (
               <Button asChild>
@@ -595,6 +603,7 @@ function ProfilePage() {
               </Button>
             )}
           </div>
+          <LegalLinks className="mt-5 justify-start" />
 
           {own && editing && (
             <div className="mt-8 grid gap-5 rounded-2xl border border-white/10 bg-black/20 p-5 sm:grid-cols-2">

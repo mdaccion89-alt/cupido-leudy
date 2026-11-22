@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, CreditCard, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Ban, Check, CreditCard, Flag, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -17,6 +17,7 @@ import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { blockUser, reportUser } from "@/lib/safety";
 
 type LiveRoomProps = {
   roomId: string;
@@ -597,6 +598,25 @@ export function LiveRoom({
     }
   };
 
+  const reportHost = async () => {
+    try {
+      await reportUser(hostId, "Live reportado desde la sala en vivo");
+      toast.success("Reporte enviado al equipo de moderación.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo enviar el reporte.");
+    }
+  };
+
+  const blockHost = async () => {
+    try {
+      await blockUser(hostId);
+      toast.success("Anfitrión bloqueado. El Live se cerrará para ti.");
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo bloquear al anfitrión.");
+    }
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
       <DialogContent className="max-w-3xl">
@@ -649,9 +669,11 @@ export function LiveRoom({
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
           {role === "viewer" ? (
-            <Button variant="destructive" onClick={exitLive} className="gap-2">
-              <X className="size-4" /> Salir
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => void reportHost()} className="gap-2"><Flag className="size-4" /> Reportar</Button>
+              <Button variant="destructive" onClick={() => void blockHost()} className="gap-2"><Ban className="size-4" /> Bloquear</Button>
+              <Button variant="destructive" onClick={exitLive} className="gap-2"><X className="size-4" /> Salir</Button>
+            </>
           ) : (
             <Button variant="destructive" onClick={() => void endLive()} className="gap-2">
               <PhoneOff className="size-4" /> Finalizar Live

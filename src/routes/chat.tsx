@@ -500,7 +500,7 @@ function ChatPage() {
     setOpeningConversation(true);
     try {
       const { data: admins, error: profileError } = await supabase.from("cupido_public_profiles")
-        .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+        .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
         .or("is_super_admin.eq.true,is_official.eq.true")
         .limit(10);
       if (profileError) throw profileError;

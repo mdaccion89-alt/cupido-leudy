@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND } from "@/lib/cupido";
+import { fetchBlockedUserIds } from "@/lib/safety";
 
 export const Route = createFileRoute("/directo")({
   validateSearch: (search: { liveId?: string }) => ({ liveId: typeof search.liveId === "string" ? search.liveId : undefined }),
@@ -78,15 +79,17 @@ function DirectPage() {
   });
 
   const streams = useQuery({
-    queryKey: ["cupido-direct-streams"],
+    queryKey: ["cupido-direct-streams", viewerId],
     queryFn: async () => {
+      const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
       const { data: liveRows, error } = await supabase
         .from("live_streams")
         .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
         .eq("status", "live")
         .order("started_at", { ascending: false });
       if (error) throw error;
-      const hostIds = [...new Set((liveRows ?? []).map((stream) => stream.host_id))];
+      const visibleLiveRows = (liveRows ?? []).filter((stream) => !blockedIds.has(stream.host_id));
+      const hostIds = [...new Set(visibleLiveRows.map((stream) => stream.host_id))];
       const { data: profiles, error: profilesError } = hostIds.length
         ? await supabase
             .from("cupido_public_profiles")
@@ -95,7 +98,7 @@ function DirectPage() {
         : { data: [], error: null };
       if (profilesError) throw profilesError;
       const profileById = new Map((profiles ?? []).map((host) => [host.id, host]));
-      return (liveRows ?? []).map<StreamRow>((stream) => {
+      return visibleLiveRows.map<StreamRow>((stream) => {
         const host = profileById.get(stream.host_id);
         return {
           id: stream.id,

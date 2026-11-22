@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Download, Heart, Loader2, MessageCircle, Pause, Play, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
+import { Ban, Bookmark, Download, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pause, Play, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -11,6 +11,7 @@ import { GlowingEmojiOverlay, parseEmojiOverlay } from "@/components/cupido/glow
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { blockUser, reportUser } from "@/lib/safety";
 import { useAuth } from "@/lib/auth-context";
 import { mediaFilterCss } from "@/lib/media-filters";
 import { deliverFile, safeFilename } from "@/lib/download";
@@ -502,6 +503,15 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 <ActionButton label="Descargar" onClick={() => void downloadVideo(post)}>
                   <Download className="size-6" />
                 </ActionButton>
+                {viewerId && viewerId !== post.user_id && (
+                  <details className="relative">
+                    <summary aria-label="Opciones de seguridad del video" className="flex size-12 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur"><MoreHorizontal className="size-6" /></summary>
+                    <div className="absolute bottom-0 right-14 z-30 flex min-w-40 flex-col gap-1 rounded-xl border border-white/15 bg-zinc-950 p-1 shadow-xl">
+                      <button type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void reportUser(post.user_id, "Video reportado desde el reproductor", post.id).then(() => toast.success("Reporte enviado al equipo de moderación.")).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo enviar el reporte.")))}><Flag className="size-4" /> Reportar video</button>
+                      <button type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-rose-200 hover:bg-white/10" onClick={() => void blockUser(post.user_id).then(async () => { toast.success("Usuario bloqueado. Sus videos se ocultarán."); await queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }); }).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo bloquear al usuario.")))}><Ban className="size-4" /> Bloquear usuario</button>
+                    </div>
+                  </details>
+                )}
               </div>
 
               <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pr-20 sm:pr-24">

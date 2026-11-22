@@ -4,6 +4,7 @@ import { ArrowLeft, Heart, KeyRound, Loader2, Mail, Phone, UserRound } from "luc
 import { toast } from "sonner";
 import heroWaves from "@/assets/hero-waves.jpg";
 import { Button } from "@/components/ui/button";
+import { LegalLinks } from "@/components/cupido/legal-links";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -677,9 +678,9 @@ function AuthPage() {
         </div>
 
         <p className="mt-5 text-center text-xs text-muted-foreground">
-          El invitado puede probar una sola vez. Al continuar aceptas el Manual de Uso y Normas de
-          Cupido Leudy.
+          El invitado puede probar una sola vez. Al continuar aceptas nuestras condiciones de uso.
         </p>
+        <LegalLinks className="mt-3" />
       </div>
     </div>
   );

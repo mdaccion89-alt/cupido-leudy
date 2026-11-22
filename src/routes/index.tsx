@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
 import { fetchFeed, SUPREME_ADMIN_EMAIL, togglePostLike } from "@/lib/posts";
+import { fetchBlockedUserIds } from "@/lib/safety";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -92,9 +93,11 @@ function CupidoHome() {
         survey_completed: Boolean(row.survey_completed),
         is_official_profile: row.id === officialId || Boolean(row.is_official || row.is_super_admin),
       }));
-      const official = people.filter((person) => person.is_official_profile);
-      const verified = people.filter((person) => !person.is_official_profile && person.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
-      const newcomers = people
+      const blockedIds = new Set(await fetchBlockedUserIds(userId));
+      const visiblePeople = people.filter((person) => !blockedIds.has(person.id));
+      const official = visiblePeople.filter((person) => person.is_official_profile);
+      const verified = visiblePeople.filter((person) => !person.is_official_profile && person.is_verified_blue).sort((a, b) => b.follower_count - a.follower_count);
+      const newcomers = visiblePeople
         .filter((person) => !person.is_official_profile && !person.is_verified_blue)
         .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
       return [...official, ...verified, ...newcomers] as CupidoProfile[];
@@ -177,7 +180,7 @@ function CupidoHome() {
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_likes", filter: userId ? `actor_id=eq.${userId}` : undefined }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-likes", userId] });
       })
       .subscribe();
