@@ -438,7 +438,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const shareTarget = posts.find((post) => post.id === sharePostId) ?? null;
 
   return (
-    <main className="fixed inset-0 z-50 h-[100dvh] overflow-hidden bg-black text-white">
+    <main translate="no" className="fixed inset-0 z-20 h-[100dvh] overflow-hidden bg-black text-white">
       <Button type="button" onClick={() => setPublishOpen(true)} className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[60] gap-2 shadow-lg"><span>＋</span> Publicar</Button>
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))]">
@@ -446,7 +446,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
           <WallFeed composerOnly showScopeTabs={false} />
         </DialogContent>
       </Dialog>
-      <div ref={containerRef} className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div ref={containerRef} translate="no" className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {posts.map((post, index) => {
           const isLiked = likedLocal[post.id] ?? likedIds.has(post.id);
           const isSaved = savedLocal[post.id] ?? savedIds.has(post.id);

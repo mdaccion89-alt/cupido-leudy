@@ -1,7 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
 import { findPackage, GRAN_LIGA_PACKAGE_ID } from "./credits";
-import { getAdminClient } from "./server-helpers";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+async function getPaypalAdminClient(): Promise<SupabaseClient<Database>> {
+  const { getPaypalServiceClient } = await import("./paypal-admin.server");
+  return getPaypalServiceClient();
+}
 
 type PaypalConfig = {
   apiBase: string;
@@ -53,7 +59,7 @@ function usdCents(value: unknown): number | null {
 }
 
 async function getPaypalConfig(): Promise<PaypalConfig> {
-  const admin = await getAdminClient();
+  const admin = await getPaypalAdminClient();
   const db = admin as unknown as { from: (table: string) => any };
   let payment = await db
     .from("payment_settings")
@@ -165,15 +171,27 @@ export type PublicPaypalConfig = {
 
 export const getPaypalCheckoutConfig = createServerFn({ method: "GET" }).handler(
   async (): Promise<PublicPaypalConfig> => {
-    const config = await getPaypalConfig();
-    return {
-      configured: Boolean(config.clientId && config.secret),
-      clientId: config.clientId,
-      mode: config.mode,
-      businessName: config.businessName,
-      email: config.email,
-      paypalMeLink: config.paypalMeLink,
-    };
+    try {
+      const config = await getPaypalConfig();
+      return {
+        configured: Boolean(config.clientId && config.secret),
+        clientId: config.clientId,
+        mode: config.mode,
+        businessName: config.businessName,
+        email: config.email,
+        paypalMeLink: config.paypalMeLink,
+      };
+    } catch (error) {
+      console.error("[PayPal] Checkout configuration is unavailable", error);
+      return {
+        configured: false,
+        clientId: "",
+        mode: "live",
+        businessName: "Cupido Leudy",
+        email: "",
+        paypalMeLink: "",
+      };
+    }
   },
 );
 
@@ -246,6 +264,8 @@ export function paypalMessage(err: unknown) {
   const code = err instanceof Error ? err.message : "";
   if (code === "PAYPAL_NOT_CONFIGURED")
     return "El Admin Supremo debe configurar PayPal Business en el panel Admin antes de comprar.";
+  if (code === "SUPABASE_SERVICE_ROLE_KEY_MISSING")
+    return "El servidor de pagos no tiene configurada la clave segura de Supabase. Contacta a soporte.";
   if (code.startsWith("PAYPAL_")) {
     const detail = code.replace(/^PAYPAL_/, "").slice(0, 360);
     return `PayPal devolvió ${detail}. Revisa el código y motivo con PayPal o soporte.`;
@@ -277,7 +297,13 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
       context,
     }): Promise<{ ok: true; orderId: string; approveUrl: string } | { ok: false; message: string }> => {
       const pack = findPackage(data.packageId)!;
-      const admin = await getAdminClient();
+      let admin: SupabaseClient<Database>;
+      try {
+        admin = await getPaypalAdminClient();
+      } catch (error) {
+        console.error("[PayPal] Service role client unavailable", error);
+        return { ok: false, message: paypalMessage(error) };
+      }
       const { data: settings } = await admin
         .from("site_settings")
         .select("purchases_enabled")
@@ -285,8 +311,8 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
         .maybeSingle();
       if (settings && !settings.purchases_enabled)
         return { ok: false, message: "Las compras están desactivadas por ahora." };
-      const config = await getPaypalConfig();
       try {
+        const config = await getPaypalConfig();
         const order = await paypal("/v2/checkout/orders", {
           method: "POST",
           headers: { "PayPal-Request-Id": crypto.randomUUID() },
@@ -317,16 +343,18 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
           package_id: pack.id,
           credits: pack.credits,
           amount: pack.price,
+          amount_usd: Number(pack.price),
           currency: "USD",
           paypal_order_id: orderId,
-        });
+          status: "created",
+        }).select("id, paypal_order_id").single();
         if (orderSaveError) {
           console.error("[PayPal] Provider created the order but database persistence failed", {
             paypalOrderId: orderId,
             databaseCode: orderSaveError.code,
             databaseMessage: orderSaveError.message,
           });
-          throw new Error("PAYPAL_ORDER_SAVE_FAILED");
+          throw new Error(`PAYPAL_ORDER_SAVE_FAILED:${orderSaveError.code || "UNKNOWN"}`);
         }
         return { ok: true, orderId, approveUrl };
       } catch (err) {
@@ -345,7 +373,13 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }): Promise<CaptureResult> => {
-    const admin = await getAdminClient();
+    let admin: SupabaseClient<Database>;
+    try {
+      admin = await getPaypalAdminClient();
+    } catch (error) {
+      console.error("[PayPal] Service role client unavailable during capture", error);
+      return { ok: false, message: paypalMessage(error) };
+    }
     const { data: order, error: orderLookupError } = await admin
       .from("paypal_orders")
       .select("*")

@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useServerFn } from "@tanstack/react-start";
 
 import appCss from "../styles.css?url";
-import { BottomNav } from "@/components/cupido/bottom-nav";
+import { BottomNav, RouteShortcuts } from "@/components/cupido/bottom-nav";
 import { SiteHeader } from "@/components/studio/site-header";
 import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
@@ -93,6 +93,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     // twitter:image here: every page without its own would inherit the root's preview image.
     meta: [
       { charSet: "utf-8" },
+      { name: "google", content: "notranslate" },
       {
         name: "viewport",
         content:
@@ -134,7 +135,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="es" className="dark">
+    <html lang="es" className="dark" translate="no">
       <head>
         <HeadContent />
       </head>
@@ -198,6 +199,8 @@ function AdController() {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const immersiveVideos = pathname.startsWith("/videos");
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -209,9 +212,13 @@ function RootComponent() {
         <AdController />
         <ReferralTracker />
         <AndroidBackHandler />
-        <div className="flex min-h-screen flex-col pb-[calc(5rem+env(safe-area-inset-bottom))]">
-          <SiteHeader />
-          <div className="flex-1">
+        <div className="relative flex h-[100dvh] min-h-[100svh] flex-col overflow-x-hidden">
+          {!immersiveVideos && <SiteHeader />}
+          {!immersiveVideos && <RouteShortcuts />}
+          <div
+            translate="no"
+            className={`min-h-0 flex-1 overflow-x-hidden ${immersiveVideos ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
+          >
             <AccountScopedOutlet />
           </div>
           <BottomNav />

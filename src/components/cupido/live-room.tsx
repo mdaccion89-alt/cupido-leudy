@@ -748,7 +748,7 @@ export function LiveRoom({
           <h3 className="mb-2 flex items-center gap-2 font-display text-base text-white">
             <MessageCircle className="size-4 text-pink-300" /> Chat del directo
           </h3>
-          <div className="max-h-44 space-y-2 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
+          <div translate="no" className="max-h-44 space-y-2 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
             {joinMessages.map((message, index) => (
               <p key={`${message}-${index}`} className="rounded-full bg-pink-500/10 px-3 py-1 text-center text-[11px] text-pink-200">
                 {message}

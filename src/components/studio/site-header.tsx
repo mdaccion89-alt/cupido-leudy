@@ -13,10 +13,10 @@ export function SiteHeader() {
   const appLogo = useAppLogo();
 
   return (
-    <header className="sticky top-0 z-30 border-b border-amber-200/10 bg-background/90 px-4 py-3 backdrop-blur-xl sm:px-8">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3">
-        <Link to="/" className="flex min-w-0 items-center gap-2.5" aria-label="Cupido Leudy, inicio">
-          <span className="brand-heart grid size-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-primary shadow-glow">
+    <header translate="no" className="z-30 flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 select-none items-center border-b border-amber-200/10 bg-background/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-xl sm:px-8">
+      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3">
+        <Link to="/" className="flex min-w-0 items-center gap-2" aria-label="Cupido Leudy, inicio">
+          <span className="brand-heart grid size-8 shrink-0 place-items-center overflow-hidden rounded-xl bg-gradient-primary shadow-glow sm:size-10 sm:rounded-2xl">
             {appLogo ? <img src={appLogo} alt="" className="size-full object-contain" /> : <Heart className="size-5 fill-primary-foreground text-primary-foreground" />}
           </span>
           <span className="truncate font-display text-sm font-semibold tracking-tight text-gradient sm:text-base">
@@ -42,7 +42,7 @@ export function SiteHeader() {
               <NotificationBell />
             </>
           ) : !loading ? (
-            <Button asChild variant="glass" size="sm" className="rounded-full">
+            <Button asChild variant="glass" size="sm" className="select-none rounded-full">
               <Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link>
             </Button>
           ) : null}

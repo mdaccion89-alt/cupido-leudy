@@ -491,7 +491,7 @@ export function WallFeed({
       {feed.isLoading || loadingPosts ? (
         <p className="text-sm text-muted-foreground">Cargando publicaciones reales…</p>
       ) : posts.length ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div translate="no" className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((post) => (
             <MediaCard
               key={post.id}

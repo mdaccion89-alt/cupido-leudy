@@ -397,6 +397,7 @@ export type Database = {
       paypal_orders: {
         Row: {
           amount: string;
+          amount_usd: number;
           captured_at: string | null;
           created_at: string;
           credits: number;
@@ -410,6 +411,7 @@ export type Database = {
         };
         Insert: {
           amount: string;
+          amount_usd: number;
           captured_at?: string | null;
           created_at?: string;
           credits: number;
@@ -423,6 +425,7 @@ export type Database = {
         };
         Update: {
           amount?: string;
+          amount_usd?: number;
           captured_at?: string | null;
           created_at?: string;
           credits?: number;

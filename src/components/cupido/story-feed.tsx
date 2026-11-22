@@ -284,7 +284,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
             <Link to="/historia"><Plus className="size-3.5" /> Agregar historia</Link>
           </Button>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div translate="no" className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {stories.isLoading && <span className="px-1 py-2 text-[11px] text-white/60">Cargando historias…</span>}
           {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
           {visibleStories.map((story) => (
@@ -346,7 +346,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
 
       {stories.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Cargando historias...</p> : null}
       {!stories.isLoading && !visibleStories.length ? <p className="rounded-2xl border border-white/10 p-8 text-center text-sm text-muted-foreground">Todavía no hay historias activas. Publica la primera.</p> : null}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div translate="no" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {visibleStories.map((story) => (
           <article key={story.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
             <div className="flex items-center gap-3 p-3">

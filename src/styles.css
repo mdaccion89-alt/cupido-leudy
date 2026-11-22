@@ -179,6 +179,7 @@
   }
 
   html {
+    height: 100%;
     color-scheme: dark;
   }
 
@@ -280,6 +281,8 @@
 
 /* APK / WebView: bloquea zoom, rebote y selección accidental sin romper el scroll vertical. */
 html {
+  width: 100%;
+  height: 100%;
   overflow-x: hidden;
   overscroll-behavior: none;
   scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom));
@@ -288,9 +291,10 @@ html {
 }
 
 body {
+  width: 100%;
   overflow-x: hidden;
   min-height: 100dvh;
-  padding-bottom: env(safe-area-inset-bottom);
+  margin: 0;
 }
 
 input:focus,

@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useServerFn } from "@tanstack/react-start";
 import { CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { capturePaypalOrder, createPaypalOrder } from "@/lib/payments.functions";
 
-type PayPalButtonInstance = { render: (selector: string) => Promise<void> };
+type PayPalButtonInstance = {
+  render: (selector: string) => Promise<void>;
+  close?: () => Promise<void>;
+};
 type PayPalSDK = {
   Buttons: (options: {
     createOrder: () => Promise<string>;
@@ -89,6 +92,7 @@ export function PayPalCheckoutButtons({
   onSuccess,
   onError,
 }: PayPalCheckoutButtonsProps) {
+  const reactId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const containerRef = useRef<HTMLDivElement>(null);
   const createOrder = useServerFn(createPaypalOrder);
   const captureOrder = useServerFn(capturePaypalOrder);
@@ -97,21 +101,24 @@ export function PayPalCheckoutButtons({
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const packageKey = packageId.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const containerId = `paypal-button-${reactId}-${packageKey}-${retryKey}`;
 
   useEffect(() => {
     if (!clientId || disabled) return;
     let disposed = false;
+    let buttonInstance: PayPalButtonInstance | undefined;
+    let renderTask: Promise<void> | undefined;
+    let container: HTMLDivElement | null = null;
     setLoading(true);
     setFailed(false);
 
     const initialize = async () => {
       try {
         await loadPaypalSdk(clientId);
-        const container = containerRef.current;
+        container = containerRef.current;
         if (disposed || !container || !window.paypal) return;
-        container.innerHTML = "";
-        await window.paypal
-          .Buttons({
+        buttonInstance = window.paypal.Buttons({
             createOrder: async () => {
               const result = await createOrder({
                 data: {
@@ -137,8 +144,9 @@ export function PayPalCheckoutButtons({
               error instanceof Error ? error.message : "No se pudo completar el pago con PayPal.",
             ),
             style: { layout: "vertical", shape: "pill", color: "gold", label: "paypal" },
-          })
-          .render(`#${container.id}`);
+          });
+        renderTask = buttonInstance.render(`#${containerId}`);
+        await renderTask;
         if (!disposed) setLoading(false);
       } catch (error) {
         if (disposed) return;
@@ -151,8 +159,21 @@ export function PayPalCheckoutButtons({
     void initialize();
     return () => {
       disposed = true;
+      void (async () => {
+        try {
+          await renderTask;
+        } catch {
+          // A disposed PayPal render may reject after navigation or a retry.
+        }
+        try {
+          await buttonInstance?.close?.();
+        } catch {
+          // The SDK may already have removed its iframe while closing.
+        }
+        if (container && containerRef.current === container) container.replaceChildren();
+      })();
     };
-  }, [clientId, packageId, disabled, createOrder, captureOrder, retryKey]);
+  }, [clientId, packageId, disabled, createOrder, captureOrder, retryKey, containerId]);
 
   if (disabled) {
     return (
@@ -163,13 +184,13 @@ export function PayPalCheckoutButtons({
   }
 
   return (
-    <div className="mt-2 space-y-2">
+    <div translate="no" className="mt-2 space-y-2">
       {loading && (
         <div className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Conectando con PayPal…
         </div>
       )}
-      <div ref={containerRef} id={`paypal-button-${packageId}`} className="min-h-10" />
+      <div key={containerId} ref={containerRef} id={containerId} translate="no" className="min-h-10" />
       {failed && (
         <Button
           type="button"

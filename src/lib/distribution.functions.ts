@@ -1,8 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Json } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { paypal, paypalMessage } from "./payments.functions";
-import { getAdminClient } from "./server-helpers";
+
+async function getPaypalAdminClient(): Promise<SupabaseClient<Database>> {
+  const { getPaypalServiceClient } = await import("./paypal-admin.server");
+  return getPaypalServiceClient();
+}
 
 const DISTRIBUTION_PRICE = "2.00";
 
@@ -56,10 +61,10 @@ export const createDistributionOrder = createServerFn({ method: "POST" })
     }): Promise<
       { ok: true; orderId: string; approveUrl: string } | { ok: false; message: string }
     > => {
-      const admin = await getAdminClient();
       const { userId } = context;
       const id = crypto.randomUUID();
       try {
+        const admin = await getPaypalAdminClient();
         const order = await paypal("/v2/checkout/orders", {
           method: "POST",
           headers: { "PayPal-Request-Id": crypto.randomUUID() },
@@ -84,15 +89,25 @@ export const createDistributionOrder = createServerFn({ method: "POST" })
         const approveUrl = links.find((l) => l.rel === "approve")?.href ?? "";
         if (!orderId || !approveUrl) throw new Error("PAYPAL_NO_ID");
 
-        await admin.from("paypal_orders").insert({
+        const { error: saveError } = await admin.from("paypal_orders").insert({
           user_id: userId,
           package_id: "distribution",
           credits: 0,
           amount: DISTRIBUTION_PRICE,
+          amount_usd: Number(DISTRIBUTION_PRICE),
           currency: "USD",
           paypal_order_id: orderId,
           plan_id: data.songId,
+          status: "created",
         });
+        if (saveError) {
+          console.error("[PayPal] Distribution order persistence failed", {
+            paypalOrderId: orderId,
+            databaseCode: saveError.code,
+            databaseMessage: saveError.message,
+          });
+          throw new Error(`PAYPAL_ORDER_SAVE_FAILED:${saveError.code || "UNKNOWN"}`);
+        }
 
         const { data: settings } = await admin
           .from("site_settings")
@@ -132,7 +147,12 @@ export const captureDistributionOrder = createServerFn({ method: "POST" })
     return input;
   })
   .handler(async ({ data, context }): Promise<{ ok: true } | { ok: false; message: string }> => {
-    const admin = await getAdminClient();
+    let admin: SupabaseClient<Database>;
+    try {
+      admin = await getPaypalAdminClient();
+    } catch (error) {
+      return { ok: false, message: paypalMessage(error) };
+    }
     const { userId } = context;
     const { data: order } = await admin
       .from("paypal_orders")
