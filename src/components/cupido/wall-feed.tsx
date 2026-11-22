@@ -42,6 +42,7 @@ type WallFeedProps = {
   videoOnly?: boolean;
   onlyUserId?: string | null;
   savedOnly?: boolean;
+  likedOnly?: boolean;
   hideUpload?: boolean;
   emptyText?: string;
   initialFollowingOnly?: boolean;
@@ -55,6 +56,7 @@ export function WallFeed({
   videoOnly = false,
   onlyUserId = null,
   savedOnly = false,
+  likedOnly = false,
   hideUpload = false,
   emptyText,
   initialFollowingOnly = false,
@@ -79,11 +81,11 @@ export function WallFeed({
   const [selectedHashtag, setSelectedHashtag] = useState("");
 
   const feed = useQuery({
-    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
+    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, likedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
     queryFn: async () => {
       setLoadingPosts(true);
       try {
-        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, followingOnly, searchTerm: selectedHashtag || searchTerm, onlyPostId: highlightPostId });
+        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, likedOnly, followingOnly, searchTerm: selectedHashtag || searchTerm, onlyPostId: highlightPostId });
       } finally {
         setLoadingPosts(false);
       }

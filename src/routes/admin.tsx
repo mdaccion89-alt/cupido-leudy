@@ -63,6 +63,17 @@ function AdminDashboard() {
   const adjustCreditsFn = useServerFn(adminAdjustCredits);
   const setPlanFn = useServerFn(adminSetPlan);
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: () => getSnapshot() });
+  const removeBadge = useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await moderationDb.rpc("cupido_admin_remove_badge", { _user: userId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Insignia azul retirada.");
+      void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+    },
+    onError: () => toast.error("No se pudo retirar la insignia."),
+  });
   const [settings, setSettings] = useState<AdminSettings | null>(null);
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
@@ -389,6 +400,7 @@ function AdminDashboard() {
                         {user.display_name || user.email || "Artista"}
                       </div>
                       <div className="text-xs text-muted-foreground">{user.email}</div>
+                      <div className="text-[10px] text-muted-foreground">IP: {user.lastIp || "—"} · {user.countryCode || "País no detectado"} · {user.languageCode || "idioma no detectado"}</div>
                       {user.isOfficial && <Badge className="mt-1">Oficial</Badge>}
                     </td>
                     <td>{user.balance}</td>
@@ -402,6 +414,7 @@ function AdminDashboard() {
                     </td>
                     <td>
                       <div className="flex items-center gap-1">
+                        {user.isVerified && <Button size="sm" variant="destructive" disabled={removeBadge.isPending} onClick={() => removeBadge.mutate(user.id)}>Quitar insignia</Button>}
                         <Input
                           type="number"
                           className="h-9 w-20"

@@ -62,6 +62,14 @@ function normalizePhone(value: string): string {
   return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
 }
 
+const PHONE_PREFIXES: Record<string, string> = {
+  DO: "1", US: "1", CA: "1", PR: "1", JM: "1", TT: "1", BO: "591", MX: "52",
+  AR: "54", BR: "55", CL: "56", CO: "57", VE: "58", PE: "51", EC: "593",
+  ES: "34", GB: "44", FR: "33", DE: "49", IT: "39", PT: "351", AU: "61",
+  IN: "91", JP: "81", CN: "86", NG: "234", ZA: "27", PH: "63", PA: "507",
+  CR: "506", GT: "502", HN: "504", SV: "503", NI: "505", PY: "595", UY: "598",
+};
+
 function limitProfileName(value: string): string {
   return Array.from(value).slice(0, 40).join("");
 }
@@ -118,6 +126,13 @@ function AuthPage() {
 
   useEffect(() => {
     setGuestUsed(window.localStorage.getItem("guest_used") === "true");
+  }, []);
+
+  useEffect(() => {
+    const detected = window.localStorage.getItem("cupido-country-code")?.toUpperCase();
+    if (!detected || !COUNTRIES.some(([code]) => code === detected)) return;
+    setCountryCode(detected);
+    if (!phone) setPhone(`+${PHONE_PREFIXES[detected] ?? "1"} `);
   }, []);
 
   const signIn = async (event: FormEvent) => {

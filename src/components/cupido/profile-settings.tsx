@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Crown, Link2, LogOut, Moon, Sun, Trash2, Volume2 } from "lucide-react";
 import { toast } from "sonner";
@@ -10,12 +10,13 @@ import { useAuth } from "@/lib/auth-context";
 import { updateCupidoSoundPreference } from "@/lib/cupido-sounds";
 
 type ProfileSettingsProps = { email?: string | null | undefined; phone?: string | null | undefined };
-type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sounds_enabled: boolean };
+type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sound_enabled: boolean };
 
 export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   const account = useAccount();
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const userId = session?.user.id ?? null;
   const [busy, setBusy] = useState(false);
   const preferences = useQuery({
@@ -24,14 +25,14 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("theme_mode,notifications_enabled,sounds_enabled")
+        .select("theme_mode,notifications_enabled,sound_enabled")
         .eq("id", userId!)
         .maybeSingle();
       if (error) throw error;
       return {
         theme_mode: data?.theme_mode === "light" ? "light" as const : "dark" as const,
         notifications_enabled: data?.notifications_enabled !== false,
-        sounds_enabled: data?.sounds_enabled !== false,
+        sound_enabled: data?.sound_enabled !== false,
       };
     },
   });
@@ -39,14 +40,14 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   useEffect(() => {
     if (!preferences.data) return;
     localStorage.setItem("cupido-notifications", String(preferences.data.notifications_enabled));
-    localStorage.setItem("cupido-sounds", String(preferences.data.sounds_enabled));
+    localStorage.setItem("cupido-sounds", String(preferences.data.sound_enabled));
     localStorage.setItem("cupido-dark", String(preferences.data.theme_mode === "dark"));
   }, [preferences.data]);
 
   const savePreference = async (key: keyof Preferences, value: Preferences[keyof Preferences]) => {
     if (!userId) return;
     const previous = preferences.data;
-    const next = { ...(previous ?? { theme_mode: "dark" as const, notifications_enabled: true, sounds_enabled: true }), [key]: value } as Preferences;
+    const next = { ...(previous ?? { theme_mode: "dark" as const, notifications_enabled: true, sound_enabled: true }), [key]: value } as Preferences;
     queryClient.setQueryData(["cupido-preferences", userId], next);
     if (key === "theme_mode") {
       const mode = value === "light" ? "light" : "dark";
@@ -67,7 +68,7 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       return;
     }
     localStorage.setItem(key === "theme_mode" ? "cupido-dark" : key === "notifications_enabled" ? "cupido-notifications" : "cupido-sounds", String(value));
-    if (key === "sounds_enabled") {
+    if (key === "sound_enabled") {
       updateCupidoSoundPreference(userId, value === true);
       void queryClient.invalidateQueries({ queryKey: ["cupido-sound-preference", userId] });
     }
@@ -75,7 +76,14 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
 
   const darkMode = preferences.data?.theme_mode !== "light";
   const notificationsOn = preferences.data?.notifications_enabled !== false;
-  const soundsOn = preferences.data?.sounds_enabled !== false;
+  const soundsOn = preferences.data?.sound_enabled !== false;
+  const leaveAccount = async (switchAccount: boolean) => {
+    const { error } = await supabase.auth.signOut();
+    if (error) { toast.error("No se pudo cerrar la sesión."); return; }
+    queryClient.clear();
+    await navigate({ to: "/auth", search: { ref: "" } });
+    if (switchAccount) toast.info("Inicia sesión con otra cuenta.");
+  };
 
   return (
     <section className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -111,7 +119,7 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
         </label>
         <label className="flex items-center justify-between rounded-xl border border-white/10 px-3 py-2">
           <span className="flex items-center gap-2"><Volume2 className="size-4" /> Sonidos</span>
-          <input type="checkbox" checked={soundsOn} disabled={busy} onChange={(event) => void savePreference("sounds_enabled", event.target.checked)} />
+          <input type="checkbox" checked={soundsOn} disabled={busy} onChange={(event) => void savePreference("sound_enabled", event.target.checked)} />
         </label>
       </div>
 
@@ -120,7 +128,8 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
         <Button variant="outline" onClick={() => { queryClient.clear(); toast.success("Caché local borrada."); }}>
           <Trash2 className="size-4" /> Borrar caché
         </Button>
-        <Button variant="destructive" onClick={() => void supabase.auth.signOut()}><LogOut className="size-4" /> Cerrar sesión</Button>
+        <Button variant="destructive" onClick={() => void leaveAccount(false)}><LogOut className="size-4" /> Cerrar sesión</Button>
+        <Button variant="outline" onClick={() => void leaveAccount(true)}><LogOut className="size-4" /> Cambiar de cuenta</Button>
       </div>
     </section>
   );

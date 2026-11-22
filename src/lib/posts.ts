@@ -144,6 +144,7 @@ async function selectPosts(
   onlyUserIds?: string[] | null,
   searchTerm?: string,
   onlyPostId?: string | null,
+  likedOnly = false,
 ) {
   if (onlyUserIds && onlyUserIds.length === 0) return [];
   let savedIds: string[] | null = null;
@@ -152,12 +153,21 @@ async function selectPosts(
     savedIds = await savedPostIds(viewerId);
     if (!savedIds.length) return [];
   }
+  let likedIds: string[] | null = null;
+  if (likedOnly) {
+    if (!viewerId) return [];
+    const { data, error } = await db.from("cupido_post_likes").select("post_id").eq("user_id", viewerId);
+    if (error) throw error;
+    likedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.post_id));
+    if (!likedIds.length) return [];
+  }
 
   let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
   if (onlyUserId) query = query.eq("user_id", onlyUserId);
   if (onlyPostId) query = query.eq("id", onlyPostId);
   if (onlyUserIds) query = query.in("user_id", onlyUserIds);
   if (savedIds) query = query.in("id", savedIds);
+  if (likedIds) query = query.in("id", likedIds);
   if (searchTerm?.trim()) query = query.ilike("caption", `%${searchTerm.trim().replace(/[%_]/g, "\\$&")}%`);
   const { data, error } = await query;
   if (error) throw error;
@@ -194,8 +204,9 @@ export async function fetchFeed(options: {
   followingOnly?: boolean;
   searchTerm?: string | undefined;
   onlyPostId?: string | null | undefined;
+  likedOnly?: boolean;
 }): Promise<FeedResult> {
-  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, followingOnly = false, searchTerm, onlyPostId = null } = options;
+  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, likedOnly = false, followingOnly = false, searchTerm, onlyPostId = null } = options;
   if (followingOnly && !viewerId) {
     return { posts: [], liked: new Set(), disliked: new Set(), saved: new Set() };
   }
@@ -205,7 +216,7 @@ export async function fetchFeed(options: {
     if (error) throw error;
     followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
   }
-  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId);
+  const rows = await selectPosts(limit, onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId, likedOnly);
   const filtered = videoOnly ? rows.filter((row) => row.kind === "video") : rows;
   const ids = [...new Set(filtered.map((row) => row.user_id as string))];
   const creatorRows = ids.length

@@ -19,8 +19,8 @@ async function allowedFor(userId?: string | null): Promise<boolean> {
   const cached = preferenceCache.get(userId);
   if (cached && cached.expires > Date.now()) return cached.enabled;
   try {
-    const { data, error } = await supabase.from("profiles").select("sounds_enabled").eq("id", userId).maybeSingle();
-    const enabled = error ? window.localStorage.getItem("cupido-sounds") !== "false" : data?.sounds_enabled !== false;
+    const { data, error } = await supabase.from("profiles").select("sound_enabled").eq("id", userId).maybeSingle();
+    const enabled = error ? window.localStorage.getItem("cupido-sounds") !== "false" : data?.sound_enabled !== false;
     preferenceCache.set(userId, { enabled, expires: Date.now() + 15_000 });
     window.localStorage.setItem("cupido-sounds", String(enabled));
     return enabled;

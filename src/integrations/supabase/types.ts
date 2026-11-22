@@ -482,6 +482,7 @@ export type Database = {
           theme_mode: string;
           notifications_enabled: boolean;
           sounds_enabled: boolean;
+          sound_enabled: boolean;
           zodiac: string;
           smokes: boolean;
           hobbies: string;
@@ -518,6 +519,7 @@ export type Database = {
           theme_mode?: string;
           notifications_enabled?: boolean;
           sounds_enabled?: boolean;
+          sound_enabled?: boolean;
           zodiac?: string;
           smokes?: boolean;
           hobbies?: string;
@@ -554,6 +556,7 @@ export type Database = {
           theme_mode?: string;
           notifications_enabled?: boolean;
           sounds_enabled?: boolean;
+          sound_enabled?: boolean;
           zodiac?: string;
           smokes?: boolean;
           hobbies?: string;
@@ -926,6 +929,9 @@ export type Database = {
         host_id: string;
         id: string;
         is_live: boolean;
+        premium_coins: number;
+        premium_minutes: number;
+        premium_ends_at: string | null;
         title: string;
         viewer_count: number;
       };
@@ -935,6 +941,9 @@ export type Database = {
         host_id: string;
         id?: string;
         is_live?: boolean;
+        premium_coins?: number;
+        premium_minutes?: number;
+        premium_ends_at?: string | null;
         title: string;
         viewer_count?: number;
       };
@@ -944,6 +953,9 @@ export type Database = {
         host_id?: string;
         id?: string;
         is_live?: boolean;
+        premium_coins?: number;
+        premium_minutes?: number;
+        premium_ends_at?: string | null;
         title?: string;
         viewer_count?: number;
       };
@@ -992,6 +1004,9 @@ export type Database = {
         ended_at: string | null;
         host_id: string;
         id: string;
+        premium_coins: number;
+        premium_minutes: number;
+        premium_ends_at: string | null;
         started_at: string;
         status: string;
         title: string;
@@ -1001,6 +1016,9 @@ export type Database = {
         ended_at?: string | null;
         host_id: string;
         id: string;
+        premium_coins?: number;
+        premium_minutes?: number;
+        premium_ends_at?: string | null;
         started_at?: string;
         status?: string;
         title?: string;
@@ -1010,6 +1028,9 @@ export type Database = {
         ended_at?: string | null;
         host_id?: string;
         id?: string;
+        premium_coins?: number;
+        premium_minutes?: number;
+        premium_ends_at?: string | null;
         started_at?: string;
         status?: string;
         title?: string;
@@ -1035,9 +1056,13 @@ export type Database = {
         body: string;
         conversation_id: string;
         created_at: string;
+        deleted_for_all_at: string | null;
+        edited_at: string | null;
         id: string;
         sender_id: string;
         media_path: string;
+        read_at: string | null;
+        reply_to_id: string | null;
       };
       Insert: {
         audio_path?: string;
@@ -1047,6 +1072,7 @@ export type Database = {
         id?: string;
         sender_id: string;
         media_path?: string;
+        reply_to_id?: string | null;
       };
       Update: {
         audio_path?: string;
@@ -1056,6 +1082,10 @@ export type Database = {
         id?: string;
         sender_id?: string;
         media_path?: string;
+        deleted_for_all_at?: string | null;
+        edited_at?: string | null;
+        read_at?: string | null;
+        reply_to_id?: string | null;
       };
       Relationships: [];
     };

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Radio, ShoppingBag, Users, Video } from "lucide-react";
+import { Loader2, LockKeyhole, Radio, ShoppingBag, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { LiveRoom } from "@/components/cupido/live-room";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -29,6 +29,9 @@ type StreamRow = {
   host_avatar: string;
   is_verified_blue: boolean;
   is_official: boolean;
+  premium_coins: number;
+  premium_minutes: number;
+  premium_ends_at: string | null;
 };
 
 type ActiveDirect = {
@@ -37,7 +40,13 @@ type ActiveDirect = {
   hostName: string;
   role: "host" | "viewer";
   stream?: MediaStream | null;
+  premium_ends_at?: string | null;
 };
+
+const PREMIUM_LIVE_TIERS = [
+  { coins: 150, minutes: 15 }, { coins: 300, minutes: 30 },
+  { coins: 500, minutes: 45 }, { coins: 1000, minutes: 60 },
+] as const;
 
 function DirectPage() {
   const { session } = useAuth();
@@ -47,6 +56,9 @@ function DirectPage() {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState("");
   const [starting, setStarting] = useState(false);
+  const [premiumTier, setPremiumTier] = useState(0);
+  const [entryStream, setEntryStream] = useState<StreamRow | null>(null);
+  const [payingEntry, setPayingEntry] = useState(false);
   const [active, setActive] = useState<ActiveDirect | null>(null);
   const [verificationOpen, setVerificationOpen] = useState(false);
   const pendingStream = useRef<MediaStream | null>(null);
@@ -71,7 +83,7 @@ function DirectPage() {
     queryFn: async () => {
       const { data: liveRows, error } = await supabase
         .from("live_streams")
-        .select("id,host_id,title,viewers_count,started_at,status")
+        .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
         .eq("status", "live")
         .order("started_at", { ascending: false });
       if (error) throw error;
@@ -96,6 +108,9 @@ function DirectPage() {
           host_avatar: host?.avatar_url ?? "",
           is_verified_blue: Boolean(host?.is_verified_blue),
           is_official: Boolean(host?.is_official || host?.is_super_admin),
+          premium_coins: stream.premium_coins ?? 0,
+          premium_minutes: stream.premium_minutes ?? 0,
+          premium_ends_at: stream.premium_ends_at ?? null,
         };
       });
     },
@@ -120,7 +135,8 @@ function DirectPage() {
     const stream = streams.data.find((row) => row.id === liveId);
     if (!stream || stream.host_id === viewerId) return;
     autoOpened.current = liveId;
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+    if (stream.premium_coins > 0) setEntryStream(stream);
+    else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
   }, [liveId, streams.data, viewerId]);
 
   useEffect(() => () => {
@@ -140,14 +156,20 @@ function DirectPage() {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       pendingStream.current = stream;
-      const { data: roomId, error } = await supabase.rpc("cupido_start_live_room", { _title: title.trim() });
+      const tier = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
+      const { data: roomId, error } = premiumTier === 0
+        ? await supabase.rpc("cupido_start_live_room", { _title: title.trim() })
+        : await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: string | null; error: { message: string } | null }> })
+            .rpc("cupido_start_premium_live", { _title: title.trim(), _coins: tier.coins, _minutes: tier.minutes });
       if (error) throw error;
+      if (!roomId) throw new Error("No se recibió el id del Live.");
       setActive({
         roomId,
         hostId: viewerId,
         hostName: profile.data?.display_name?.trim() || "Tú",
         role: "host",
         stream,
+        premium_ends_at: premiumTier === 0 ? null : new Date(Date.now() + tier.minutes * 60_000).toISOString(),
       });
       pendingStream.current = null;
       setTitle("");
@@ -165,6 +187,26 @@ function DirectPage() {
     setActive(null);
     void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
   }, [queryClient]);
+
+  const enterStream = (stream: StreamRow) => {
+    if (!viewerId) { toast.info("Inicia sesiÃ³n para entrar, comentar o enviar regalos."); return; }
+    if (stream.host_id === viewerId) { toast.info("Tu transmisiÃ³n ya estÃ¡ activa."); return; }
+    if (stream.premium_coins > 0) { setEntryStream(stream); return; }
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+  };
+
+  const payAndEnter = async () => {
+    if (!entryStream || !viewerId || payingEntry) return;
+    setPayingEntry(true);
+    const { data, error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: boolean | null; error: { message: string } | null }> })
+      .rpc("cupido_pay_live_entry", { _room: entryStream.id });
+    setPayingEntry(false);
+    if (error || !data) { toast.error(error?.message.includes("INSUFFICIENT") ? "No tienes monedas suficientes. Recarga y vuelve a entrar." : "No se pudo pagar la entrada a este Live."); return; }
+    const stream = entryStream;
+    setEntryStream(null);
+    account.refresh();
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer", premium_ends_at: stream.premium_ends_at });
+  };
 
   const canHost = Boolean(account.isSupremeAdmin || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
 
@@ -206,7 +248,7 @@ function DirectPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="font-display text-xl text-white">Iniciar una transmisión</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Se necesita insignia azul para transmitir. Todos pueden entrar y participar.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Se necesita insignia azul para transmitir. Elige entrada gratis o Premium.</p>
             </div>
             {canHost ? (
               <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -217,6 +259,10 @@ function DirectPage() {
                   placeholder="Título del Directo…"
                   className="h-10 min-w-48 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
                 />
+                <select value={premiumTier} onChange={(event) => setPremiumTier(Number(event.target.value))} aria-label="Tarifa del Live" className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground">
+                  <option value={0}>Gratis</option>
+                  {PREMIUM_LIVE_TIERS.map((tier, index) => <option key={tier.coins} value={index + 1}>{tier.coins.toLocaleString("es")} monedas · {tier.minutes} min</option>)}
+                </select>
                 <Button onClick={() => void startDirect()} disabled={starting} className="gap-2">
                   {starting ? <Loader2 className="size-4 animate-spin" /> : <Video className="size-4" />}
                   {starting ? "Iniciando…" : "Transmitir"}
@@ -240,7 +286,7 @@ function DirectPage() {
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl text-white">Directos activos</h2>
-            <p className="mt-1 text-xs text-muted-foreground">Todas las personas pueden ver estas salas públicas.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Los Lives gratis revisan fotogramas automáticamente para detectar desnudez y violencia.</p>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-pink-500/10 px-3 py-1.5 text-xs text-pink-200">
             <Users className="size-3.5" /> {streams.data?.length ?? 0} en vivo
@@ -268,7 +314,7 @@ function DirectPage() {
                   toast.info("Inicia sesión para entrar, comentar o enviar regalos.");
                   return;
                 }
-                setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+                enterStream(stream);
               };
               return (
                 <div
@@ -290,10 +336,11 @@ function DirectPage() {
                   <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-rose-600/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow">
                     <span className="size-1.5 animate-pulse rounded-full bg-white" /> EN VIVO
                   </span>
+                  {stream.premium_coins > 0 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/75 px-2 py-1 text-[10px] font-bold text-amber-100"><LockKeyhole className="size-3" /> {stream.premium_coins} · {stream.premium_minutes} min</span>}
                   <div className="absolute inset-x-0 bottom-0 p-3 pr-14">
                     <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-white">{stream.title || "Directo en vivo"} ✨</h3>
                     <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-white/85">
-                      <span className="truncate">{stream.host_name} ❤️</span>
+                      <Link to="/perfil" search={{ userId: stream.host_id }} onClick={(event) => event.stopPropagation()} className="truncate hover:underline">{stream.host_name} ❤️</Link>
                       <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} className="size-4" />
                     </p>
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {stream.viewers_count} viendo</p>
@@ -316,6 +363,7 @@ function DirectPage() {
           viewerId={viewerId}
           role={active.role}
           initialStream={active.stream ?? null}
+          premiumEndsAt={active.premium_ends_at ?? null}
           onClose={closeDirect}
           onEnded={closeDirect}
         />
@@ -325,6 +373,13 @@ function DirectPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Habilitar insignia azul</DialogTitle></DialogHeader>
           <FaceVideoVerification onComplete={submitFaceVideo} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(entryStream)} onOpenChange={(open) => !open && setEntryStream(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><LockKeyhole className="size-5 text-amber-200" /> Live Premium</DialogTitle><DialogDescription>La entrada desbloquea el video y chat real durante el tiempo restante del Live. El pago se acredita al saldo retirable del anfitrión.</DialogDescription></DialogHeader>
+          <p className="text-center font-display text-2xl text-amber-100">{entryStream?.premium_coins.toLocaleString("es")} monedas · {entryStream?.premium_minutes} min</p>
+          <div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void payAndEnter()} disabled={payingEntry}>{payingEntry ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />} Pagar y desbloquear</Button><Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar con PayPal / tarjeta</Link></Button></div>
         </DialogContent>
       </Dialog>
     </main>

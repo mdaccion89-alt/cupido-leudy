@@ -204,6 +204,7 @@ function RootComponent() {
       <AuthProvider>
         <ThemeSync onThemeChange={setTheme} />
         <SystemNotificationSetup />
+        <LoginMetadataSetup />
         <AdController />
         <ReferralTracker />
         <div className="flex min-h-screen flex-col pb-20">
@@ -230,14 +231,14 @@ function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light")
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("theme_mode,notifications_enabled,sounds_enabled")
+        .select("theme_mode,notifications_enabled,sound_enabled")
         .eq("id", userId!)
         .maybeSingle();
       if (error) throw error;
       return {
         theme_mode: data?.theme_mode === "light" ? "light" as const : "dark" as const,
         notifications_enabled: data?.notifications_enabled !== false,
-        sounds_enabled: data?.sounds_enabled !== false,
+        sound_enabled: data?.sound_enabled !== false,
       };
     },
   });
@@ -250,7 +251,7 @@ function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light")
     localStorage.setItem("cupido-dark", String(mode === "dark"));
     if (preference.data) {
       localStorage.setItem("cupido-notifications", String(preference.data.notifications_enabled));
-      localStorage.setItem("cupido-sounds", String(preference.data.sounds_enabled));
+      localStorage.setItem("cupido-sounds", String(preference.data.sound_enabled));
     }
     onThemeChange(mode);
   }, [preference.data, onThemeChange]);
@@ -273,6 +274,42 @@ function SystemNotificationSetup() {
         console.error("[notifications] No se pudo solicitar permiso de notificaciones.", error);
       });
     }
+  }, [userId]);
+
+  return null;
+}
+
+function LoginMetadataSetup() {
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+
+  useEffect(() => {
+    if (!userId || typeof window === "undefined") return;
+    const cacheKey = `cupido-login-metadata-${userId}`;
+    const previous = Number(localStorage.getItem(cacheKey) || 0);
+    if (Date.now() - previous < 86_400_000) return;
+    const language = navigator.language || "es";
+    document.documentElement.lang = language.split("-")[0] || "es";
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    void fetch("https://ipapi.co/json/", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Country lookup failed");
+        return await response.json() as { country_code?: string; ip?: string };
+      })
+      .then(async (location) => {
+        const country = (location.country_code || "").toUpperCase().slice(0, 2);
+        if (country) localStorage.setItem("cupido-country-code", country);
+        const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> })
+          .rpc("cupido_update_login_metadata", { _country: country, _language: language, _ip: location.ip ?? null });
+        if (error) throw error;
+        localStorage.setItem(cacheKey, String(Date.now()));
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) console.warn("[profile] No se pudo guardar país e idioma detectados.");
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [userId]);
 
   return null;

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
+import { Heart, Loader2, MessageCircle, Save, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,8 +113,9 @@ function ProfilePage() {
   const [smokes, setSmokes] = useState(false);
   const [hobbies, setHobbies] = useState("");
   const [followersOpen, setFollowersOpen] = useState(false);
+  const [friendsOpen, setFriendsOpen] = useState(false);
   const [verificationOpen, setVerificationOpen] = useState(false);
-  const [profileTab, setProfileTab] = useState<"posts" | "saved">("posts");
+  const [profileTab, setProfileTab] = useState<"posts" | "saved" | "favorites">("posts");
 
   const profile = useQuery({
     queryKey: ["cupido-profile", profileId, viewerId],
@@ -219,6 +220,17 @@ function ProfilePage() {
     enabled: Boolean(profileId && followersOpen && !profile.data?.creator?.is_official && !profile.data?.creator?.is_super_admin && !profile.data?.creator?.hide_followers),
     queryFn: async () => {
       const { data, error } = await supabase.rpc("cupido_list_followers", { _following: profileId! });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const friendsList = useQuery({
+    queryKey: ["cupido-friends", profileId],
+    enabled: Boolean(profileId && friendsOpen),
+    queryFn: async () => {
+      const { data, error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: Array<{ friend_id: string; display_name: string; avatar_url: string }> | null; error: { message: string } | null }> })
+        .rpc("cupido_list_friends", { _user: profileId! });
       if (error) throw error;
       return data ?? [];
     },
@@ -488,7 +500,7 @@ function ProfilePage() {
                 {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}
                 {publicAge} años ·{" "}
                 {publicGender} ·{" "}
-                {followers.toLocaleString("es")} seguidores · {friends.toLocaleString("es")} amigos
+                <span className="text-white">{followers.toLocaleString("es")} seguidores</span> · <button type="button" className="text-white hover:underline" onClick={() => setFriendsOpen(true)}>{friends.toLocaleString("es")} amigos</button>
               </p>
               {officialProfile ? (
                 <p className="mt-2 text-xs text-muted-foreground">La lista de seguidores de la Cuenta Oficial es privada</p>
@@ -516,6 +528,16 @@ function ProfilePage() {
                   </Link>
                 ))}
                 {!followersList.isLoading && !followersList.data?.length ? <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay seguidores activos.</p> : null}
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={friendsOpen} onOpenChange={setFriendsOpen}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader><DialogTitle>Amigos reales</DialogTitle></DialogHeader>
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {friendsList.isLoading && <p className="py-6 text-center text-sm text-muted-foreground">Cargando amigos...</p>}
+                {friendsList.data?.map((friend) => <Link key={friend.friend_id} to="/perfil" search={{ userId: friend.friend_id }} onClick={() => setFriendsOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent"><Avatar className="size-10"><AvatarImage src={friend.avatar_url} alt={friend.display_name} /><AvatarFallback>{friend.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{friend.display_name}</span></Link>)}
+                {!friendsList.isLoading && !friendsList.data?.length && <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay amigos activos.</p>}
               </div>
             </DialogContent>
           </Dialog>
@@ -759,6 +781,15 @@ function ProfilePage() {
               >
                 <Save className="size-4" /> Guardados
               </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={profileTab === "favorites"}
+                onClick={() => setProfileTab("favorites")}
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${profileTab === "favorites" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+              >
+                <Heart className="size-4" /> Favoritos
+              </button>
             </div>
             {profileTab === "posts" ? (
               <div>
@@ -769,7 +800,7 @@ function ProfilePage() {
                   emptyText="Esta persona todavía no tiene fotos ni videos publicados."
                 />
               </div>
-            ) : (
+            ) : profileTab === "saved" ? (
               <div>
                 <h2 className="mb-4 font-display text-xl text-white">Guardados 🔖</h2>
                 <WallFeed
@@ -777,6 +808,11 @@ function ProfilePage() {
                   hideUpload
                   emptyText="Aún no guardaste publicaciones. Toca 🔖 en cualquier foto o video."
                 />
+              </div>
+            ) : (
+              <div>
+                <h2 className="mb-4 font-display text-xl text-white">Favoritos ❤️</h2>
+                <WallFeed likedOnly hideUpload emptyText="Todavía no marcaste publicaciones como favoritas." />
               </div>
             )}
           </>

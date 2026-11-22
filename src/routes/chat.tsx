@@ -3,17 +3,24 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Coffee,
+  Copy,
   Flame,
+  Forward,
   Gift,
   ImagePlus,
   Loader2,
   Mic,
   MicOff,
+  MessageCircle,
   Phone,
   PhoneOff,
+  Pencil,
+  Reply,
   Send,
   Square,
+  Trash2,
   Video,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
@@ -59,6 +66,19 @@ type ConversationRow = {
   participant_b: string;
   created_at: string;
   other: ChatProfile | null;
+};
+
+type ChatMessage = {
+  id: string;
+  sender_id: string;
+  body: string;
+  audio_path: string;
+  media_path: string;
+  created_at: string;
+  reply_to_id: string | null;
+  edited_at: string | null;
+  deleted_for_all_at: string | null;
+  read_at: string | null;
 };
 
 type CupidoCall = {
@@ -107,6 +127,9 @@ function ChatPage() {
   const [giftOpen, setGiftOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [text, setText] = useState("");
+  const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
+  const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null);
+  const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
   const [recording, setRecording] = useState(false);
   const [openingConversation, setOpeningConversation] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
@@ -140,7 +163,7 @@ function ChatPage() {
       const map = new Map(
         (profiles.data ?? []).map((profile) => [
           profile.id,
-          { ...profile, email: profile.is_official || profile.is_super_admin ? SUPREME_ADMIN_EMAIL : null } as ChatProfile,
+          { ...profile, avatar_url: profile.is_official || profile.is_super_admin ? "/cupi-support-avatar.svg" : profile.avatar_url, email: profile.is_official || profile.is_super_admin ? SUPREME_ADMIN_EMAIL : null } as ChatProfile,
         ]),
       );
       return (data ?? []).map<ConversationRow>((row) => {
@@ -184,6 +207,7 @@ function ChatPage() {
           other: person
             ? ({
                 ...person,
+                avatar_url: person.is_official || person.is_super_admin ? "/cupi-support-avatar.svg" : person.avatar_url,
                 email: person.is_official || person.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
               } as ChatProfile)
             : null,
@@ -232,9 +256,39 @@ function ChatPage() {
         .order("created_at", { ascending: true })
         .limit(300);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as ChatMessage[];
     },
   });
+
+  const hiddenMessages = useQuery({
+    queryKey: ["cupido-hidden-messages", viewerId, activeId],
+    enabled: Boolean(viewerId && activeId),
+    queryFn: async () => {
+      const { data, error } = await (supabase as unknown as { from: (table: string) => any })
+        .from("cupido_message_hides").select("message_id").eq("user_id", viewerId!);
+      if (error) throw error;
+      return new Set<string>((data ?? []).map((row: { message_id: string }) => row.message_id));
+    },
+  });
+
+  const visibleMessages = useMemo(
+    () => (messages.data ?? []).filter((message) => !message.deleted_for_all_at && !hiddenMessages.data?.has(message.id)),
+    [hiddenMessages.data, messages.data],
+  );
+
+  useEffect(() => {
+    if (!activeId || !viewerId || !messages.data?.length) return;
+    const hasUnread = messages.data.some((message) => message.sender_id !== viewerId && !message.read_at);
+    if (!hasUnread) return;
+    void (supabase as unknown as { from: (table: string) => any }).from("cupido_messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", activeId).neq("sender_id", viewerId).is("read_at", null)
+      .then(({ error }: { error: { message: string } | null }) => {
+        if (error) return;
+        void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+      });
+  }, [activeId, messages.data, queryClient, viewerId]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -242,13 +296,14 @@ function ChatPage() {
       .channel(`cupido-messages-${activeId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "cupido_messages", filter: `conversation_id=eq.${activeId}` },
+        { event: "*", schema: "public", table: "cupido_messages", filter: `conversation_id=eq.${activeId}` },
         (payload) => {
           const inserted = payload.new as { sender_id?: string };
-          if (inserted.sender_id && inserted.sender_id !== viewerId) {
+          if (payload.eventType === "INSERT" && inserted.sender_id && inserted.sender_id !== viewerId) {
             void playCupidoSound("message-received", viewerId);
           }
           void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+          void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
         },
       )
       .subscribe();
@@ -325,9 +380,9 @@ function ChatPage() {
   const sendMessage = useMutation({
     mutationFn: async (body: string) => {
       if (!activeId || !viewerId) throw new Error("Abre una conversación.");
-      const { error } = await supabase
+      const { error } = await (supabase as unknown as { from: (table: string) => any })
         .from("cupido_messages")
-        .insert({ conversation_id: activeId, sender_id: viewerId, body });
+        .insert({ conversation_id: activeId, sender_id: viewerId, body, reply_to_id: replyTarget?.id ?? null });
       if (error) throw error;
       if (activeConversation?.other?.id) {
         void notifyUser({
@@ -342,6 +397,7 @@ function ChatPage() {
     },
     onSuccess: () => {
       setText("");
+      setReplyTarget(null);
       void playCupidoSound("message-sent", viewerId);
       void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
     },
@@ -371,28 +427,123 @@ function ChatPage() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
   };
 
+  const editMessage = async () => {
+    if (!editingMessage || !text.trim()) return;
+    const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> })
+      .rpc("cupido_edit_message", { _message: editingMessage.id, _body: text.trim() });
+    if (error) { toast.error(error.message); return; }
+    setEditingMessage(null);
+    setReplyTarget(null);
+    setText("");
+    void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+  };
+
+  const deleteMessage = async (messageId: string, forAll: boolean) => {
+    const { error } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> })
+      .rpc("cupido_delete_message", { _message: messageId, _for_all: forAll });
+    if (error) { toast.error(error.message); return; }
+    void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-hidden-messages", viewerId, activeId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
+  };
+
+  const forwardMessage = async (conversationId: string) => {
+    if (!forwardTarget || !viewerId) return;
+    const bucket = forwardTarget.audio_path ? "cupido-voice" : forwardTarget.media_path ? "cupido-chat-media" : null;
+    const sourcePath = forwardTarget.audio_path || forwardTarget.media_path;
+    let copiedPath: string | null = null;
+    if (bucket && sourcePath) {
+      const { data: file, error: downloadError } = await supabase.storage.from(bucket).download(sourcePath);
+      if (downloadError || !file) { toast.error("No se pudo acceder al contenido para reenviarlo."); return; }
+      const extension = sourcePath.split(".").pop() || (bucket === "cupido-voice" ? "webm" : "jpg");
+      copiedPath = `${conversationId}/${viewerId}/${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(copiedPath, file, {
+        contentType: file.type || (bucket === "cupido-voice" ? "audio/webm" : "image/jpeg"),
+      });
+      if (uploadError) { toast.error("No se pudo copiar el contenido al otro chat."); return; }
+    }
+    const { error } = await (supabase as unknown as { from: (table: string) => any }).from("cupido_messages").insert({
+      conversation_id: conversationId,
+      sender_id: viewerId,
+      body: forwardTarget.body ? `↪ Reenviado\n${forwardTarget.body}` : "",
+      audio_path: bucket === "cupido-voice" ? copiedPath : "",
+      media_path: bucket === "cupido-chat-media" ? copiedPath : "",
+    });
+    if (error) {
+      if (copiedPath && bucket) void supabase.storage.from(bucket).remove([copiedPath]);
+      toast.error("No se pudo reenviar el mensaje.");
+      return;
+    }
+    setForwardTarget(null);
+    toast.success("Mensaje reenviado.");
+  };
+
+  const openSupportChat = async () => {
+    if (!viewerId) { toast.info("Inicia sesi�n para hablar con Cupi Support."); return; }
+    setOpeningConversation(true);
+    try {
+      const { data: admins, error: profileError } = await supabase.from("cupido_public_profiles")
+        .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+        .or("is_super_admin.eq.true,is_official.eq.true")
+        .limit(10);
+      if (profileError) throw profileError;
+      const admin = (admins ?? []).find((person) => person.is_super_admin) ?? (admins ?? []).find((person) => person.is_official);
+      if (!admin) throw new Error("No se encontr� la cuenta oficial de soporte.");
+      const { data: conversationId, error } = await supabase.rpc("cupido_open_conversation", { _other: admin.id });
+      if (error) throw error;
+      const { data: row, error: rowError } = await supabase.from("cupido_conversations")
+        .select("id,participant_a,participant_b,created_at").eq("id", conversationId).single();
+      if (rowError) throw rowError;
+      const conversation: ConversationRow = {
+        ...row,
+        other: { ...admin, avatar_url: "/cupi-support-avatar.svg", email: SUPREME_ADMIN_EMAIL } as ChatProfile,
+      };
+      queryClient.setQueryData<ConversationRow[]>(["cupido-conversations", viewerId], (current) => [conversation, ...(current ?? []).filter((item) => item.id !== conversation.id)]);
+      setActiveId(conversation.id);
+      await queryClient.invalidateQueries({ queryKey: ["cupido-conversations", viewerId] });
+    } catch (error) {
+      toast.error(actionErrorMessage(error, "No se pudo abrir Cupi Support."));
+    } finally {
+      setOpeningConversation(false);
+    }
+  };
+
   const startRecording = async () => {
     if (!activeId) {
       toast.error("Abre una conversación primero.");
       return;
     }
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        throw new Error("Este dispositivo o navegador no admite grabar notas de voz.");
+      }
+      const recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = recordingStream;
+      const recorder = new MediaRecorder(recordingStream);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
+        recordingStream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         if (blob.size > 0) void uploadVoice(blob);
       };
       recorder.start();
       recorderRef.current = recorder;
       setRecording(true);
-    } catch {
-      toast.error("No se pudo acceder al micrófono.");
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      const name = error instanceof DOMException ? error.name : "";
+      const message = error instanceof Error && error.message.includes("no admite")
+        ? error.message
+        : name === "NotFoundError" || name === "DevicesNotFoundError"
+          ? "No encontramos un micrófono conectado a este dispositivo."
+          : name === "NotAllowedError" || name === "PermissionDeniedError"
+            ? "Permite el acceso al micrófono en los ajustes del navegador y vuelve a intentar."
+            : "No se pudo iniciar la grabación. Revisa los permisos del micrófono.";
+      toast.error(message);
     }
   };
 
@@ -541,9 +692,10 @@ function ChatPage() {
           <h1 className="font-display text-3xl text-white">Chat</h1>
           <p className="text-sm text-muted-foreground">Conversaciones privadas, notas de voz y llamadas Café o Hot.</p>
         </div>
-        <Button asChild variant="outline">
-          <Link to="/comunidad">Descubrir personas</Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={() => void openSupportChat()}><MessageCircle className="size-4" /> Cupi Support</Button>
+          <Button asChild variant="outline"><Link to="/comunidad">Descubrir personas</Link></Button>
+        </div>
       </div>
 
       <div className="grid overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
@@ -600,7 +752,11 @@ function ChatPage() {
                 </Avatar>
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
-                    {activeConversation.other?.display_name ?? "Miembro"}
+                    {activeConversation.other ? (
+                      <Link to="/perfil" search={{ userId: activeConversation.other.id }} className="truncate hover:underline">
+                        {activeConversation.other.display_name}
+                      </Link>
+                    ) : "Miembro"}
                     <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} className="h-4 w-4" />
                   </p>
                   <p className="text-xs text-muted-foreground">Chat privado de Cupido Leudy</p>
@@ -642,11 +798,12 @@ function ChatPage() {
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
                 {messages.isLoading && <p className="text-sm text-muted-foreground">Cargando mensajes…</p>}
-                {!messages.isLoading && !messages.data?.length && (
+                {!messages.isLoading && !visibleMessages.length && (
                   <p className="text-sm text-muted-foreground">Envía el primer mensaje y rompe el hielo ❤️</p>
                 )}
-                {messages.data?.map((message) => {
+                {visibleMessages.map((message) => {
                   const mine = message.sender_id === viewerId;
+                  const quoted = message.reply_to_id ? messages.data?.find((item) => item.id === message.reply_to_id) : null;
                   return (
                     <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div
@@ -654,6 +811,7 @@ function ChatPage() {
                           mine ? "bg-pink-600 text-white" : "bg-white/10 text-slate-100"
                         }`}
                       >
+                        {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto")}</p></div>}
                         {message.audio_path ? (
                           <VoiceBubble path={message.audio_path} />
                         ) : message.media_path ? (
@@ -662,8 +820,16 @@ function ChatPage() {
                           <p className="whitespace-pre-wrap break-words">{message.body}</p>
                         )}
                         <p className={`mt-1 text-[10px] ${mine ? "text-pink-100/80" : "text-muted-foreground"}`}>
-                          {new Date(message.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
+                          {message.edited_at ? "Editado · " : ""}{new Date(message.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
                         </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-white/10 pt-1">
+                          <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setReplyTarget({ id: message.id, body: message.body || (message.audio_path ? "Nota de voz" : "Foto"), sender_id: message.sender_id })} aria-label="Responder citando este mensaje"><Reply className="inline size-3" /> Responder</button>
+                          {message.body && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void navigator.clipboard.writeText(message.body).then(() => toast.success("Mensaje copiado."), () => toast.error("No se pudo copiar."))}><Copy className="inline size-3" /> Copiar</button>}
+                          {mine && message.body && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => { setEditingMessage({ id: message.id, body: message.body }); setText(message.body); setReplyTarget(null); }}><Pencil className="inline size-3" /> Editar</button>}
+                          {(message.body || message.audio_path || message.media_path) && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setForwardTarget(message)}><Forward className="inline size-3" /> Reenviar</button>}
+                          <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void deleteMessage(message.id, false)}><Trash2 className="inline size-3" /> Eliminar para mí</button>
+                          {mine && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void deleteMessage(message.id, true)}><X className="inline size-3" /> Eliminar para todos</button>}
+                        </div>
                       </div>
                     </div>
                   );
@@ -673,6 +839,7 @@ function ChatPage() {
 
               <div className="border-t border-white/10 p-3">
                 <p className="mb-2 text-center text-[11px] text-muted-foreground">Mensajes de texto, notas de voz y fotos son gratis. Las llamadas privadas cuestan monedas.</p>
+                {(replyTarget || editingMessage) && <div className="mb-2 flex items-center gap-2 rounded-lg border border-pink-300/20 bg-pink-500/10 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{editingMessage ? "Editando mensaje" : `Respondiendo a ${replyTarget?.sender_id === viewerId ? "ti" : activeConversation.other?.display_name}: ${replyTarget?.body}`}</span><button type="button" onClick={() => { setReplyTarget(null); setEditingMessage(null); setText(""); }} aria-label="Cancelar respuesta o edición"><X className="size-4" /></button></div>}
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
@@ -699,7 +866,7 @@ function ChatPage() {
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
-                        if (text.trim()) sendMessage.mutate(text.trim());
+                        if (text.trim()) editingMessage ? void editMessage() : sendMessage.mutate(text.trim());
                       }
                     }}
                     placeholder="Escribe un mensaje…"
@@ -707,7 +874,7 @@ function ChatPage() {
                   />
                   <Button
                     type="button"
-                    onClick={() => text.trim() && sendMessage.mutate(text.trim())}
+                    onClick={() => text.trim() && (editingMessage ? void editMessage() : sendMessage.mutate(text.trim()))}
                     disabled={sendMessage.isPending || !text.trim()}
                   >
                     {sendMessage.isPending ? <Loader2 className="animate-spin" /> : <Send />}
@@ -778,6 +945,24 @@ function ChatPage() {
             disabled={sendGift.isPending || !activeConversation?.other}
             compact
           />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(forwardTarget)} onOpenChange={(open) => !open && setForwardTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reenviar mensaje</DialogTitle>
+            <DialogDescription>Elige el chat al que quieres reenviar este mensaje.</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {(conversations.data ?? []).filter((row) => row.id !== activeId).map((row) => (
+              <Button key={row.id} type="button" variant="outline" className="w-full justify-start" onClick={() => void forwardMessage(row.id)}>
+                <Avatar className="size-7"><AvatarImage src={row.other?.avatar_url ?? ""} /><AvatarFallback>{row.other?.display_name.slice(0, 1) ?? "C"}</AvatarFallback></Avatar>
+                {row.other?.display_name ?? "Miembro"}
+              </Button>
+            ))}
+            {(conversations.data ?? []).length < 2 && <p className="text-sm text-muted-foreground">Necesitas otro chat para reenviar este mensaje.</p>}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -852,11 +1037,32 @@ function CallRoom({
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const closedRef = useRef(false);
   const stopRingRef = useRef<(() => void) | null>(null);
+  const billedMinuteRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (role !== "caller" || status !== "En llamada") return;
+    const elapsedMinute = Math.floor(seconds / 60);
+    if (elapsedMinute <= billedMinuteRef.current) return;
+    billedMinuteRef.current = elapsedMinute;
+    void (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: boolean | null; error: { message: string } | null }> })
+      .rpc("cupido_bill_call_minute", { _call: callId })
+      .then(({ data, error }) => {
+        if (error) {
+          toast.error("No se pudo confirmar el saldo de la llamada.");
+          onClose();
+          return;
+        }
+        if (!data) {
+          toast.info("La llamada termin� porque se agotaron tus monedas.");
+          onClose();
+        }
+      });
+  }, [callId, onClose, role, seconds, status]);
 
   useEffect(() => {
     if (role !== "caller") return;

@@ -22,6 +22,7 @@ type LiveRoomProps = {
   onClose: () => void;
   onEnded: () => void;
   initialStream?: MediaStream | null;
+  premiumEndsAt?: string | null;
 };
 
 type LiveSignal =
@@ -42,6 +43,7 @@ export function LiveRoom({
   onClose,
   onEnded,
   initialStream,
+  premiumEndsAt,
 }: LiveRoomProps) {
   const account = useAccount();
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -60,6 +62,56 @@ export function LiveRoom({
   const [commentText, setCommentText] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const moderationWarningShown = useRef(false);
+  const moderationRequestPending = useRef(false);
+
+  useEffect(() => {
+    if (role !== "host" || !premiumEndsAt) return;
+    const remaining = Math.max(0, new Date(premiumEndsAt).getTime() - Date.now());
+    const timer = window.setTimeout(() => {
+      void supabase.rpc("cupido_end_live_room", { _id: roomId }).then(({ error }) => {
+        if (error) toast.error("No se pudo cerrar el Live al terminar la tarifa.");
+        else { toast.info("El tiempo del Live Premium terminó."); onEnded(); }
+      });
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [onEnded, premiumEndsAt, role, roomId]);
+
+  useEffect(() => {
+    if (role !== "host" || premiumEndsAt) return;
+    const checkFrame = async () => {
+      if (moderationRequestPending.current) return;
+      const video = localVideoRef.current;
+      if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.min(video.videoWidth, 640);
+      canvas.height = Math.round(video.videoHeight * (canvas.width / video.videoWidth));
+      const context = canvas.getContext("2d");
+      if (!context) return;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      moderationRequestPending.current = true;
+      try {
+        const { data, error } = await supabase.functions.invoke("cupido-live-moderation", {
+          body: { room_id: roomId, image: canvas.toDataURL("image/jpeg", 0.55) },
+        });
+        if (error) {
+          if (!moderationWarningShown.current) {
+            moderationWarningShown.current = true;
+            toast.error("La revisión automática del Live no está disponible. Configura GEMINI_API_KEY en Supabase.");
+          }
+          return;
+        }
+        if (data?.closed) {
+          toast.error("El Live se cerró automáticamente por seguridad. El Administrador recibió el reporte.");
+          onEnded();
+        }
+      } finally {
+        moderationRequestPending.current = false;
+      }
+    };
+    const timer = window.setInterval(() => void checkFrame(), 15_000);
+    return () => window.clearInterval(timer);
+  }, [onEnded, premiumEndsAt, role, roomId]);
 
   const sendSignal = useCallback(
     async (signal: LiveSignal) => {
@@ -404,7 +456,7 @@ export function LiveRoom({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Radio className="size-5 animate-pulse text-pink-400" />
-            {role === "host" ? "Tu Live está en vivo" : `Live de ${hostName}`}
+            {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
@@ -462,7 +514,7 @@ export function LiveRoom({
             ))}
             {comments.map((comment) => (
               <p key={comment.id} className="break-words text-xs text-slate-200">
-                <span className="font-semibold text-pink-200">{comment.display_name}</span> {comment.body}
+                <Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> {comment.body}
               </p>
             ))}
             {!comments.length && !joinMessages.length && (

@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Compass, Heart, MessageCircle, Phone, Radio, UserRound } from "lucide-react";
 import { showInterstitialAd } from "@/lib/admob";
+import { useAuth } from "@/lib/auth-context";
+import { supabase } from "@/integrations/supabase/client";
 
 const TABS = [
   { to: "/llamadas", label: "Llamar", icon: Phone, match: (path: string) => path.startsWith("/llamadas") },
@@ -15,6 +18,19 @@ const TABS = [
 
 export function BottomNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const { session } = useAuth();
+  const viewerId = session?.user.id ?? null;
+  const queryClient = useQueryClient();
+  const unread = useQuery({
+    queryKey: ["cupido-unread-messages", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await (supabase as unknown as { rpc: (name: string) => Promise<{ data: number | null; error: { message: string } | null }> })
+        .rpc("cupido_unread_message_count");
+      if (error) throw error;
+      return data ?? 0;
+    },
+  });
   const previousPath = useRef(pathname);
   const tabChanges = useRef(0);
 
@@ -27,6 +43,16 @@ export function BottomNav() {
     tabChanges.current = 0;
     void showInterstitialAd();
   }, [pathname]);
+
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase.channel(`cupido-unread-badge-${viewerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_messages" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
 
   return (
     <nav
@@ -48,7 +74,10 @@ export function BottomNav() {
               }`}
             >
               {active ? <span className="absolute -top-px h-0.5 w-10 rounded-full bg-pink-400" /> : null}
-              <Icon className={`size-5 ${active ? "fill-pink-400/20" : ""}`} />
+              <span className="relative">
+                <Icon className={`size-5 ${active ? "fill-pink-400/20" : ""}`} />
+                {tab.to === "/chat" && (unread.data ?? 0) > 0 && <span aria-label={`${unread.data} mensajes sin leer`} className="absolute -right-3 -top-2 flex min-h-4 min-w-4 items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[9px] font-bold leading-none text-white">{unread.data}</span>}
+              </span>
               {tab.label}
             </Link>
           );

@@ -33,7 +33,7 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     await assertAdmin(context);
     const { supabase } = context;
-    const [settings, profiles, credits, roles, creators] = await Promise.all([
+    const [settings, profiles, credits, roles, creators, loginMetadata] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
       supabase
         .from("profiles")
@@ -44,7 +44,9 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       supabase.from("user_roles").select("user_id,role"),
       supabase
         .from("creator_profiles")
-        .select("id,display_name,is_official,is_premium,follower_count"),
+        .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"),
+      (supabase as unknown as { from: (table: string) => any }).from("cupido_login_metadata")
+        .select("user_id,country_code,language_code,last_ip"),
     ]);
     return {
       settings: (settings.data ?? {}) as Partial<AdminSettings>,
@@ -57,7 +59,11 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
           0,
         roles: (roles.data ?? []).filter((r) => r.user_id === p.id).map((r) => r.role),
         isOfficial: creators.data?.find((c) => c.id === p.id)?.is_official ?? false,
+        isVerified: creators.data?.find((c) => c.id === p.id)?.is_verified_blue ?? false,
         followers: creators.data?.find((c) => c.id === p.id)?.follower_count ?? 0,
+        countryCode: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.country_code ?? "",
+        languageCode: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.language_code ?? "",
+        lastIp: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.last_ip ?? null,
       })),
     };
   });
