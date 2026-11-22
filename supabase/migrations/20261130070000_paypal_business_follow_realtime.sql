@@ -60,7 +60,7 @@ DO $$
 DECLARE table_name text;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
-    FOREACH table_name IN ARRAY ARRAY['follows', 'cupido_follower_count_events'] LOOP
+    FOREACH table_name IN ARRAY ARRAY['follows', 'cupido_follower_count_events', 'notifications'] LOOP
       IF to_regclass('public.' || table_name) IS NOT NULL
          AND NOT EXISTS (
            SELECT 1 FROM pg_publication_tables
