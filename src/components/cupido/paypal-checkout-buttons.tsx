@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { useServerFn } from "@tanstack/react-start";
 import { CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,12 @@ export function PayPalCheckoutButtons({
         await window.paypal
           .Buttons({
             createOrder: async () => {
-              const result = await createOrder({ data: { packageId, returnUrl: window.location.href } });
+              const result = await createOrder({
+                data: {
+                  packageId,
+                  ...(Capacitor.isNativePlatform() ? {} : { returnUrl: window.location.href }),
+                },
+              });
               if (!result.ok) {
                 callbacks.current.onError(result.message);
                 throw new Error(result.message);

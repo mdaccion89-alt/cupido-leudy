@@ -39,6 +39,32 @@ type LiveSignal =
   | { kind: "ice"; sender: string; receiver?: string; candidate: RTCIceCandidateInit }
   | { kind: "end"; sender: string; receiver?: string };
 
+type StoredLiveSignal = {
+  sender_id: string;
+  receiver_id: string | null;
+  payload: unknown;
+};
+
+function decodeLiveSignal(row: StoredLiveSignal): LiveSignal | null {
+  if (!row.payload || typeof row.payload !== "object") return null;
+  const payload = row.payload as Record<string, unknown>;
+  const sender = row.sender_id;
+  const receiver = row.receiver_id ?? undefined;
+  const receiverField = receiver ? { receiver } : {};
+  const kind = payload["kind"];
+  if (!sender) return null;
+
+  if (kind === "join") return { kind, sender, ...receiverField };
+  if (kind === "end") return { kind, sender, ...receiverField };
+  if ((kind === "offer" || kind === "answer") && payload["sdp"] && typeof payload["sdp"] === "object") {
+    return { kind, sender, ...receiverField, sdp: payload["sdp"] as RTCSessionDescriptionInit };
+  }
+  if (kind === "ice" && payload["candidate"] && typeof payload["candidate"] === "object") {
+    return { kind, sender, ...receiverField, candidate: payload["candidate"] as RTCIceCandidateInit };
+  }
+  return null;
+}
+
 type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
 type GiftAnimation = { id: number; emoji: string; name: string; sender: string };
 type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean };
@@ -204,11 +230,18 @@ export function LiveRoom({
           for (const peerId of pendingJoinsRef.current) await createHostPeer(peerId);
           pendingJoinsRef.current = [];
         } else {
-          await requestNativeMediaPermissions({ camera: false, microphone: true });
-          const viewerStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false }).catch(() => null);
+          let viewerStream: MediaStream | null = null;
+          try {
+            if (!navigator.mediaDevices?.getUserMedia) throw new Error("MEDIA_NOT_AVAILABLE");
+            await requestNativeMediaPermissions({ camera: false, microphone: true });
+            viewerStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          } catch {
+            // Viewing remains available if a viewer declines the optional talk-back mic.
+            toast.info("Entraste al Live sin micrófono. Puedes activarlo en los permisos de Android.");
+          }
           if (viewerStream) localStreamRef.current = viewerStream;
-          else toast.info("El Live se reproducirá sin micrófono. Puedes revisar los permisos del dispositivo.");
-          await supabase.from("cupido_live_viewers").upsert({ room_id: roomId, user_id: viewerId });
+          const { error: viewerError } = await supabase.from("cupido_live_viewers").insert({ room_id: roomId, user_id: viewerId });
+          if (viewerError && viewerError.code !== "23505") throw viewerError;
           const offerPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
           peersRef.current.set(hostId, offerPeer);
           offerPeer.ontrack = (event) => {
@@ -308,8 +341,8 @@ export function LiveRoom({
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "cupido_live_signals", filter: `room_id=eq.${roomId}` },
         async (payload) => {
-          const signal = payload.new as unknown as LiveSignal & { receiver?: string };
-          if (signal.sender === viewerId) return;
+          const signal = decodeLiveSignal(payload.new as unknown as StoredLiveSignal);
+          if (!signal || signal.sender === viewerId) return;
           if (signal.receiver && signal.receiver !== viewerId) return;
 
           try {

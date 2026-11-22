@@ -127,6 +127,7 @@ function DirectPage() {
       }
     },
     staleTime: 0,
+    retry: 2,
   });
 
   useEffect(() => {
@@ -167,7 +168,10 @@ function DirectPage() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este dispositivo no permite usar la cámara.");
       await requestNativeMediaPermissions();
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "user" } },
+        audio: true,
+      });
       pendingStream.current = stream;
       const coins = PREMIUM_LIVE_TIERS[Math.max(0, premiumTier - 1)]!;
       const { data: roomId, error } = premiumTier === 0

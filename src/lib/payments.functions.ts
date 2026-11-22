@@ -38,7 +38,10 @@ function logPaypalError(path: string, status: number, body: string) {
     details: parsed.details?.map((detail) => ({ issue: detail.issue, description: detail.description })),
   });
   const issue = parsed.details?.map((detail) => detail.issue).filter(Boolean).join(",");
-  throw new Error(`PAYPAL_${status}${issue ? `:${issue}` : ""}`);
+  const reason = parsed.details?.map((detail) => detail.description).filter(Boolean).join("; ") || parsed.message;
+  const safeReason = reason?.replace(/[\r\n\t]+/g, " ").slice(0, 240);
+  const debugId = parsed.debug_id?.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+  throw new Error(`PAYPAL_${status}${issue ? `:${issue}` : ""}${safeReason ? `:${safeReason}` : ""}${debugId ? `:DEBUG_ID=${debugId}` : ""}`);
 }
 
 function usdCents(value: unknown): number | null {
@@ -243,8 +246,11 @@ export function paypalMessage(err: unknown) {
   const code = err instanceof Error ? err.message : "";
   if (code === "PAYPAL_NOT_CONFIGURED")
     return "El Admin Supremo debe configurar PayPal Business en el panel Admin antes de comprar.";
-  if (code.startsWith("PAYPAL_422")) return "PayPal rechazó el pago. Revisa tu método de pago e inténtalo de nuevo.";
-  if (code.startsWith("PAYPAL_")) return "PayPal no pudo procesar la operación. El detalle quedó registrado para soporte.";
+  if (code.startsWith("PAYPAL_")) {
+    const detail = code.replace(/^PAYPAL_/, "").slice(0, 360);
+    return `PayPal devolvió ${detail}. Revisa el código y motivo con PayPal o soporte.`;
+  }
+  if (code && code.length <= 360 && !/secret|authorization|bearer|token/i.test(code)) return code;
   return "No se pudo completar el pago con PayPal. Inténtalo de nuevo.";
 }
 
@@ -314,7 +320,14 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
           currency: "USD",
           paypal_order_id: orderId,
         });
-        if (orderSaveError) throw new Error("No se pudo registrar el pedido de PayPal. Inténtalo de nuevo.");
+        if (orderSaveError) {
+          console.error("[PayPal] Provider created the order but database persistence failed", {
+            paypalOrderId: orderId,
+            databaseCode: orderSaveError.code,
+            databaseMessage: orderSaveError.message,
+          });
+          throw new Error("PAYPAL_ORDER_SAVE_FAILED");
+        }
         return { ok: true, orderId, approveUrl };
       } catch (err) {
         return { ok: false, message: paypalMessage(err) };
@@ -404,7 +417,10 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
         if (capture?.status === "COMPLETED" || captured["status"] === "COMPLETED") {
           await admin.from("paypal_orders").update({ status: "failed" }).eq("id", order.id).eq("status", "created");
         }
-        return { ok: false, message: "El pago no se completó." };
+        return {
+          ok: false,
+          message: `PayPal no confirmó la captura (orden: ${String(captured["status"] ?? "sin estado")}; captura: ${String(capture?.status ?? "sin captura")}; monto: ${String(capture?.amount?.value ?? "sin monto")} ${String(capture?.amount?.currency_code ?? "")}).`,
+        };
       }
       const { data: finalized, error: finalizeError } = await admin.rpc("cupido_finalize_paypal_package", {
         _order_id: order.id,
