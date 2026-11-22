@@ -115,6 +115,19 @@ const apiAliases = {
 const hfVideoProviderId =
   process.env.HF_VIDEO_PROVIDER_ID ?? "fal-ai/wan/v2.2-5b/text-to-video";
 const hfMaxWaitMs = 60 * 60_000;
+const capacitorOrigins = new Set(["https://localhost", "capacitor://localhost"]);
+
+function setCapacitorApiCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin || !capacitorOrigins.has(origin)) return false;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Tsr-ServerFn, X-Tss-Context");
+  res.setHeader("Access-Control-Expose-Headers", "X-Tss-Serialized, X-Tss-Raw");
+  res.setHeader("Access-Control-Max-Age", "600");
+  res.setHeader("Vary", "Origin");
+  return true;
+}
 
 let serverHandlerPromise;
 
@@ -634,6 +647,17 @@ const server = createServer(async (req, res) => {
   }
 
   if (pathname === "/_serverFn" || pathname.startsWith("/_serverFn/")) {
+    const allowedCapacitorOrigin = setCapacitorApiCors(req, res);
+    if (req.method === "OPTIONS") {
+      if (!allowedCapacitorOrigin) {
+        res.writeHead(403);
+        res.end();
+        return;
+      }
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     await handleServerFn(req, res);
     return;
   }
