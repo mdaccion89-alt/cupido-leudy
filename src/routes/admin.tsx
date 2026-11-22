@@ -176,7 +176,7 @@ function AdminDashboard() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-admin-inbox")
+      .channel(("cupido-admin-inbox") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_reports" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "reports"] });
       })

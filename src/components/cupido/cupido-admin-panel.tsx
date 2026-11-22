@@ -131,7 +131,7 @@ export function CupidoAdminPanel() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-admin-verification-queue")
+      .channel(("cupido-admin-verification-queue") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verifications"] });
       })

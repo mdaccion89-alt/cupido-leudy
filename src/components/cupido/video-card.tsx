@@ -13,6 +13,7 @@ export type CupidoVideo = {
   display_name: string;
   avatar_url: string;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
 };
 
 type VideoCardProps = {
@@ -40,7 +41,7 @@ export function VideoCard({ video, liked, onLike }: VideoCardProps) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-white">
             {video.display_name}
-            <VerifiedBadge verified={video.is_verified_blue} className="ml-1 size-3.5" />
+            <VerifiedBadge verified={video.is_verified_blue} granLiga={video.is_gran_liga} className="ml-1 size-3.5" />
           </p>
           <p className="line-clamp-2 text-xs text-muted-foreground">{video.caption || "Momento en Cupido Leudy ❤️"}</p>
         </div>

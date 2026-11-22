@@ -12,8 +12,10 @@ export const CREDIT_PACKAGES = [
   { id: "pack-12000", credits: 12000, price: "39.99", label: "Popular", featured: true },
   { id: "pack-30000", credits: 30000, price: "89.99", label: "Corazón" },
   { id: "pack-80000", credits: 80000, price: "199.99", label: "Admin Supremo" },
+  { id: "gran-liga-100", credits: 1_000_000, price: "100.00", label: "Diamante Gran Liga", featured: true },
 ] as const;
 export type CreditPackage = (typeof CREDIT_PACKAGES)[number];
+export const GRAN_LIGA_PACKAGE_ID = "gran-liga-100";
 
 export type PlanId = "free" | "pro" | "premium";
 export const PLANS = [

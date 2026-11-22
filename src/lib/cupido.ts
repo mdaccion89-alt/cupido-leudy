@@ -45,11 +45,13 @@ type SpendingAccount = {
   balance: number;
   hasPurchased: boolean;
   isAdmin: boolean;
+  isGranLiga?: boolean;
   isSupremeAdmin?: boolean;
 };
 
-export function canSendGift(gift: { credits: number }, account: SpendingAccount): boolean {
+export function canSendGift(gift: { credits: number; id?: string }, account: SpendingAccount): boolean {
   if (account.isAdmin) return true;
+  if (gift.id === "gran-liga-diamond" && !account.isGranLiga) return false;
   if (gift.credits > FREE_GIFT_MAX_CREDITS && !account.hasPurchased) return false;
   return account.balance >= gift.credits;
 }
@@ -61,6 +63,7 @@ export function canStartCall(mode: CallMode, account: SpendingAccount): boolean 
 }
 
 export function giftErrorMessage(message: string, fallback: string): string {
+  if (message.includes("GRAN_LIGA_REQUIRED")) return "El Diamante Gran Liga solo puede enviarse desde una cuenta Gran Liga activa.";
   if (message.includes("PURCHASE_REQUIRED")) return `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`;
   if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
   if (message.includes("GIFT_NOT_FOUND")) return "Este regalo ya no está disponible. Actualiza la página e intenta de nuevo.";
@@ -177,14 +180,15 @@ const GIFT_CATALOG = [
   ["Oveja", "🐑", 4890],
   ["Reno", "🦌", 4945],
   ["Cerdito Dorado", "🐷", 5000],
+  ["Diamante Gran Liga", "💎", 1_000_000],
 ] as const;
 
 export const GIFTS = GIFT_CATALOG.map(([name, emoji, credits], imageIndex) => ({
-  id: `gift-${String(imageIndex + 1).padStart(3, "0")}`,
+  id: imageIndex === 99 ? "gran-liga-diamond" : `gift-${String(imageIndex + 1).padStart(3, "0")}`,
   name,
   emoji,
   credits,
-  cash: Math.round(credits / 10) / 100,
+  cash: imageIndex === 99 ? 60 : Math.round(credits / 10) / 100,
   imageIndex,
 }));
 

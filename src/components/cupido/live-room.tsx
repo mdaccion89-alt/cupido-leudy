@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Users, Volume2, VolumeX, X } from "lucide-react";
+import { Check, CreditCard, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -16,11 +16,13 @@ import { CREDIT_PACKAGES } from "@/lib/credits";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { type Json } from "@/integrations/supabase/types";
+import { VerifiedBadge } from "@/components/cupido/verified-badge";
 
 type LiveRoomProps = {
   roomId: string;
   hostId: string;
   hostName: string;
+  hostIsGranLiga?: boolean;
   viewerId: string;
   role: "host" | "viewer";
   onClose: () => void;
@@ -36,12 +38,14 @@ type LiveSignal =
   | { kind: "end"; sender: string; receiver?: string };
 
 type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
-type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string };
+type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean };
+type PkRequest = { id: string; room_id: string; host_id: string; requester_id: string; status: string; expires_at: string; requester_name?: string };
 
 export function LiveRoom({
   roomId,
   hostId,
   hostName,
+  hostIsGranLiga = false,
   viewerId,
   role,
   onClose,
@@ -50,6 +54,15 @@ export function LiveRoom({
   premiumEndsAt,
 }: LiveRoomProps) {
   const account = useAccount();
+  const pkProfile = useQuery({
+    queryKey: ["cupido-pk-profile", viewerId],
+    enabled: role === "viewer",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("creator_profiles").select("is_verified_blue,is_gran_liga").eq("id", viewerId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftType | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -66,6 +79,12 @@ export function LiveRoom({
   const [joinMessages, setJoinMessages] = useState<string[]>([]);
   const [commentText, setCommentText] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
+  const [pendingPk, setPendingPk] = useState<PkRequest | null>(null);
+  const [activePkName, setActivePkName] = useState<string | null>(null);
+  const [pkRequestId, setPkRequestId] = useState<string | null>(null);
+  const [pkRequestStatus, setPkRequestStatus] = useState<string | null>(null);
+  const [pkSeconds, setPkSeconds] = useState(10);
+  const expiredPkRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const moderationWarningShown = useRef(false);
   const moderationRequestPending = useRef(false);
@@ -212,7 +231,7 @@ export function LiveRoom({
     void start();
 
     const roomChannel = supabase
-      .channel(`cupido-live-room-${roomId}`)
+      .channel((`cupido-live-room-${roomId}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_live_rooms", filter: `id=eq.${roomId}` },
@@ -224,7 +243,7 @@ export function LiveRoom({
       .subscribe();
 
     const presenceChannel = supabase
-      .channel(`cupido-live-presence-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .channel((`cupido-live-presence-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on("presence", { event: "join" }, (payload) => {
         const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
         for (const person of joined) {
@@ -261,7 +280,7 @@ export function LiveRoom({
       });
 
     const signalsChannel = supabase
-      .channel(`cupido-live-signals-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .channel((`cupido-live-signals-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "cupido_live_signals", filter: `room_id=eq.${roomId}` },
@@ -344,17 +363,18 @@ export function LiveRoom({
       if (error) throw error;
       const ids = [...new Set((data ?? []).map((row) => row.user_id))];
       const profiles = ids.length
-        ? await supabase.from("cupido_public_profiles").select("id,display_name").in("id", ids)
+        ? await supabase.from("cupido_public_profiles").select("id,display_name,is_gran_liga").in("id", ids)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
-      const names = new Map((profiles.data ?? []).map((profile) => [profile.id, profile.display_name]));
+      const names = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));
       if (!cancelled) {
         setComments((current) => {
           const currentById = new Map(current.map((comment) => [comment.id, comment]));
           for (const row of data ?? []) {
             currentById.set(row.id, {
               ...row,
-              display_name: names.get(row.user_id)?.trim() || "@Usuario",
+              display_name: names.get(row.user_id)?.display_name?.trim() || "@Usuario",
+              is_gran_liga: Boolean(names.get(row.user_id)?.is_gran_liga),
             });
           }
           return [...currentById.values()].sort((left, right) => left.created_at.localeCompare(right.created_at)).slice(-100);
@@ -366,19 +386,19 @@ export function LiveRoom({
       if (!cancelled) toast.error(error instanceof Error ? error.message : "No se pudo cargar el chat del Live.");
     });
     const channel = supabase
-      .channel(`cupido-live-comments-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .channel((`cupido-live-comments-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_comments", filter: `stream_id=eq.${roomId}` }, (payload) => {
         const row = payload.new as { id: string; stream_id: string; user_id: string; body: string; created_at: string };
         void supabase
           .from("cupido_public_profiles")
-          .select("display_name")
+          .select("display_name,is_gran_liga")
           .eq("id", row.user_id)
           .maybeSingle()
           .then(({ data: profile }) => {
             if (cancelled) return;
             setComments((current) => current.some((comment) => comment.id === row.id)
               ? current
-              : [...current, { ...row, display_name: profile?.display_name?.trim() || "@Usuario" }].slice(-100));
+              : [...current, { ...row, display_name: profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga) }].slice(-100));
           });
       })
       .subscribe();
@@ -399,13 +419,13 @@ export function LiveRoom({
           .insert({ stream_id: roomId, user_id: viewerId, body })
           .select("id,stream_id,user_id,body,created_at")
           .single(),
-        supabase.from("cupido_public_profiles").select("display_name").eq("id", viewerId).maybeSingle(),
+        supabase.from("cupido_public_profiles").select("display_name,is_gran_liga").eq("id", viewerId).maybeSingle(),
       ]);
       if (error) throw error;
       if (data) {
         setComments((current) => current.some((comment) => comment.id === data.id)
           ? current
-          : [...current, { ...data, display_name: role === "host" ? hostName : profile?.display_name?.trim() || "@Usuario" }].slice(-100));
+          : [...current, { ...data, display_name: role === "host" ? hostName : profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga) }].slice(-100));
       }
       setCommentText("");
     } catch (error) {
@@ -414,6 +434,83 @@ export function LiveRoom({
       setSendingComment(false);
     }
   };
+
+  const answerPk = async (accept: boolean, requestId = pendingPk?.id) => {
+    if (!requestId) return;
+    const { data, error } = await supabase.rpc("cupido_respond_pk", { _request: requestId, _accept: accept });
+    if (error) { toast.error(error.message); return; }
+    if (data === "expired") toast.info("La solicitud PK venció y fue rechazada.");
+    else if (data === "accepted") {
+      toast.success("Solicitud PK aceptada. La batalla 1 vs 1 está lista.");
+      setActivePkName(pendingPk?.requester_name ?? "Rival PK");
+    }
+    else if (data === "rejected") toast.info("Solicitud PK rechazada.");
+    setPendingPk(null);
+  };
+
+  const requestPk = async () => {
+    if (!pkProfile.data?.is_verified_blue && !pkProfile.data?.is_gran_liga) {
+      toast.error("Para solicitar una Batalla PK necesitas Insignia Azul o Gran Liga.");
+      return;
+    }
+    const { data, error } = await supabase.rpc("cupido_request_pk", { _room: roomId });
+    if (error) { toast.error(error.message); return; }
+    setPkRequestId(data);
+    setPkRequestStatus("pending");
+    setPkSeconds(10);
+    toast.success("Solicitud PK enviada. El anfitrión tiene 10 segundos para responder.");
+  };
+
+  useEffect(() => {
+    if (role !== "host") return;
+    let disposed = false;
+    const receive = (row: PkRequest) => {
+      if (row.host_id !== viewerId || row.status !== "pending") return;
+      void supabase.from("cupido_public_profiles").select("display_name").eq("id", row.requester_id).maybeSingle()
+        .then(({ data }) => { if (!disposed) setPendingPk({ ...row, requester_name: data?.display_name?.trim() || "@Usuario" }); });
+    };
+    const channel = supabase.channel(`cupido-pk-host-${roomId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cupido_pk_requests", filter: `room_id=eq.${roomId}` }, (payload) => receive(payload.new as PkRequest))
+      .subscribe();
+    void supabase.from("cupido_pk_requests").select("id,room_id,host_id,requester_id,status,expires_at")
+      .eq("room_id", roomId).eq("host_id", viewerId).eq("status", "pending").gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: true }).limit(1).maybeSingle()
+      .then(async ({ data }) => { if (data) receive(data as PkRequest); });
+    return () => { disposed = true; void supabase.removeChannel(channel); };
+  }, [roomId, role, viewerId]);
+
+  useEffect(() => {
+    if (!pendingPk) return;
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((new Date(pendingPk.expires_at).getTime() - Date.now()) / 1000));
+      setPkSeconds(seconds);
+      if (seconds === 0 && expiredPkRef.current !== pendingPk.id) {
+        expiredPkRef.current = pendingPk.id;
+        void answerPk(false, pendingPk.id);
+      }
+    };
+    update();
+    const timer = window.setInterval(update, 200);
+    return () => window.clearInterval(timer);
+  }, [pendingPk]);
+
+  useEffect(() => {
+    if (!pkRequestId || role !== "viewer") return;
+    const channel = supabase.channel(`cupido-pk-requester-${pkRequestId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cupido_pk_requests", filter: `id=eq.${pkRequestId}` }, (payload) => {
+        const status = String((payload.new as PkRequest).status);
+        setPkRequestStatus(status);
+        if (status !== "pending") toast.message(status === "accepted" ? "Solicitud PK aceptada" : status === "expired" ? "La solicitud PK venció" : "Solicitud PK rechazada");
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [pkRequestId, role]);
+
+  useEffect(() => {
+    if (!pkRequestId || pkRequestStatus !== "pending" || role !== "viewer") return;
+    const interval = window.setInterval(() => setPkSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearInterval(interval);
+  }, [pkRequestId, pkRequestStatus, role]);
 
   const sendGift = async (gift: GiftType) => {
     if (!canSendGift(gift, account)) {
@@ -479,6 +576,7 @@ export function LiveRoom({
           <DialogTitle className="flex items-center gap-2">
             <Radio className="size-5 animate-pulse text-pink-400" />
             {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
+            <VerifiedBadge granLiga={hostIsGranLiga} className="size-5" />
           </DialogTitle>
           <DialogDescription className="flex items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
@@ -523,7 +621,30 @@ export function LiveRoom({
               <PhoneOff className="size-4" /> Finalizar Live
             </Button>
           )}
+          <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })}>
+            <Shield className="size-4 text-sky-300" />
+          </Button>
         </div>
+        {role === "host" && pendingPk && (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/40 bg-amber-400/10 p-3" aria-live="polite">
+            <p className="flex items-center gap-2 text-sm font-semibold text-amber-100"><Swords className="size-4" /> {pendingPk.requester_name} solicita una Batalla PK · {pkSeconds}s</p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void answerPk(true)}><Check className="mr-1 size-4" />Aceptar</Button>
+              <Button size="sm" variant="outline" onClick={() => void answerPk(false)}><X className="mr-1 size-4" />Rechazar</Button>
+            </div>
+          </section>
+        )}
+        {role === "viewer" && (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-300/25 bg-violet-500/[0.06] p-3">
+            <p className="flex items-center gap-2 text-sm text-violet-100"><Swords className="size-4" />{activePkName ? `Batalla PK 1 vs 1 contra ${activePkName}` : pkRequestStatus === "pending" ? `Solicitud PK enviada · ${pkSeconds}s` : pkRequestStatus === "accepted" ? "Batalla PK aceptada · 1 vs 1" : "Desafía al anfitrión a una batalla PK 1 vs 1"}</p>
+            {!activePkName && pkRequestStatus !== "pending" && pkRequestStatus !== "accepted" && (
+              <Button size="sm" variant="outline" disabled={(!pkProfile.data?.is_verified_blue && !pkProfile.data?.is_gran_liga) || pkProfile.isLoading} onClick={() => void requestPk()}>
+                <Swords className="mr-1 size-4" /> Solicitar PK
+              </Button>
+            )}
+            {!activePkName && pkRequestStatus === "pending" && <span className="text-xs text-violet-200">Esperando respuesta del anfitrión</span>}
+          </section>
+        )}
         <section className="rounded-2xl border border-white/10 bg-black/25 p-3" aria-label="Chat en vivo">
           <h3 className="mb-2 flex items-center gap-2 font-display text-base text-white">
             <MessageCircle className="size-4 text-pink-300" /> Chat del directo
@@ -536,7 +657,7 @@ export function LiveRoom({
             ))}
             {comments.map((comment) => (
               <p key={comment.id} className="break-words text-xs text-slate-200">
-                <Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> {comment.body}
+                <Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> <VerifiedBadge granLiga={comment.is_gran_liga} className="inline size-3 align-text-bottom" /> {comment.body}
               </p>
             ))}
             {!comments.length && !joinMessages.length && (
@@ -603,6 +724,12 @@ export function LiveRoom({
                     />
                   ) : (
                     <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
+                  )}
+                  {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
+                    <div className="space-y-2 rounded-xl border border-amber-300/30 bg-amber-400/[0.06] p-3">
+                      <p className="text-sm font-semibold text-amber-100">Diamante Gran Liga ? 1.000.000 monedas ? US$100</p>
+                      {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
+                    </div>
                   )}
                   <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
                   <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>

@@ -47,7 +47,7 @@ function CupidoHome() {
       const loadPage = async (from: number) => {
         const { data, error } = await supabase
           .from("cupido_public_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at")
           .eq("is_cupido_active", true)
           .order("is_verified_blue", { ascending: false })
           .order("follower_count", { ascending: false })
@@ -66,7 +66,7 @@ function CupidoHome() {
       }
       const officialId = officialProfile.data?.id ?? null;
       if (officialId && !rows.some((row) => row.id === officialId)) {
-        const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at").eq("id", officialId).maybeSingle();
+        const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,bio,country_code,looking_for,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,survey_completed,friend_count,follower_count,created_at").eq("id", officialId).maybeSingle();
         if (error) {
           console.error("[inicio] Falló la consulta del perfil oficial.", error);
           throw error;
@@ -159,7 +159,7 @@ function CupidoHome() {
 
   useEffect(() => {
     const channel = supabase
-      .channel(`cupido-home-live-${userId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+      .channel((`cupido-home-live-${userId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       })

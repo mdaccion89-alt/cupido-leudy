@@ -22,6 +22,8 @@ export type FeedPost = {
   display_name: string;
   avatar_url: string;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
+  is_promoted: boolean;
   email: string | null;
   is_super_admin: boolean;
 };
@@ -42,6 +44,7 @@ export type PostComment = {
   parent_comment_id: string | null;
   display_name: string;
   avatar_url: string;
+  is_gran_liga: boolean;
   likes_count: number;
   liked: boolean;
 };
@@ -84,7 +87,7 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,is_pinned,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -162,7 +165,7 @@ async function selectPosts(
     if (!likedIds.length) return [];
   }
 
-  let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
+  let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("is_promoted", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
   if (onlyUserId) query = query.eq("user_id", onlyUserId);
   if (onlyPostId) query = query.eq("id", onlyPostId);
   if (onlyUserIds) query = query.in("user_id", onlyUserIds);
@@ -222,7 +225,7 @@ export async function fetchFeed(options: {
   const creatorRows = ids.length
     ? await supabase
         .from("cupido_public_profiles")
-        .select("id,display_name,avatar_url,is_verified_blue,is_super_admin,is_official,is_cupido_active")
+        .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active")
         .in("id", ids)
     : { data: [], error: null };
   if (creatorRows.error) {
@@ -278,6 +281,8 @@ export async function fetchFeed(options: {
       display_name: creator?.display_name ?? "Miembro de Cupido",
       avatar_url: creator?.avatar_url ?? "",
       is_verified_blue: Boolean(creator?.is_verified_blue),
+      is_gran_liga: Boolean(creator?.is_gran_liga),
+      is_promoted: Boolean(row.is_promoted),
       email: null,
       is_super_admin: Boolean(row.is_super_admin ?? creator?.is_super_admin ?? creator?.["is_official"]),
     }];
@@ -391,7 +396,7 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
     if (like.user_id === viewerId) likedIds.add(commentId);
   }
   const profiles = ids.length
-    ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", ids)
+    ? await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_gran_liga").in("id", ids)
     : { data: [] };
   const map = new Map(((profiles.data ?? []) as AnyRow[]).map((row) => [row.id as string, row]));
   return rows.map((row) => {
@@ -405,6 +410,7 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
       parent_comment_id: typeof row.parent_comment_id === "string" ? row.parent_comment_id : null,
       display_name: profile?.display_name ?? "Miembro de Cupido",
       avatar_url: profile?.avatar_url ?? "",
+      is_gran_liga: Boolean(profile?.is_gran_liga),
       likes_count: likeCounts.get(String(row.id)) ?? 0,
       liked: likedIds.has(String(row.id)),
     };

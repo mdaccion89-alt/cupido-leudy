@@ -93,7 +93,7 @@ export function NotificationBell() {
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
-      .channel(`cupido-notifications-${viewerId}`)
+      .channel((`cupido-notifications-${viewerId}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "notifications", filter: `user_id=eq.${viewerId}` },

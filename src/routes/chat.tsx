@@ -27,7 +27,7 @@ import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,7 @@ type ChatProfile = {
   display_name: string;
   avatar_url: string;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
   email?: string | null;
 };
 
@@ -173,7 +174,7 @@ function ChatPage() {
       const profiles = otherIds.length
         ? await supabase
             .from("cupido_public_profiles")
-            .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+            .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
             .in("id", otherIds)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
@@ -210,7 +211,7 @@ function ChatPage() {
             .maybeSingle(),
           supabase
             .from("cupido_public_profiles")
-            .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+            .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
             .eq("id", searchUserId)
             .maybeSingle(),
         ]);
@@ -310,7 +311,7 @@ function ChatPage() {
   useEffect(() => {
     if (!activeId) return;
     const channel = supabase
-      .channel(`cupido-messages-${activeId}`)
+      .channel((`cupido-messages-${activeId}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_messages", filter: `conversation_id=eq.${activeId}` },
@@ -336,7 +337,7 @@ function ChatPage() {
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
-      .channel(`cupido-incoming-${viewerId}`)
+      .channel((`cupido-incoming-${viewerId}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "cupido_calls", filter: `callee_id=eq.${viewerId}` },
@@ -346,7 +347,7 @@ function ChatPage() {
           void (async () => {
             const { data } = await supabase
               .from("cupido_public_profiles")
-              .select("id,display_name,avatar_url,is_verified_blue")
+              .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga")
               .eq("id", row.caller_id)
               .maybeSingle();
             setIncoming({ call: row, profile: (data as ChatProfile | null) ?? null });
@@ -375,7 +376,7 @@ function ChatPage() {
   useEffect(() => {
     if (!call) return;
     const channel = supabase
-      .channel(`cupido-call-status-${call.id}`)
+      .channel((`cupido-call-status-${call.id}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "cupido_calls", filter: `id=eq.${call.id}` },
@@ -751,16 +752,16 @@ function ChatPage() {
                 row.id === activeId ? "bg-pink-500/10" : ""
               }`}
             >
-              <Avatar className="h-11 w-11 border border-white/10">
+              <div className="relative shrink-0"><GranLigaStar active={row.other?.is_gran_liga} /><Avatar className="h-11 w-11 border border-white/10">
                 <AvatarImage src={row.other?.avatar_url ?? ""} alt={row.other?.display_name ?? "Chat"} />
                 <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">
                   {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
-              </Avatar>
+              </Avatar></div>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1 truncate text-sm font-medium text-white">
                   {row.other?.display_name ?? "Miembro"}
-                  <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} className="h-4 w-4" />
+                  <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} granLiga={row.other?.is_gran_liga} className="h-4 w-4" />
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">Toca para abrir la conversación</span>
               </span>
@@ -772,12 +773,12 @@ function ChatPage() {
           {activeConversation ? (
             <>
               <header className="flex flex-wrap items-center gap-3 border-b border-white/10 px-4 py-3">
-                <Avatar className="h-10 w-10">
+                <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar className="h-10 w-10">
                   <AvatarImage src={activeConversation.other?.avatar_url ?? ""} alt={activeConversation.other?.display_name ?? ""} />
                   <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">
                     {(activeConversation.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
                   </AvatarFallback>
-                </Avatar>
+                </Avatar></div>
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1 truncate text-sm font-semibold text-white">
                     {activeConversation.other ? (
@@ -785,7 +786,7 @@ function ChatPage() {
                         {activeConversation.other.display_name}
                       </Link>
                     ) : "Miembro"}
-                    <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} className="h-4 w-4" />
+                    <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} granLiga={activeConversation.other?.is_gran_liga} className="h-4 w-4" />
                   </p>
                   <p className="text-xs text-muted-foreground">Chat privado de Cupido Leudy</p>
                 </div>
@@ -1002,6 +1003,12 @@ function ChatPage() {
                 ) : (
                   <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
                 )}
+                {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
+                  <div className="space-y-2 rounded-xl border border-amber-300/30 bg-amber-400/[0.06] p-3">
+                    <p className="text-sm font-semibold text-amber-100">Diamante Gran Liga ? 1.000.000 monedas ? US$100</p>
+                    {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
+                  </div>
+                )}
                 <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
                 <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>
               </section>
@@ -1138,7 +1145,7 @@ function CallRoom({
   useEffect(() => {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcRef.current = pc;
-    const channel = supabase.channel(`cupido-call-${callId}`);
+    const channel = supabase.channel((`cupido-call-${callId}`) + "-" + crypto.randomUUID());
     channelRef.current = channel;
 
     const sendSignal = async (payload: SignalPayload) => {

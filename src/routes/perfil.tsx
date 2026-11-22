@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { InviteButton } from "@/components/cupido/invite-button";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
+import { CupidoGroupInvites, GranLigaGroups } from "@/components/cupido/gran-liga-groups";
 import { CupidoStudioPanel } from "@/components/cupido/cupido-studio-panel";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
@@ -124,7 +125,7 @@ function ProfilePage() {
       const [creator, privateProfile, follow, friendA, friendB, followerTotal, watchSeconds] = await Promise.all([
         supabase
           .from("cupido_public_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
+          .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
           .eq("id", profileId!)
           .maybeSingle(),
         viewerId === profileId
@@ -186,7 +187,7 @@ function ProfilePage() {
     if (!profileId) return;
     const channelName = `cupido-profile-followers-${profileId}-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(channelName)
+      .channel((channelName) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_follower_count_events", filter: `user_id=eq.${profileId}` },
@@ -203,7 +204,7 @@ function ProfilePage() {
   useEffect(() => {
     if (!profileId) return;
     const channel = supabase
-      .channel(`cupido-profile-live-${profileId}`)
+      .channel((`cupido-profile-live-${profileId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles", filter: `id=eq.${profileId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
       })
@@ -465,15 +466,20 @@ function ProfilePage() {
   return (
     <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
       <section className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
-        <div className="h-32 bg-gradient-to-r from-pink-600/40 via-fuchsia-600/20 to-transparent" />
+        <div className={`relative h-32 bg-gradient-to-r ${creator?.is_gran_liga ? "animate-pulse from-amber-400/70 via-orange-600/35 to-red-600/30" : "from-pink-600/40 via-fuchsia-600/20 to-transparent"}`}>
+          {creator?.is_gran_liga && <span className="absolute bottom-3 right-5 rounded-full border border-amber-200/50 bg-black/50 px-3 py-1 text-xs font-bold tracking-wide text-amber-100">🔥 Portada VIP · GRAN LIGA 🔥</span>}
+        </div>
         <div className="px-6 pb-8">
           <div className="-mt-12 flex items-end gap-4">
-            <div className="flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
-              ) : (
-                (displayName || "C").slice(0, 1).toUpperCase()
-              )}
+            <div className="relative shrink-0">
+              <div className={`flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""}`}>
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
+                ) : (
+                  (displayName || "C").slice(0, 1).toUpperCase()
+                )}
+              </div>
+              {creator?.is_gran_liga && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl drop-shadow-[0_0_9px_rgba(251,191,36,0.95)] animate-bounce" aria-label="Estrella de Gran Liga">⭐</span>}
             </div>
             <div className="pb-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -481,6 +487,7 @@ function ProfilePage() {
                 <VerifiedBadge
                   email={profileEmail}
                   official={officialProfile}
+                  granLiga={Boolean(creator?.is_gran_liga)}
                   verified={
                     verified ||
                     Boolean(creator?.is_official) ||
@@ -760,6 +767,8 @@ function ProfilePage() {
         {own && viewerId && (
           <CupidoStudioPanel userId={viewerId} followerCount={actualFollowerCount} />
         )}
+        {own && viewerId && <CupidoGroupInvites userId={viewerId} />}
+        {own && viewerId && creator?.is_gran_liga && <GranLigaGroups userId={viewerId} />}
         {own ? (
           <>
             <div className="flex gap-2" role="tablist" aria-label="Contenido del perfil">

@@ -42,7 +42,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       const loadPage = async (from: number) => {
         let query = supabase
           .from("cupido_public_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
           .eq("is_cupido_active", true)
           .order("is_verified_blue", { ascending: false })
           .order("follower_count", { ascending: false });
@@ -68,7 +68,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       if (officialId && !rows.some((row) => row.id === officialId)) {
         const official = await supabase
           .from("cupido_public_profiles")
-          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
+          .select("id,display_name,avatar_url,bio,country_code,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,friend_count,follower_count,created_at")
           .eq("id", officialId)
           .maybeSingle();
         if (official.error) {
@@ -109,7 +109,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
 
   useEffect(() => {
     const channel = supabase
-      .channel(`cupido-discovery-live-${viewerId ?? "guest"}`)
+      .channel((`cupido-discovery-live-${viewerId ?? "guest"}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
       })
@@ -177,6 +177,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         drinks: Boolean(person.drinks),
         has_kids: Boolean(person.has_kids),
         is_verified_blue: Boolean(person.is_verified_blue),
+        is_gran_liga: Boolean(person.is_gran_liga),
         friend_count: person.friend_count ?? 0,
         follower_count: person.follower_count ?? 0,
         survey_completed: Boolean(person.survey_completed),

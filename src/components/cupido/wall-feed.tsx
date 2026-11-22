@@ -121,7 +121,7 @@ export function WallFeed({
   useEffect(() => {
     const channelName = `cupido-wall-live-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(channelName)
+      .channel((channelName) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });

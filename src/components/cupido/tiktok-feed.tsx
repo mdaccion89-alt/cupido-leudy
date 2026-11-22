@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bookmark, Download, Heart, Loader2, MessageCircle, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
 import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -147,7 +147,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   useEffect(() => {
     const channelName = `cupido-tiktok-live-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(channelName)
+      .channel((channelName) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] });
       })
@@ -169,7 +169,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   useEffect(() => {
     if (!commentsPostId) return;
     const channel = supabase
-      .channel(`cupido-tiktok-comments-${commentsPostId}`)
+      .channel((`cupido-tiktok-comments-${commentsPostId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${commentsPostId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-post-comments", commentsPostId] });
       })
@@ -333,10 +333,11 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const renderComment = (comment: PostComment, depth = 0): ReactNode => (
     <div key={comment.id} className="space-y-2">
       <div className="flex gap-2" style={{ marginLeft: `${Math.min(depth, 4) * 14}px` }}>
-        <img src={comment.avatar_url || "/favicon.ico"} alt="" className="size-7 shrink-0 rounded-full border border-white/15 object-cover" />
+        <div className="relative shrink-0"><GranLigaStar active={comment.is_gran_liga} /><img src={comment.avatar_url || "/favicon.ico"} alt="" className="size-7 rounded-full border border-white/15 object-cover" /></div>
         <div className="min-w-0 flex-1">
           <p className="break-words text-xs text-white">
-            <span className="mr-1 font-semibold">{comment.display_name}</span>
+              <span className="mr-1 font-semibold">{comment.display_name}</span>
+              <VerifiedBadge granLiga={comment.is_gran_liga} className="mr-1 inline size-3.5 align-text-bottom" />
             <span className="text-white/75"><RichPostText text={comment.body} /></span>
           </p>
           <div className="mt-1 flex items-center gap-3 text-[11px] text-white/55">
@@ -424,8 +425,9 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
 
               <div className="absolute bottom-24 right-2 z-20 flex flex-col items-center gap-4 sm:right-5">
                 <div className="relative mb-1">
-                  <Link to="/perfil" search={{ userId: post.user_id }} aria-label={`Perfil de ${post.display_name}`} className="block size-12 overflow-hidden rounded-full border-2 border-white shadow-lg">
-                    <img src={post.avatar_url || "/favicon.ico"} alt={post.display_name} className="size-full object-cover" />
+                  <Link to="/perfil" search={{ userId: post.user_id }} aria-label={`Perfil de ${post.display_name}`} className="relative block size-12 rounded-full border-2 border-white shadow-lg">
+                    <img src={post.avatar_url || "/favicon.ico"} alt={post.display_name} className="size-full rounded-full object-cover" />
+                    <GranLigaStar active={post.is_gran_liga} />
                   </Link>
                   {post.user_id !== viewerId && (
                     <button
@@ -467,7 +469,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                   <Link to="/perfil" search={{ userId: post.user_id }} className="text-sm font-bold text-white drop-shadow hover:underline">
                     {post.display_name}
                   </Link>
-                  <VerifiedBadge email={post.email} official={post.is_super_admin} verified={post.is_verified_blue} className="size-5" />
+                  <VerifiedBadge email={post.email} official={post.is_super_admin} verified={post.is_verified_blue} granLiga={post.is_gran_liga} className="size-5" />
                 </div>
                 {post.title && <p className="mt-2 text-sm font-semibold text-white drop-shadow">{post.title}</p>}
                 {post.caption && (

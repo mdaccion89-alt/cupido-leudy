@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { findPackage } from "./credits";
+import { findPackage, GRAN_LIGA_PACKAGE_ID } from "./credits";
 import { getAdminClient } from "./server-helpers";
 
 type PaypalConfig = {
@@ -257,7 +257,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
     },
   );
 
-type CaptureResult = { ok: true; credits: number; hasPurchased: boolean } | { ok: false; message: string };
+type CaptureResult = { ok: true; credits: number; hasPurchased: boolean; isGranLiga: boolean } | { ok: false; message: string };
 
 export const capturePaypalOrder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -275,20 +275,29 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .maybeSingle();
     if (!order) return { ok: false, message: "No se encontró el pedido." };
-    if (order.status === "captured") return { ok: true, credits: order.credits, hasPurchased: true };
+    if (order.status === "captured") return { ok: true, credits: order.credits, hasPurchased: true, isGranLiga: order.package_id === GRAN_LIGA_PACKAGE_ID };
     const pack = findPackage(order.package_id);
     if (!pack) return { ok: false, message: "Paquete no válido." };
 
     try {
       const config = await getPaypalConfig();
-      const captured = await paypal(
-        `/v2/checkout/orders/${encodeURIComponent(data.orderId)}/capture`,
-        {
-          method: "POST",
-          headers: { "PayPal-Request-Id": `capture-${order.id}` },
-        },
-        config,
-      );
+      let captured: Record<string, unknown>;
+      try {
+        captured = await paypal(
+          `/v2/checkout/orders/${encodeURIComponent(data.orderId)}/capture`,
+          { method: "POST", headers: { "PayPal-Request-Id": `capture-${order.id}` } },
+          config,
+        );
+      } catch (captureError) {
+        // The provider can have captured the payment even if the browser or server
+        // lost the first response. A verified order read lets the idempotent SQL
+        // finalizer finish the original credit grant on retry.
+        try {
+          captured = await paypal(`/v2/checkout/orders/${encodeURIComponent(data.orderId)}`, { method: "GET" }, config);
+        } catch {
+          throw captureError;
+        }
+      }
       type Capture = { status?: string; amount?: { currency_code?: string; value?: string } };
       const units =
         (captured["purchase_units"] as { payments?: { captures?: Capture[] } }[] | undefined) ?? [];
@@ -307,33 +316,14 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
           .eq("status", "created");
         return { ok: false, message: "El pago no se completó." };
       }
-      const { data: claimed } = await admin
-        .from("paypal_orders")
-        .update({ status: "captured", captured_at: new Date().toISOString() })
-        .eq("id", order.id)
-        .eq("status", "created")
-        .select("id")
-        .maybeSingle();
-      if (claimed) {
-        const { data: granted } = await admin.rpc("grant_credits", {
-          _user_id: context.userId,
-          _amount: pack.credits,
-          _reason: `Compra PayPal ${pack.credits} créditos`,
-        });
-        const { data: profile } = await admin
-          .from("profiles")
-          .select("credits,credits_balance")
-          .eq("id", context.userId)
-          .maybeSingle();
-        const currentCredits = profile?.credits_balance ?? profile?.credits ?? 0;
-        const nextCredits =
-          Number(granted) > 0 ? Number(granted) : currentCredits + pack.credits;
-        await admin
-          .from("profiles")
-          .update({ credits: nextCredits, credits_balance: nextCredits, has_purchased: true })
-          .eq("id", context.userId);
-      }
-      return { ok: true, credits: pack.credits, hasPurchased: true };
+      const { error: finalizeError } = await admin.rpc("cupido_finalize_paypal_package", {
+        _order_id: order.id,
+        _user_id: context.userId,
+        _credits: pack.credits,
+        _gran_liga: pack.id === GRAN_LIGA_PACKAGE_ID,
+      });
+      if (finalizeError) throw finalizeError;
+      return { ok: true, credits: pack.credits, hasPurchased: true, isGranLiga: pack.id === GRAN_LIGA_PACKAGE_ID };
     } catch (err) {
       return { ok: false, message: paypalMessage(err) };
     }

@@ -46,7 +46,7 @@ export function BottomNav() {
 
   useEffect(() => {
     if (!viewerId) return;
-    const channel = supabase.channel(`cupido-unread-badge-${viewerId}`)
+    const channel = supabase.channel((`cupido-unread-badge-${viewerId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_messages" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
       })

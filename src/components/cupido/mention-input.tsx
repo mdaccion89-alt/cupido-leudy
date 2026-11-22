@@ -52,7 +52,7 @@ export function MentionInput({ value, onChange, placeholder, className, maxLengt
 
   useEffect(() => {
     if (!viewerId) return;
-    const channel = supabase.channel(`cupido-mentions-${viewerId}`)
+    const channel = supabase.channel((`cupido-mentions-${viewerId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => { void people.refetch(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, () => { void people.refetch(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => { void people.refetch(); })

@@ -152,6 +152,7 @@ export type Database = {
           hide_followers: boolean;
           id: string;
           is_official: boolean;
+          is_gran_liga: boolean;
           is_cupido_active: boolean;
           is_premium: boolean;
           is_super_admin: boolean;
@@ -183,6 +184,7 @@ export type Database = {
           hide_followers?: boolean;
           id: string;
           is_official?: boolean;
+          is_gran_liga?: boolean;
           is_cupido_active?: boolean;
           is_premium?: boolean;
           is_super_admin?: boolean;
@@ -214,6 +216,7 @@ export type Database = {
           hide_followers?: boolean;
           id?: string;
           is_official?: boolean;
+          is_gran_liga?: boolean;
           is_cupido_active?: boolean;
           is_premium?: boolean;
           is_super_admin?: boolean;
@@ -476,6 +479,7 @@ export type Database = {
           has_kids: boolean;
           hide_followers: boolean;
           has_purchased: boolean;
+          is_gran_liga: boolean;
           id: string;
           last_daily_claim: string | null;
           last_wheel_spin: string | null;
@@ -513,6 +517,7 @@ export type Database = {
           has_kids?: boolean;
           hide_followers?: boolean;
           has_purchased?: boolean;
+          is_gran_liga?: boolean;
           id: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
@@ -550,6 +555,7 @@ export type Database = {
           has_kids?: boolean;
           hide_followers?: boolean;
           has_purchased?: boolean;
+          is_gran_liga?: boolean;
           id?: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
@@ -886,6 +892,30 @@ export type Database = {
       };
       Relationships: [];
     };
+    cupido_groups: {
+      Row: { created_at: string; description: string; id: string; name: string; owner_id: string };
+      Insert: { created_at?: string; description?: string; id?: string; name: string; owner_id: string };
+      Update: { created_at?: string; description?: string; id?: string; name?: string; owner_id?: string };
+      Relationships: [];
+    };
+    cupido_group_members: {
+      Row: { group_id: string; joined_at: string; role: string; user_id: string };
+      Insert: { group_id: string; joined_at?: string; role?: string; user_id: string };
+      Update: { group_id?: string; joined_at?: string; role?: string; user_id?: string };
+      Relationships: [];
+    };
+    cupido_group_invites: {
+      Row: { created_at: string; group_id: string; id: string; invitee_id: string; inviter_id: string; status: string };
+      Insert: { created_at?: string; group_id: string; id?: string; invitee_id: string; inviter_id: string; status?: string };
+      Update: { created_at?: string; group_id?: string; id?: string; invitee_id?: string; inviter_id?: string; status?: string };
+      Relationships: [];
+    };
+    cupido_pk_requests: {
+      Row: { answered_at: string | null; created_at: string; expires_at: string; host_id: string; id: string; requester_id: string; room_id: string; status: string };
+      Insert: { answered_at?: string | null; created_at?: string; expires_at?: string; host_id: string; id?: string; requester_id: string; room_id: string; status?: string };
+      Update: { answered_at?: string | null; created_at?: string; expires_at?: string; host_id?: string; id?: string; requester_id?: string; room_id?: string; status?: string };
+      Relationships: [];
+    };
     cupido_gift_sends: {
       Row: {
         cash_value: number;
@@ -1102,6 +1132,7 @@ export type Database = {
         created_at: string;
         dislikes_count: number;
         id: string;
+        is_promoted: boolean;
         kind: string;
         likes_count: number;
         media_path: string | null;
@@ -1117,6 +1148,7 @@ export type Database = {
         created_at?: string;
         dislikes_count?: number;
         id?: string;
+        is_promoted?: boolean;
         kind: string;
         likes_count?: number;
         media_path?: string | null;
@@ -1132,6 +1164,7 @@ export type Database = {
         created_at?: string;
         dislikes_count?: number;
         id?: string;
+        is_promoted?: boolean;
         kind?: string;
         likes_count?: number;
         media_path?: string;
@@ -1263,6 +1296,7 @@ export type Database = {
           is_premium: boolean;
           is_super_admin: boolean;
           is_verified_blue: boolean;
+          is_gran_liga: boolean;
           looking_for: string;
           smokes: boolean;
           zodiac: string;
@@ -1377,6 +1411,16 @@ export type Database = {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string };
       Returns: string;
     };
+      cupido_finalize_paypal_package: {
+        Args: { _credits: number; _gran_liga: boolean; _order_id: string; _user_id: string };
+        Returns: boolean;
+      };
+      cupido_create_group: { Args: { _description?: string; _name: string }; Returns: string };
+      cupido_invite_group_friend: { Args: { _group: string; _invitee: string }; Returns: string };
+      cupido_respond_group_invite: { Args: { _accept: boolean; _invite: string }; Returns: boolean };
+      cupido_promote_post: { Args: { _post: string }; Returns: boolean };
+      cupido_request_pk: { Args: { _room: string }; Returns: string };
+      cupido_respond_pk: { Args: { _accept: boolean; _request: string }; Returns: string };
     cupido_send_live_gift: {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string; _room: string };
       Returns: string;

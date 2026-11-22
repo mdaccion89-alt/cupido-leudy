@@ -52,7 +52,7 @@ export function EscudoWidget() {
   useEffect(() => {
     if (!session?.user.id) return;
     const channel = supabase
-      .channel(`cupido-user-tickets-${session.user.id}`)
+      .channel((`cupido-user-tickets-${session.user.id}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_support_tickets", filter: `user_id=eq.${session.user.id}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-my-support-tickets", session.user.id] });
       })

@@ -41,12 +41,12 @@ export function useAccount() {
         supabase.from("user_roles").select("role").eq("user_id", userId!),
         supabase
           .from("creator_profiles")
-          .select("is_official,is_premium")
+          .select("is_official,is_premium,is_gran_liga")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased")
+          .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased,is_gran_liga")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -68,6 +68,7 @@ export function useAccount() {
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
         isSupremeAdmin: isImmediateAdmin || (roles.data ?? []).some((r) => r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
+        isGranLiga: Boolean(profile.data?.is_gran_liga || privateProfile.data?.is_gran_liga),
         plan: profile.data?.is_premium ? "premium" : "free",
         hasPurchased: Boolean(privateProfile.data?.has_purchased || capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
@@ -83,6 +84,7 @@ export function useAccount() {
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
     isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
+    isGranLiga: isImmediateAdmin || Boolean(query.data?.isGranLiga),
     plan: isImmediateAdmin ? "premium" : (query.data?.plan ?? "free"),
     hasPurchased: isImmediateAdmin || Boolean(query.data?.hasPurchased),
     dailyStreak: query.data?.dailyStreak ?? 0,
@@ -92,7 +94,7 @@ export function useAccount() {
     addPurchasedCredits: (credits: number) => {
       if (!userId || !Number.isFinite(credits) || credits <= 0) return;
       queryClient.setQueryData(["account", userId], (current: typeof query.data) => current
-        ? { ...current, balance: current.balance === -1 ? -1 : current.balance + credits, hasPurchased: true }
+        ? { ...current, balance: current.balance === -1 ? -1 : current.balance + credits, hasPurchased: true, isGranLiga: current.isGranLiga || credits >= 1_000_000 }
         : current);
     },
   };

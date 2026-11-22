@@ -8,7 +8,7 @@ import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount } from "@/lib/account";
-import { CREDIT_PACKAGES } from "@/lib/credits";
+import { CREDIT_PACKAGES, GRAN_LIGA_PACKAGE_ID } from "@/lib/credits";
 import {
   COUNTRIES,
   FREE_GIFT_MAX_CREDITS,
@@ -90,7 +90,7 @@ function StorePage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cupido_public_profiles")
-        .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+        .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
         .eq("id", giftTo!)
         .maybeSingle();
       if (error) throw error;
@@ -117,7 +117,7 @@ function StorePage() {
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
-      .channel(`cupido-wallet-${viewerId}`)
+      .channel((`cupido-wallet-${viewerId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances", filter: `user_id=eq.${viewerId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
       })
@@ -153,7 +153,7 @@ function StorePage() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-paypal-config")
+      .channel(("cupido-paypal-config") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
       })
@@ -172,7 +172,9 @@ function StorePage() {
     void (async () => {
       const result = await captureOrder({ data: { orderId: token } });
       if (result.ok) {
-        toast.success(`Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
+        toast.success(result.isGranLiga
+          ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+          : `Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
         account.refresh();
         void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
         void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
@@ -299,16 +301,16 @@ function StorePage() {
         <section className="mb-8 rounded-3xl border border-pink-400/30 bg-pink-500/10 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Avatar className="h-14 w-14 border border-pink-300/40">
+              <div className="relative shrink-0"><GranLigaStar active={target.data?.is_gran_liga} /><Avatar className="h-14 w-14 border border-pink-300/40">
                 <AvatarImage src={target.data?.avatar_url ?? ""} alt={target.data?.display_name ?? ""} />
                 <AvatarFallback className="bg-pink-500/20 text-pink-100">
                   {(target.data?.display_name ?? "C").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
-              </Avatar>
+              </Avatar></div>
               <div>
                 <p className="flex items-center gap-1 font-semibold text-white">
                   {target.data?.display_name ?? "Miembro de Cupido"}
-                  <VerifiedBadge email={target.data?.email} verified={target.data?.is_verified_blue} className="h-4 w-4" />
+                  <VerifiedBadge email={target.data?.email} verified={target.data?.is_verified_blue} granLiga={target.data?.is_gran_liga} className="h-4 w-4" />
                 </p>
                 <p className="text-xs text-pink-100/70">Enviar un regalo convierte su valor en saldo retirable.</p>
               </div>
@@ -339,7 +341,7 @@ function StorePage() {
           {CREDIT_PACKAGES.map((pack) => {
             const config = paypalConfig.data;
             const officialCheckout = Boolean(config?.configured && config.clientId);
-            const fallbackUrl = fallbackCheckoutUrl(config, pack.credits, pack.price, pack.id);
+            const fallbackUrl = pack.id === GRAN_LIGA_PACKAGE_ID ? "" : fallbackCheckoutUrl(config, pack.credits, pack.price, pack.id);
             return (
               <article
                 key={pack.id}
@@ -361,7 +363,9 @@ function StorePage() {
                     packageId={pack.id}
                     disabled={buy.isPending}
                     onSuccess={(credits) => {
-                      toast.success(`Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
+                      toast.success(pack.id === GRAN_LIGA_PACKAGE_ID
+                        ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+                        : `Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
                       account.refresh();
                       void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
                     }}
@@ -382,6 +386,7 @@ function StorePage() {
                     <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
                   </Button>
                 )}
+                {pack.id === GRAN_LIGA_PACKAGE_ID && !officialCheckout && !paypalConfig.isLoading && <p className="mt-2 text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga automáticamente.</p>}
               </article>
             );
           })}

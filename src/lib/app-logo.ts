@@ -33,7 +33,7 @@ export function useAppLogo(): string {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-app-logo-live")
+      .channel(("cupido-app-logo-live") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "id=eq.1" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-app-logo"] });
       })

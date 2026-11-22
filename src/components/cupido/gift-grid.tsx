@@ -22,13 +22,13 @@ export function GiftGrid({ gifts = GIFTS, onSelect, disabled = false, compact = 
         >
           <span
             aria-hidden="true"
-            className="mx-auto block h-14 w-[4.5rem] rounded-lg bg-black bg-no-repeat mix-blend-screen"
+            className={`mx-auto flex h-14 w-[4.5rem] items-center justify-center rounded-lg bg-black bg-no-repeat mix-blend-screen ${gift.id === "gran-liga-diamond" ? "border border-amber-200/50 text-4xl drop-shadow-[0_0_14px_rgba(251,191,36,0.9)]" : ""}`}
             style={{
-              backgroundImage: "url('/gifts-sheet.png')",
+              backgroundImage: gift.id === "gran-liga-diamond" ? "none" : "url('/gifts-sheet.png')",
               backgroundSize: "900% 1100%",
               backgroundPosition: `${(index % 9) * 12.5}% ${Math.floor(index / 9) * 10}%`,
             }}
-          />
+          >{gift.id === "gran-liga-diamond" ? "💎" : null}</span>
           <span className="mt-1 block truncate text-xs font-medium text-white">{gift.name}</span>
           <span className="mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-amber-200">
             <CoinIcon className="size-3.5" />

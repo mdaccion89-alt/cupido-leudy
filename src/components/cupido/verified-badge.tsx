@@ -5,6 +5,7 @@ type VerifiedBadgeProps = {
   email?: string | null | undefined;
   verified?: boolean | undefined;
   official?: boolean | undefined;
+  granLiga?: boolean | undefined;
   className?: string;
 };
 
@@ -14,7 +15,24 @@ const STAR_POINTS = Array.from({ length: 40 }, (_, index) => {
   return `${(12 + Math.cos(angle) * radius).toFixed(2)},${(12 + Math.sin(angle) * radius).toFixed(2)}`;
 }).join(" ");
 
-export function VerifiedBadge({ email, verified = false, official = false, className = "size-5" }: VerifiedBadgeProps) {
+export function VerifiedBadge({ email, verified = false, official = false, granLiga = false, className = "size-5" }: VerifiedBadgeProps) {
+  if (granLiga) {
+    return (
+      <button
+        type="button"
+        className={`${className} inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full text-amber-200 drop-shadow-[0_0_8px_rgba(251,191,36,0.9)] animate-pulse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+        aria-label="Gran Liga"
+        title="Gran Liga"
+        onClick={(event) => { event.stopPropagation(); toast.message("Gran Liga"); }}
+      >
+        <span className="relative inline-flex size-full items-center justify-center" aria-hidden="true">
+          <span className="absolute -top-1 -right-1 text-[0.55em] animate-bounce">🔥</span>
+          <span className="text-[0.9em]">💎</span>
+          <span className="absolute -bottom-1 -left-1 text-[0.5em]">⭐</span>
+        </span>
+      </button>
+    );
+  }
   const isSupreme = isSupremeAdminEmail(email) || official;
   if (!isSupreme && !verified) return null;
   const label = isSupreme ? "Cuenta Oficial Verificada" : "Perfil verificado";
@@ -36,4 +54,9 @@ export function VerifiedBadge({ email, verified = false, official = false, class
       </svg>
     </button>
   );
+}
+
+export function GranLigaStar({ active = false }: { active?: boolean }) {
+  if (!active) return null;
+  return <span aria-label="Estrella Gran Liga" className="pointer-events-none absolute -top-2 left-1/2 z-10 -translate-x-1/2 text-sm leading-none text-amber-200 drop-shadow-[0_0_8px_rgba(251,191,36,0.95)] animate-pulse">⭐</span>;
 }

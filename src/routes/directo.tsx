@@ -5,7 +5,7 @@ import { Loader2, LockKeyhole, Radio, ShoppingBag, Users, Video } from "lucide-r
 import { toast } from "sonner";
 import { LiveRoom } from "@/components/cupido/live-room";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +28,7 @@ type StreamRow = {
   host_name: string;
   host_avatar: string;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
   is_official: boolean;
   premium_coins: number;
   premium_minutes: number;
@@ -38,6 +39,7 @@ type ActiveDirect = {
   roomId: string;
   hostId: string;
   hostName: string;
+  hostIsGranLiga: boolean;
   role: "host" | "viewer";
   stream?: MediaStream | null;
   premium_ends_at?: string | null;
@@ -70,7 +72,7 @@ function DirectPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("creator_profiles")
-        .select("display_name,is_verified_blue,is_official,is_super_admin,verification_status")
+        .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin,verification_status")
         .eq("id", viewerId!)
         .maybeSingle();
       if (error) throw error;
@@ -91,7 +93,7 @@ function DirectPage() {
       const { data: profiles, error: profilesError } = hostIds.length
         ? await supabase
             .from("cupido_public_profiles")
-            .select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin")
+            .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
             .in("id", hostIds)
         : { data: [], error: null };
       if (profilesError) throw profilesError;
@@ -107,6 +109,7 @@ function DirectPage() {
           host_name: host?.display_name?.trim() || "Miembro de Cupido",
           host_avatar: host?.avatar_url ?? "",
           is_verified_blue: Boolean(host?.is_verified_blue),
+          is_gran_liga: Boolean(host?.is_gran_liga),
           is_official: Boolean(host?.is_official || host?.is_super_admin),
           premium_coins: stream.premium_coins ?? 0,
           premium_minutes: stream.premium_minutes ?? 0,
@@ -120,7 +123,7 @@ function DirectPage() {
   useEffect(() => {
     const channelName = `cupido-direct-list-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(channelName)
+      .channel((channelName) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "live_streams" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
       })
@@ -136,7 +139,7 @@ function DirectPage() {
     if (!stream || stream.host_id === viewerId) return;
     autoOpened.current = liveId;
     if (stream.premium_coins > 0) setEntryStream(stream);
-    else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+    else setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   }, [liveId, streams.data, viewerId]);
 
   useEffect(() => () => {
@@ -167,6 +170,7 @@ function DirectPage() {
         roomId,
         hostId: viewerId,
         hostName: profile.data?.display_name?.trim() || "Tú",
+        hostIsGranLiga: Boolean(profile.data?.is_gran_liga),
         role: "host",
         stream,
         premium_ends_at: premiumTier === 0 ? null : new Date(Date.now() + tier.minutes * 60_000).toISOString(),
@@ -192,7 +196,7 @@ function DirectPage() {
     if (!viewerId) { toast.info("Inicia sesiÃ³n para entrar, comentar o enviar regalos."); return; }
     if (stream.host_id === viewerId) { toast.info("Tu transmisiÃ³n ya estÃ¡ activa."); return; }
     if (stream.premium_coins > 0) { setEntryStream(stream); return; }
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer" });
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   };
 
   const payAndEnter = async () => {
@@ -205,10 +209,10 @@ function DirectPage() {
     const stream = entryStream;
     setEntryStream(null);
     account.refresh();
-    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, role: "viewer", premium_ends_at: stream.premium_ends_at });
+    setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostIsGranLiga: stream.is_gran_liga, role: "viewer", premium_ends_at: stream.premium_ends_at });
   };
 
-  const canHost = Boolean(account.isSupremeAdmin || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
+  const canHost = Boolean(account.isSupremeAdmin || account.isGranLiga || profile.data?.is_gran_liga || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
 
   const submitFaceVideo = async (video: Blob) => {
     if (!viewerId) throw new Error("Inicia sesión para solicitar la insignia.");
@@ -332,6 +336,7 @@ function DirectPage() {
                   className="group relative aspect-[3/4] cursor-pointer overflow-hidden rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] shadow-lg transition active:scale-[0.98]"
                 >
                   <img src={stream.host_avatar || "/favicon.ico"} alt="" className="absolute inset-0 size-full object-cover transition duration-300 group-hover:scale-105" />
+                  <GranLigaStar active={stream.is_gran_liga} />
                   <div className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/10 to-black/90" />
                   <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-rose-600/90 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow">
                     <span className="size-1.5 animate-pulse rounded-full bg-white" /> EN VIVO
@@ -341,7 +346,7 @@ function DirectPage() {
                     <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-white">{stream.title || "Directo en vivo"} ✨</h3>
                     <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-white/85">
                       <Link to="/perfil" search={{ userId: stream.host_id }} onClick={(event) => event.stopPropagation()} className="truncate hover:underline">{stream.host_name} ❤️</Link>
-                      <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} className="size-4" />
+                      <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} granLiga={stream.is_gran_liga} className="size-4" />
                     </p>
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {stream.viewers_count} viendo</p>
                   </div>
@@ -360,6 +365,7 @@ function DirectPage() {
           roomId={active.roomId}
           hostId={active.hostId}
           hostName={active.hostName}
+          hostIsGranLiga={active.hostIsGranLiga}
           viewerId={viewerId}
           role={active.role}
           initialStream={active.stream ?? null}

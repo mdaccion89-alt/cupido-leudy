@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Flag, Heart, Image as ImageIcon, MessageCircle, Pin, Play, Send, Share2, ThumbsDown, Trash2 } from "lucide-react";
+import { Bookmark, Flag, Heart, Image as ImageIcon, Megaphone, MessageCircle, Pin, Play, Send, Share2, ThumbsDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CupidoVideoPlayer } from "@/components/cupido/video-player";
@@ -70,9 +70,9 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
     queryKey: ["cupido-social-admin", currentUserId],
     enabled: Boolean(currentUserId),
     queryFn: async () => {
-      const { data, error } = await supabase.from("creator_profiles").select("is_super_admin").eq("id", currentUserId!).maybeSingle();
+      const { data, error } = await supabase.from("creator_profiles").select("is_super_admin,is_gran_liga").eq("id", currentUserId!).maybeSingle();
       if (error) throw error;
-      return Boolean(data?.is_super_admin);
+      return { isSuperAdmin: Boolean(data?.is_super_admin), isGranLiga: Boolean(data?.is_gran_liga) };
     },
   });
   const metrics = displayedMetrics(media);
@@ -81,7 +81,16 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const caption = safeText(media?.caption);
   const authorName = safeText(media?.display_name, "Miembro de Cupido");
   const authorEmail = safeText(media?.email) || undefined;
-  const canManage = media.user_id === currentUserId || isSupremePost(session?.user.email, adminStatus.data);
+  const canManage = media.user_id === currentUserId || isSupremePost(session?.user.email, adminStatus.data?.isSuperAdmin);
+  const canPromote = media.user_id === currentUserId && Boolean(adminStatus.data?.isGranLiga) && !media.is_promoted;
+
+  const promotePost = async () => {
+    const { error } = await supabase.rpc("cupido_promote_post", { _post: postId });
+    if (error) { toast.error(error.message); return; }
+    toast.success("Publicación promocionada por 500 monedas.");
+    void queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] });
+  };
 
   const sharePeople = useQuery({
     queryKey: ["cupido-share-people", currentUserId],
@@ -175,7 +184,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   useEffect(() => {
     if (!commentsOpen) return;
     const channel = supabase
-      .channel(`cupido-comments-${postId}`)
+      .channel((`cupido-comments-${postId}`) + "-" + crypto.randomUUID())
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "cupido_post_comments", filter: `post_id=eq.${postId}` },
@@ -220,13 +229,14 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const renderComment = (comment: PostComment, depth = 0): ReactNode => (
     <div key={comment.id} className="space-y-2">
       <div className="flex gap-2 text-xs" style={{ marginLeft: `${Math.min(depth, 4) * 12}px` }}>
-        <Avatar className="size-6 shrink-0">
+        <div className="relative shrink-0"><GranLigaStar active={comment.is_gran_liga} /><Avatar className="size-6">
           <AvatarImage src={safeText(comment.avatar_url)} alt={safeText(comment.display_name, "Miembro")} />
           <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">{safeText(comment.display_name, "Miembro").slice(0, 2).toUpperCase()}</AvatarFallback>
-        </Avatar>
+        </Avatar></div>
         <div className="min-w-0 flex-1">
           <p className="break-words text-white">
             <span className="mr-1 font-medium">{safeText(comment.display_name, "Miembro")}</span>
+            <VerifiedBadge granLiga={comment.is_gran_liga} className="mr-1 inline size-3.5 align-text-bottom" />
             <span className="text-muted-foreground"><RichPostText text={safeText(comment.body)} onHashtag={onHashtag} /></span>
           </p>
           <div className="mt-1 flex items-center gap-3 text-[11px]">
@@ -300,19 +310,20 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           {media?.kind === "video" ? "Short" : media?.kind === "text" ? "Publicación" : "Foto"}
         </span>
         {media.is_pinned && <span className="absolute right-3 top-3 rounded-full bg-pink-600/90 px-2.5 py-1 text-[11px] font-semibold text-white">📌 Fijada</span>}
+        {media.is_promoted && <span className="absolute bottom-3 left-3 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-semibold text-black">Promocionada</span>}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
-          <Avatar className="h-10 w-10 border border-pink-400/40">
+          <div className="relative shrink-0"><GranLigaStar active={media.is_gran_liga} /><Avatar className="h-10 w-10 border border-pink-400/40">
             <AvatarImage src={safeText(media?.avatar_url)} alt={authorName} />
             <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
               {authorName.slice(0, 2).toUpperCase()}
             </AvatarFallback>
-          </Avatar>
+          </Avatar></div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-white">
               {authorName}
-              <VerifiedBadge email={authorEmail} official={media.is_super_admin} verified={Boolean(media?.is_verified_blue)} className="ml-1 inline size-4" />
+              <VerifiedBadge email={authorEmail} official={media.is_super_admin} verified={Boolean(media?.is_verified_blue)} granLiga={media.is_gran_liga} className="ml-1 inline size-4" />
             </p>
             <p className="line-clamp-2 text-xs text-muted-foreground">{media.kind === "text" ? "Publicación de la comunidad" : caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
@@ -383,6 +394,8 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           <div className="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
             <Button variant="outline" size="sm" onClick={() => { setEditTitle(media.title); setEditCaption(media.caption); setEditOpen(true); }}>Editar</Button>
             <Button variant="outline" size="sm" onClick={onPin}><Pin className="mr-1 size-3.5" />{media.is_pinned ? "Desfijar" : "Fijar en perfil"}</Button>
+            {canPromote && <Button variant="outline" size="sm" onClick={() => void promotePost()}><Megaphone className="mr-1 size-3.5" />Promocionar · 500</Button>}
+            {media.is_promoted && media.user_id === currentUserId && <span className="inline-flex items-center gap-1 text-xs text-amber-200"><Megaphone className="size-3.5" /> Promocionada</span>}
             <Button variant="outline" size="sm" onClick={() => { if (window.confirm("¿Eliminar esta publicación?")) onDelete(); }} className="text-rose-300"><Trash2 className="mr-1 size-3.5" />Eliminar</Button>
           </div>
         )}

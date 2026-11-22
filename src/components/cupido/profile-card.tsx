@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Beer, Baby, Heart, MessageCircle, ThumbsDown, UserMinus, UserPlus, X } from "lucide-react";
 import { displayedFollowerCount } from "@/lib/account";
 import { countryFlag, countryName, LOOKING_FOR } from "@/lib/cupido";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -18,6 +18,7 @@ export type CupidoProfile = {
   drinks: boolean;
   has_kids: boolean;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
   friend_count: number;
   follower_count: number;
   survey_completed: boolean;
@@ -58,7 +59,8 @@ export function ProfileCard({
   return (
     <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
       <div className="flex items-start gap-3 sm:gap-4">
-        <Link to="/perfil" search={{ userId: profile.id }} className="shrink-0">
+        <Link to="/perfil" search={{ userId: profile.id }} className="relative block shrink-0">
+          <GranLigaStar active={profile.is_gran_liga} />
           <Avatar className="h-12 w-12 border-2 border-pink-500/40 sm:h-16 sm:w-16">
             <AvatarImage src={profile.avatar_url} alt={profile.display_name} />
             <AvatarFallback className="bg-pink-500/20 text-lg text-pink-200">{initials}</AvatarFallback>
@@ -73,7 +75,7 @@ export function ProfileCard({
             >
               {profile.display_name}
             </Link>
-            <VerifiedBadge email={profile.email} official={profile.official} verified={profile.is_verified_blue} className="h-5 w-5" />
+            <VerifiedBadge email={profile.email} official={profile.official} verified={profile.is_verified_blue} granLiga={profile.is_gran_liga} className="h-5 w-5" />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground" title={countryName(profile.country_code)}>
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}

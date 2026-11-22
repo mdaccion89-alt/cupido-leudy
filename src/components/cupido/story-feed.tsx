@@ -93,7 +93,7 @@ export function StoryFeed() {
   });
 
   useEffect(() => {
-    const channel = supabase.channel("cupido-stories-live")
+    const channel = supabase.channel(("cupido-stories-live") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_stories" }, () => {
         void client.invalidateQueries({ queryKey: ["cupido-stories"] });
       })

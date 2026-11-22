@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { DailyReward } from "@/components/cupido/daily-reward";
 import { LiveRoom } from "@/components/cupido/live-room";
-import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
@@ -37,6 +37,7 @@ type LiveRow = {
   host_name: string;
   host_avatar: string;
   is_verified_blue: boolean;
+  is_gran_liga: boolean;
   email: string | null;
 };
 
@@ -44,6 +45,7 @@ type ActiveLive = {
   roomId: string;
   hostId: string;
   hostName: string;
+  hostIsGranLiga: boolean;
   role: "host" | "viewer";
   stream?: MediaStream | null;
 };
@@ -79,7 +81,7 @@ function CallsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("creator_profiles")
-        .select("display_name,is_verified_blue,is_official,is_super_admin")
+        .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin")
         .eq("id", viewerId!)
         .maybeSingle();
       if (error) throw error;
@@ -100,7 +102,7 @@ function CallsPage() {
       if (error) throw error;
       const ids = [...new Set((rooms ?? []).map((room) => room.host_id))];
       const profiles = ids.length
-        ? (await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_verified_blue,is_official,is_super_admin").in("id", ids)).data ?? []
+        ? (await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin").in("id", ids)).data ?? []
         : [];
       return (rooms ?? []).map<LiveRow>((room) => {
         const profile = profiles.find((row) => row.id === room.host_id);
@@ -112,6 +114,7 @@ function CallsPage() {
           host_name: profile?.display_name ?? "Miembro de Cupido",
           host_avatar: profile?.avatar_url ?? "",
           is_verified_blue: profile?.is_verified_blue ?? false,
+          is_gran_liga: profile?.is_gran_liga ?? false,
           email: profile?.is_official || profile?.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
         };
       });
@@ -120,7 +123,7 @@ function CallsPage() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("cupido-live-list")
+      .channel(("cupido-live-list") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
       })
@@ -133,7 +136,7 @@ function CallsPage() {
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase
-      .channel(`cupido-call-history-${viewerId}`)
+      .channel((`cupido-call-history-${viewerId}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_calls" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-call-history", viewerId] });
       })
@@ -179,6 +182,7 @@ function CallsPage() {
         roomId,
         hostId: viewerId!,
         hostName: myProfile.data?.display_name ?? "Tú",
+        hostIsGranLiga: Boolean(myProfile.data?.is_gran_liga),
         role: "host",
         stream,
       });
@@ -203,7 +207,7 @@ function CallsPage() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
   };
 
-  const canHostLive = Boolean(account.isSupremeAdmin || myProfile.data?.is_official || myProfile.data?.is_super_admin || myProfile.data?.is_verified_blue);
+  const canHostLive = Boolean(account.isSupremeAdmin || account.isGranLiga || myProfile.data?.is_gran_liga || myProfile.data?.is_official || myProfile.data?.is_super_admin || myProfile.data?.is_verified_blue);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">
@@ -278,13 +282,14 @@ function CallsPage() {
           ) : (
             liveRooms.data!.map((room) => (
               <div key={room.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-pink-500/20 text-lg">
+                <div className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-pink-500/20 text-lg">
+                  <GranLigaStar active={room.is_gran_liga} />
                   {room.host_name.slice(0, 1).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1 truncate text-sm font-medium text-white">
                     {room.title}
-                    <VerifiedBadge email={room.email} verified={room.is_verified_blue} className="size-4" />
+                    <VerifiedBadge email={room.email} verified={room.is_verified_blue} granLiga={room.is_gran_liga} className="size-4" />
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {room.host_name} · <Users className="inline size-3" /> {room.viewer_count} viendo
@@ -293,7 +298,7 @@ function CallsPage() {
                 <Button
                   size="sm"
                   onClick={() =>
-                    setActiveLive({ roomId: room.id, hostId: room.host_id, hostName: room.host_name, role: "viewer" })
+                    setActiveLive({ roomId: room.id, hostId: room.host_id, hostName: room.host_name, hostIsGranLiga: room.is_gran_liga, role: "viewer" })
                   }
                 >
                   Ver Live
@@ -361,6 +366,7 @@ function CallsPage() {
           roomId={activeLive.roomId}
           hostId={activeLive.hostId}
           hostName={activeLive.hostName}
+          hostIsGranLiga={activeLive.hostIsGranLiga}
           viewerId={viewerId}
           role={activeLive.role}
           initialStream={activeLive.stream ?? null}
