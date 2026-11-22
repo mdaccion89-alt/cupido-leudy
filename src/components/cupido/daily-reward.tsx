@@ -24,13 +24,17 @@ export function DailyReward() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;
+  const waitingMs = Math.max(0, lastClaim + DAY_MS - now);
+  const locked = waitingMs > 0 || claiming;
+  const nextDay = nextDailyDay(account.dailyStreak, lastClaim, now);
+  const claimLabel = nextDay === 1 ? "Reclamar día 1" : `Reclamar día ${nextDay}`;
+
   const claim = async () => {
     if (!session?.user.id) {
       toast.error("Inicia sesión para reclamar tu premio diario.");
       return;
     }
-    const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;
-    const nextDay = nextDailyDay(account.dailyStreak, lastClaim, Date.now());
     setClaiming(true);
     try {
       const result = await claimDaily({ data: { day: nextDay } });
@@ -44,11 +48,6 @@ export function DailyReward() {
       setClaiming(false);
     }
   };
-
-  const lastClaim = account.lastDailyClaim ? Date.parse(account.lastDailyClaim) : 0;
-  const waitingMs = Math.max(0, lastClaim + DAY_MS - now);
-  const locked = waitingMs > 0 || claiming;
-  const nextDay = nextDailyDay(account.dailyStreak, lastClaim, now);
 
   return (
     <section className="rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
@@ -80,7 +79,7 @@ export function DailyReward() {
       <div className="mt-3 grid gap-2">
         <Button className="w-full gap-2" disabled={locked} onClick={() => void claim()}>
           {claiming ? <Loader2 className="size-4 animate-spin" /> : <Coins className="size-4" />}
-          {claiming ? "Reclamando…" : locked ? `Vuelve en ${formatCountdown(waitingMs)}` : `Reclamar día ${nextDay}`}
+          {claiming ? "Reclamando…" : locked ? `Vuelve en ${formatCountdown(waitingMs)}` : claimLabel}
         </Button>
         <Button variant="outline" className="w-full gap-2 border-amber-200/25" onClick={() => setAdOpen(true)}>
           <Play className="size-4 fill-current" /> Ver Anuncio y Ganar +25 Monedas
