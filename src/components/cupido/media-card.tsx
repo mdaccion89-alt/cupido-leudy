@@ -17,6 +17,7 @@ import { isSupremePost, notifyUser } from "@/lib/posts";
 import { MEDIA_FILTERS, mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
 import {
   addComment,
+  databaseErrorMessage,
   displayedMetrics,
   fetchComments,
   formatCount,
@@ -202,7 +203,8 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       await queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
       await queryClient.invalidateQueries({ queryKey: ["cupido-historia"] });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo publicar el comentario.");
+      console.error("[comentarios] No se pudo insertar el comentario.", error);
+      toast.error(databaseErrorMessage(error, "No se pudo publicar el comentario."));
     } finally {
       setSending(false);
     }

@@ -17,6 +17,7 @@ import { mediaFilterCss } from "@/lib/media-filters";
 import { deliverFile, safeFilename } from "@/lib/download";
 import {
   addComment,
+  databaseErrorMessage,
   displayedLikeCount,
   fetchComments,
   fetchFeed,
@@ -36,8 +37,7 @@ type TikTokFeedProps = { initialPostId?: string | undefined };
 type SharePerson = { id: string; display_name: string };
 
 function errorMessage(value: unknown, fallback: string): string {
-  if (value instanceof Error) return value.message || fallback;
-  return fallback;
+  return databaseErrorMessage(value, fallback);
 }
 
 function ActionButton({
@@ -358,6 +358,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
         queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
       ]);
     } catch (error) {
+      console.error("[videos/comentarios] No se pudo insertar el comentario.", error);
       toast.error(errorMessage(error, "No se pudo publicar el comentario."));
     } finally {
       setSending(false);

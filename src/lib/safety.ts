@@ -23,7 +23,25 @@ export async function blockUser(targetId: string): Promise<void> {
 
 export async function fetchBlockedUserIds(viewerId: string | null): Promise<string[]> {
   if (!viewerId) return [];
-  const { data, error } = await safetyRpc("cupido_get_blocked_users");
-  if (error) throw new Error(error.message);
-  return Array.isArray(data) ? data.filter((id): id is string => typeof id === "string") : [];
+  let rpcError: unknown = null;
+  try {
+    const { data, error } = await safetyRpc("cupido_get_blocked_users");
+    if (!error && Array.isArray(data)) {
+      return data.filter((id): id is string => typeof id === "string");
+    }
+    rpcError = error;
+  } catch (error) {
+    rpcError = error;
+  }
+
+  // An unavailable optional block RPC must never take down the public media feed.
+  try {
+    const blockDb = supabase as unknown as { from: (table: string) => any };
+    const result = await blockDb.from("cupido_user_blocks").select("blocked_id").eq("blocker_id", viewerId);
+    if (!result.error) return (result.data ?? []).map((row: { blocked_id: string }) => row.blocked_id);
+    console.warn("[safety] No se pudieron cargar los bloqueos; se continúa mostrando el feed.", rpcError, result.error);
+  } catch (fallbackError) {
+    console.warn("[safety] La lista de bloqueos no está disponible; se continúa mostrando el feed.", rpcError, fallbackError);
+  }
+  return [];
 }

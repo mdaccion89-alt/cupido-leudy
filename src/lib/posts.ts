@@ -93,6 +93,15 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
+export function databaseErrorMessage(value: unknown, fallback: string): string {
+  if (value instanceof Error) return value.message || fallback;
+  if (value && typeof value === "object" && "message" in value) {
+    const message = String((value as { message?: unknown }).message ?? "");
+    if (message) return message;
+  }
+  return fallback;
+}
+
 const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
@@ -429,11 +438,10 @@ export async function addComment(postId: string, body: string, parentCommentId: 
   if (!userId) throw new Error("Inicia sesión.");
   const text = body.trim().slice(0, 500);
   if (!text) throw new Error("Escribe un comentario.");
-  const { error } = await db.from("cupido_post_comments").insert({
-    post_id: postId,
-    user_id: userId,
-    body: text,
-    parent_comment_id: parentCommentId,
+  const { error } = await db.rpc("cupido_add_post_comment", {
+    _post: postId,
+    _body: text,
+    _parent: parentCommentId,
   });
   if (error) throw error;
 }

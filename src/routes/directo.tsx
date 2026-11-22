@@ -80,42 +80,50 @@ function DirectPage() {
 
   const streams = useQuery({
     queryKey: ["cupido-direct-streams", viewerId],
-    queryFn: async () => {
-      const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
-      const { data: liveRows, error } = await supabase
-        .from("live_streams")
-        .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
-        .eq("status", "live")
-        .order("started_at", { ascending: false });
-      if (error) throw error;
-      const visibleLiveRows = (liveRows ?? []).filter((stream) => !blockedIds.has(stream.host_id));
-      const hostIds = [...new Set(visibleLiveRows.map((stream) => stream.host_id))];
-      const { data: profiles, error: profilesError } = hostIds.length
-        ? await supabase
-            .from("cupido_public_profiles")
-            .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
-            .in("id", hostIds)
-        : { data: [], error: null };
-      if (profilesError) throw profilesError;
-      const profileById = new Map((profiles ?? []).map((host) => [host.id, host]));
-      return visibleLiveRows.map<StreamRow>((stream) => {
-        const host = profileById.get(stream.host_id);
-        return {
-          id: stream.id,
-          host_id: stream.host_id,
-          title: stream.title,
-          viewers_count: stream.viewers_count,
-          started_at: stream.started_at,
-          host_name: host?.display_name?.trim() || "Miembro de Cupido",
-          host_avatar: host?.avatar_url ?? "",
-          is_verified_blue: Boolean(host?.is_verified_blue),
-          is_gran_liga: Boolean(host?.is_gran_liga),
-          is_official: Boolean(host?.is_official || host?.is_super_admin),
-          premium_coins: stream.premium_coins ?? 0,
-          premium_minutes: stream.premium_minutes ?? 0,
-          premium_ends_at: stream.premium_ends_at ?? null,
-        };
-      });
+    queryFn: async (): Promise<StreamRow[]> => {
+      try {
+        const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
+        const { data: liveRows, error } = await supabase
+          .from("live_streams")
+          .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
+          .eq("status", "live")
+          .order("started_at", { ascending: false });
+        if (error) {
+          console.error("[directo] No se pudieron cargar los Directos activos.", error);
+          return [];
+        }
+        const visibleLiveRows = (liveRows ?? []).filter((stream) => !blockedIds.has(stream.host_id));
+        const hostIds = [...new Set(visibleLiveRows.map((stream) => stream.host_id))];
+        const { data: profiles, error: profilesError } = hostIds.length
+          ? await supabase
+              .from("cupido_public_profiles")
+              .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
+              .in("id", hostIds)
+          : { data: [], error: null };
+        if (profilesError) console.warn("[directo] Se mostrarán los Lives sin datos públicos de anfitrión.", profilesError);
+        const profileById = new Map((profiles ?? []).map((host) => [host.id, host]));
+        return visibleLiveRows.map<StreamRow>((stream) => {
+          const host = profileById.get(stream.host_id);
+          return {
+            id: stream.id,
+            host_id: stream.host_id,
+            title: stream.title,
+            viewers_count: stream.viewers_count,
+            started_at: stream.started_at,
+            host_name: host?.display_name?.trim() || "Miembro de Cupido",
+            host_avatar: host?.avatar_url ?? "",
+            is_verified_blue: Boolean(host?.is_verified_blue),
+            is_gran_liga: Boolean(host?.is_gran_liga),
+            is_official: Boolean(host?.is_official || host?.is_super_admin),
+            premium_coins: stream.premium_coins ?? 0,
+            premium_minutes: stream.premium_minutes ?? 0,
+            premium_ends_at: stream.premium_ends_at ?? null,
+          };
+        });
+      } catch (error) {
+        console.error("[directo] Error inesperado leyendo Directos activos.", error);
+        return [];
+      }
     },
     staleTime: 0,
   });

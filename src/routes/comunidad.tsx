@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { COUNTRIES, LOOKING_FOR, countryFlag } from "@/lib/cupido";
-import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { databaseErrorMessage, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export const Route = createFileRoute("/comunidad")({
   head: () => ({ meta: [{ title: "Comunidad — Cupido Leudy ❤️" }] }),
@@ -215,7 +215,8 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     },
     onError: (error, variables) => {
       if (variables.kind === "pass") setOptimisticPasses((ids) => ids.filter((id) => id !== variables.targetId));
-      toast.error(error instanceof Error ? error.message : "No se pudo guardar tu interés.");
+      console.error("[comunidad] cupido_set_like devolvió un error de Supabase.", error);
+      toast.error(databaseErrorMessage(error, "No se pudo guardar tu interés."));
     },
   });
 
