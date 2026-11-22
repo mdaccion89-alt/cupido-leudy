@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Ban,
   Coffee,
   Copy,
   CreditCard,
   Flame,
   Forward,
   Gift,
+  Flag,
+  FlipHorizontal,
   ImagePlus,
   Loader2,
   Mic,
@@ -19,6 +22,7 @@ import {
   Pencil,
   Reply,
   Send,
+  SkipForward,
   Square,
   Trash2,
   Video,
@@ -41,6 +45,7 @@ import { CREDIT_PACKAGES } from "@/lib/credits";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { blockUser, reportUser } from "@/lib/safety";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import {
@@ -53,7 +58,7 @@ import {
 } from "@/lib/cupido";
 
 export const Route = createFileRoute("/chat")({
-  validateSearch: (search: { userId?: string }) => search,
+  validateSearch: (search: { userId?: string; startVideo?: boolean; roulette?: boolean; openGift?: boolean }) => search,
   head: () => ({ meta: [{ title: "Chat — Cupido Leudy ❤️" }] }),
   component: ChatPage,
 });
@@ -110,7 +115,7 @@ type ActiveCall = {
 type SignalPayload =
   | { kind: "offer"; sdp: RTCSessionDescriptionInit }
   | { kind: "answer"; sdp: RTCSessionDescriptionInit }
-  | { kind: "ice"; candidate: RTCIceCandidateInit };
+  | { kind: "ice-candidate"; candidate: RTCIceCandidateInit };
 
 function actionErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message) return error.message;
@@ -131,11 +136,12 @@ function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) 
 }
 
 function ChatPage() {
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, onlineUserIds } = useAuth();
   const account = useAccount();
   const viewerId = session?.user.id ?? null;
-  const { userId: searchUserId } = Route.useSearch();
+  const { userId: searchUserId, startVideo: startVideoOnOpen, roulette, openGift } = Route.useSearch();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [giftOpen, setGiftOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -146,6 +152,8 @@ function ChatPage() {
   const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
   const [recording, setRecording] = useState(false);
   const [openingConversation, setOpeningConversation] = useState(false);
+  const [chatFilter, setChatFilter] = useState<"all" | "online" | "unread" | "following">("all");
+  const [otherTyping, setOtherTyping] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [incoming, setIncoming] = useState<{ call: CupidoCall; profile: ChatProfile | null } | null>(null);
   const openedRef = useRef<string | null>(null);
@@ -153,6 +161,9 @@ function ChatPage() {
   const chunksRef = useRef<Blob[]>([]);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const startVideoAttemptRef = useRef<string | null>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
 
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
@@ -196,6 +207,66 @@ function ChatPage() {
       });
     },
   });
+
+  const conversationIdsKey = (conversations.data ?? []).map((conversation) => conversation.id).join(",");
+  const unreadByConversation = useQuery({
+    queryKey: ["cupido-chat-unread", viewerId, conversationIdsKey],
+    enabled: Boolean(viewerId && conversationIdsKey),
+    queryFn: async () => {
+      const ids = conversationIdsKey.split(",").filter(Boolean);
+      const { data, error } = await supabase.from("cupido_messages")
+        .select("conversation_id")
+        .in("conversation_id", ids)
+        .neq("sender_id", viewerId!)
+        .is("read_at", null);
+      if (error) throw error;
+      return (data ?? []).reduce<Record<string, number>>((counts, message) => {
+        counts[message.conversation_id] = (counts[message.conversation_id] ?? 0) + 1;
+        return counts;
+      }, {});
+    },
+  });
+
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase.channel(`cupido-chat-unread-live-${viewerId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_messages" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-chat-unread", viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
+
+  const followedContacts = useQuery({
+    queryKey: ["cupido-chat-followed", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("follows").select("following_id").eq("follower_id", viewerId!);
+      if (error) throw error;
+      return new Set((data ?? []).map((row) => row.following_id));
+    },
+  });
+
+  const onlineContactIds = onlineUserIds.filter((id) => id !== viewerId);
+  const onlineContacts = useQuery({
+    queryKey: ["cupido-chat-online-contacts", onlineContactIds.join(",")],
+    enabled: onlineContactIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles")
+        .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga,is_official,is_super_admin")
+        .in("id", onlineContactIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 10_000,
+  });
+
+  const filteredConversations = useMemo(() => (conversations.data ?? []).filter((conversation) => {
+    if (chatFilter === "online") return Boolean(conversation.other && onlineUserIds.includes(conversation.other.id));
+    if (chatFilter === "unread") return (unreadByConversation.data?.[conversation.id] ?? 0) > 0;
+    if (chatFilter === "following") return Boolean(conversation.other && followedContacts.data?.has(conversation.other.id));
+    return true;
+  }), [chatFilter, conversations.data, followedContacts.data, onlineUserIds, unreadByConversation.data]);
 
   useEffect(() => {
     if (!viewerId || !searchUserId || openedRef.current === searchUserId) return;
@@ -329,6 +400,7 @@ function ChatPage() {
           }
           void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
           void queryClient.invalidateQueries({ queryKey: ["cupido-unread-messages", viewerId] });
+          void queryClient.invalidateQueries({ queryKey: ["cupido-chat-unread", viewerId] });
         },
       )
       .subscribe();
@@ -336,6 +408,26 @@ function ChatPage() {
       void supabase.removeChannel(channel);
     };
   }, [activeId, queryClient, viewerId]);
+
+  useEffect(() => {
+    if (!activeId || !viewerId) return;
+    const channel = supabase.channel(`cupido-chat-typing-${activeId}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const state = payload as { user_id?: string; typing?: boolean };
+        if (state.user_id === viewerId) return;
+        setOtherTyping(Boolean(state.typing));
+        if (typingTimeoutRef.current !== null) window.clearTimeout(typingTimeoutRef.current);
+        if (state.typing) typingTimeoutRef.current = window.setTimeout(() => setOtherTyping(false), 1800);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      typingChannelRef.current = null;
+      if (typingTimeoutRef.current !== null) window.clearTimeout(typingTimeoutRef.current);
+      setOtherTyping(false);
+      void supabase.removeChannel(channel);
+    };
+  }, [activeId, viewerId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -428,6 +520,15 @@ function ChatPage() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar el mensaje."),
   });
+
+  const broadcastTyping = (value: string) => {
+    if (!activeId || !viewerId || !typingChannelRef.current) return;
+    void typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { user_id: viewerId, typing: Boolean(value.trim()) },
+    });
+  };
 
   const uploadVoice = async (blob: Blob) => {
     if (!activeId || !viewerId) return;
@@ -641,6 +742,54 @@ function ChatPage() {
       toast.error(callErrorMessage(error instanceof Error ? error.message : "", "No se pudo iniciar la llamada.")),
   });
 
+  useEffect(() => {
+    if (!startVideoOnOpen || !searchUserId || account.loading || call || !activeConversation || activeConversation.other?.id !== searchUserId) return;
+    const key = `${viewerId}:${searchUserId}`;
+    if (startVideoAttemptRef.current === key) return;
+    startVideoAttemptRef.current = key;
+    startCall.mutate({ mode: "cafe", video: true });
+  }, [account.loading, activeConversation, call, searchUserId, startCall, startVideoOnOpen, viewerId]);
+
+  useEffect(() => {
+    if (openGift && activeConversation?.other?.id === searchUserId) setGiftOpen(true);
+  }, [activeConversation?.other?.id, openGift, searchUserId]);
+
+  const skipToNextOnlineCall = async () => {
+    if (!call) return;
+    const candidates = (onlineContacts.data ?? []).filter((person) => person.id !== call.otherId);
+    await supabase.rpc("cupido_end_call", { _id: call.id, _status: "ended" });
+    setCall(null);
+    if (!candidates.length) {
+      toast.info(roulette ? "No hay más personas conectadas. Vuelve a intentarlo en unos instantes." : "No hay otra persona conectada para la siguiente llamada.");
+      return;
+    }
+    const next = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!next) return;
+    void navigate({ to: "/chat", search: { userId: next.id, startVideo: true, roulette: true } });
+  };
+
+  const reportActiveCall = async () => {
+    if (!call) return;
+    try {
+      await reportUser(call.otherId, "Reporte enviado durante una videollamada");
+      toast.success("Reporte enviado al equipo de seguridad.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo enviar el reporte.");
+    }
+  };
+
+  const blockActiveCall = async () => {
+    if (!call) return;
+    try {
+      await blockUser(call.otherId);
+      await supabase.rpc("cupido_end_call", { _id: call.id, _status: "ended" });
+      setCall(null);
+      toast.success("Usuario bloqueado y llamada finalizada.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo bloquear al usuario.");
+    }
+  };
+
   const sendGift = useMutation({
     mutationFn: async (gift: GiftItem) => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
@@ -740,6 +889,13 @@ function ChatPage() {
           <div className="border-b border-white/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Conversaciones
           </div>
+          <nav aria-label="Filtros de chat" className="flex gap-1 overflow-x-auto border-b border-white/10 p-2">
+            {([["all", "Todos"], ["online", "En línea"], ["unread", "Sin leer"], ["following", "Seguidos"]] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setChatFilter(value)} className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium ${chatFilter === value ? "bg-pink-500/20 text-pink-100" : "text-muted-foreground hover:bg-white/5"}`}>
+                {label}
+              </button>
+            ))}
+          </nav>
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
           {conversations.isError && (
             <div className="space-y-2 p-4 text-sm text-red-200">
@@ -751,7 +907,8 @@ function ChatPage() {
             <p className="p-4 text-sm text-muted-foreground">Aún no tienes conversaciones. Busca personas en Comunidad.</p>
           )}
           {openingConversation && <p className="p-4 text-sm text-muted-foreground">Abriendo conversación…</p>}
-          {conversations.data?.map((row) => (
+          {!conversations.isLoading && !conversations.isError && conversations.data?.length && !filteredConversations.length && <p className="p-4 text-sm text-muted-foreground">No hay chats que coincidan con este filtro.</p>}
+          {filteredConversations.map((row) => (
             <button
               key={row.id}
               type="button"
@@ -771,7 +928,10 @@ function ChatPage() {
                   {row.other?.display_name ?? "Miembro"}
                   <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} granLiga={row.other?.is_gran_liga} className="h-4 w-4" />
                 </span>
-                <span className="block truncate text-xs text-muted-foreground">Toca para abrir la conversación</span>
+                <span className="flex items-center gap-2">
+                  <span className="block truncate text-xs text-muted-foreground">{onlineUserIds.includes(row.other?.id ?? "") ? "Disponible" : "Toca para abrir la conversación"}</span>
+                  {(unreadByConversation.data?.[row.id] ?? 0) > 0 && <span className="grid size-5 shrink-0 place-items-center rounded-full bg-pink-500 text-[10px] font-bold text-white">{unreadByConversation.data?.[row.id]}</span>}
+                </span>
               </span>
             </button>
           ))}
@@ -797,7 +957,7 @@ function ChatPage() {
                     ) : "Miembro"}
                     <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} granLiga={activeConversation.other?.is_gran_liga} className="h-4 w-4" />
                   </p>
-                  <p className="text-xs text-muted-foreground">Chat privado de Cupido Leudy</p>
+                  <p className="text-xs text-muted-foreground">{otherTyping ? "Escribiendo…" : onlineUserIds.includes(activeConversation.other?.id ?? "") ? "En línea" : "Chat privado de Cupido Leudy"}</p>
                 </div>
                 <span className="flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-100" title="Tus monedas brillantes">
                   <CoinIcon className="size-4" />
@@ -859,6 +1019,7 @@ function ChatPage() {
                         )}
                         <p className={`mt-1 text-[10px] ${mine ? "text-pink-100/80" : "text-muted-foreground"}`}>
                           {message.edited_at ? "Editado · " : ""}{new Date(message.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
+                          {mine && <span className="ml-1 font-semibold text-sky-200">{message.read_at ? "✓✓ Leído" : "✓"}</span>}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-white/10 pt-1">
                           <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setReplyTarget({ id: message.id, body: message.body || (message.audio_path ? "Nota de voz" : "Foto"), sender_id: message.sender_id })} aria-label="Responder citando este mensaje"><Reply className="inline size-3" /> Responder</button>
@@ -900,7 +1061,7 @@ function ChatPage() {
                   </Button>
                   <Input
                     value={text}
-                    onChange={(event) => setText(event.target.value)}
+                    onChange={(event) => { setText(event.target.value); broadcastTyping(event.target.value); }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
@@ -1053,6 +1214,10 @@ function ChatPage() {
           role={call.role}
           viewerId={viewerId}
           onClose={() => setCall(null)}
+          onSkip={() => void skipToNextOnlineCall()}
+          onOpenGift={() => { setPendingGiftPurchase(null); setGiftOpen(true); }}
+          onReport={() => void reportActiveCall()}
+          onBlock={() => void blockActiveCall()}
         />
       )}
     </main>
@@ -1094,6 +1259,10 @@ function CallRoom({
   role,
   viewerId,
   onClose,
+  onSkip,
+  onOpenGift,
+  onReport,
+  onBlock,
 }: {
   callId: string;
   mode: "hot" | "cafe";
@@ -1102,10 +1271,15 @@ function CallRoom({
   role: "caller" | "callee";
   viewerId: string;
   onClose: () => void;
+  onSkip: () => void;
+  onOpenGift: () => void;
+  onReport: () => void;
+  onBlock: () => void;
 }) {
   const [status, setStatus] = useState("Conectando…");
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -1154,7 +1328,7 @@ function CallRoom({
   useEffect(() => {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcRef.current = pc;
-    const channel = supabase.channel((`cupido-call-${callId}`) + "-" + crypto.randomUUID());
+    const channel = supabase.channel(`cupido-call-${callId}`);
     channelRef.current = channel;
 
     const sendSignal = async (payload: SignalPayload) => {
@@ -1175,7 +1349,7 @@ function CallRoom({
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) void sendSignal({ kind: "ice", candidate: event.candidate.toJSON() });
+      if (event.candidate) void sendSignal({ kind: "ice-candidate", candidate: event.candidate.toJSON() });
     };
 
     pc.ontrack = (event) => {
@@ -1214,7 +1388,7 @@ function CallRoom({
           stopRingRef.current?.();
           await pc.setRemoteDescription(payload.sdp);
           await flushCandidates();
-        } else if (payload.kind === "ice") {
+        } else if (payload.kind === "ice-candidate") {
           if (pc.remoteDescription) await pc.addIceCandidate(payload.candidate).catch(() => undefined);
           else pendingCandidatesRef.current.push(payload.candidate);
         }
@@ -1224,7 +1398,7 @@ function CallRoom({
     void (async () => {
       try {
         await requestNativeMediaPermissions({ camera: videoCall, microphone: true });
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoCall });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoCall ? { facingMode: { ideal: "user" } } : false });
         if (closedRef.current) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -1269,6 +1443,30 @@ function CallRoom({
     setMuted(next);
   };
 
+  const flipCamera = async () => {
+    if (!videoCall || !navigator.mediaDevices?.getUserMedia || !pcRef.current || !localStreamRef.current) return;
+    const nextFacing: "user" | "environment" = facingMode === "user" ? "environment" : "user";
+    try {
+      await requestNativeMediaPermissions({ camera: true, microphone: false });
+      const replacementStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: nextFacing } }, audio: false });
+      const nextTrack = replacementStream.getVideoTracks()[0];
+      if (!nextTrack) throw new Error("No se encontró la cámara seleccionada.");
+      const sender = pcRef.current.getSenders().find((item) => item.track?.kind === "video");
+      if (!sender) throw new Error("La videollamada no tiene una pista de video activa.");
+      await sender.replaceTrack(nextTrack);
+      const previousTrack = localStreamRef.current.getVideoTracks()[0];
+      if (previousTrack) {
+        localStreamRef.current.removeTrack(previousTrack);
+        previousTrack.stop();
+      }
+      localStreamRef.current.addTrack(nextTrack);
+      if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+      setFacingMode(nextFacing);
+    } catch (error) {
+      toast.error(mediaPermissionMessage(error) ?? (error instanceof Error ? error.message : "No se pudo cambiar la cámara."));
+    }
+  };
+
   const minutes = Math.floor(seconds / 60)
     .toString()
     .padStart(2, "0");
@@ -1299,10 +1497,15 @@ function CallRoom({
           {minutes}:{remainder}
         </p>
         {!videoCall && <audio ref={remoteAudioRef} autoPlay playsInline muted={false} className="hidden" />}
-        <div className="flex justify-center gap-3">
+        <div className="flex flex-wrap justify-center gap-2">
           <Button variant={muted ? "destructive" : "outline"} size="icon" onClick={toggleMute} aria-label="Silenciar">
             {muted ? <MicOff /> : <Mic />}
           </Button>
+          {videoCall && <Button variant="outline" onClick={() => void flipCamera()}><FlipHorizontal className="size-4" /> Voltear</Button>}
+          <Button variant="outline" onClick={onOpenGift}><Gift className="size-4" /> Regalo</Button>
+          <Button variant="outline" onClick={onSkip}><SkipForward className="size-4" /> Siguiente</Button>
+          <Button variant="outline" size="icon" onClick={onReport} aria-label="Reportar y seguir"><Flag /></Button>
+          <Button variant="destructive" size="icon" onClick={onBlock} aria-label="Bloquear y colgar"><Ban /></Button>
           <Button variant="destructive" onClick={() => void endCall()}>
             <PhoneOff /> Colgar
           </Button>

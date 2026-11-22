@@ -8,8 +8,8 @@ import { useRouter } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-type AuthState = { session: Session | null; loading: boolean };
-const AuthContext = createContext<AuthState>({ session: null, loading: true });
+type AuthState = { session: Session | null; loading: boolean; onlineUserIds: string[] };
+const AuthContext = createContext<AuthState>({ session: null, loading: true, onlineUserIds: [] });
 const SAVED_ACCOUNTS_KEY = "cupido_saved_accounts";
 
 type SavedSession = {
@@ -84,7 +84,7 @@ function ensureMyProfile(): Promise<void> {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({ session: null, loading: true });
+  const [state, setState] = useState<AuthState>({ session: null, loading: true, onlineUserIds: [] });
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -125,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       rememberSession(session);
-      setState({ session, loading: false });
+      setState((current) => ({ ...current, session, loading: false }));
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
       if (event === "SIGNED_OUT") queryClient.removeQueries({ queryKey: ["songs"] });
@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .getSession()
       .then(({ data }) => {
         rememberSession(data.session);
-        setState({ session: data.session, loading: false });
+        setState((current) => ({ ...current, session: data.session, loading: false }));
       });
     return () => {
       active = false;
@@ -152,6 +152,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       void appUrlListener?.remove();
     };
   }, [router, queryClient]);
+
+  const viewerId = state.session?.user.id ?? null;
+
+  useEffect(() => {
+    if (!viewerId) {
+      setState((current) => current.onlineUserIds.length ? { ...current, onlineUserIds: [] } : current);
+      return;
+    }
+    const channel = supabase
+      .channel("cupido-global-presence", { config: { presence: { key: viewerId } } })
+      .on("presence", { event: "sync" }, () => {
+        const ids = new Set<string>();
+        Object.values(channel.presenceState<{ user_id?: string }>()).flat().forEach((presence) => {
+          if (presence.user_id) ids.add(presence.user_id);
+        });
+        setState((current) => ({ ...current, onlineUserIds: [...ids] }));
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          void channel.track({ user_id: viewerId, online_at: new Date().toISOString() });
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [viewerId]);
+
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase.channel(`cupido-account-live-${viewerId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_credits", filter: `user_id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["account", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["account", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances", filter: `user_id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
 
   return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
 }

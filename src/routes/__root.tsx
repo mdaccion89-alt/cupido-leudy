@@ -240,6 +240,14 @@ function AndroidBackHandler() {
     let listener: Awaited<ReturnType<typeof App.addListener>> | undefined;
     void App.addListener("backButton", ({ canGoBack }) => {
       if (!active) return;
+      const appBack = new Event("cupido:android-back", { cancelable: true });
+      window.dispatchEvent(appBack);
+      if (appBack.defaultPrevented) return;
+      const openDialog = document.querySelector('[role="dialog"][data-state="open"]');
+      if (openDialog) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        return;
+      }
       if (canGoBack || window.history.length > 1) {
         router.history.back();
       } else if (pathname !== "/") {

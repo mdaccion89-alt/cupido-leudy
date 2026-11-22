@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, SlidersHorizontal, Users } from "lucide-react";
@@ -25,19 +25,36 @@ export const Route = createFileRoute("/comunidad")({
 type FriendMap = Map<string, string>;
 
 export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId?: string | undefined; searchTerm?: string | undefined } = {}) {
-  const { session } = useAuth();
+  const { session, onlineUserIds } = useAuth();
   const viewerId = session?.user.id ?? null;
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("all");
+  const [sortMode, setSortMode] = useState("featured");
   const [looking, setLooking] = useState("all");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [optimisticPasses, setOptimisticPasses] = useState<string[]>([]);
+  const countryTouched = useRef(false);
+
+  const viewerCountry = useQuery({
+    queryKey: ["cupido-discovery-country", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles").select("country_code").eq("id", viewerId!).maybeSingle();
+      if (error) throw error;
+      return data?.country_code ?? "";
+    },
+  });
+
+  useEffect(() => {
+    const code = viewerCountry.data?.toUpperCase();
+    if (!countryTouched.current && code && COUNTRIES.some(([countryCode]) => countryCode === code)) setCountry(code);
+  }, [viewerCountry.data]);
 
   const people = useQuery({
-    queryKey: ["cupido-people", viewerId, search, country, looking, verifiedOnly],
+    queryKey: ["cupido-people", viewerId, search, country, looking, verifiedOnly, sortMode],
     queryFn: async () => {
       const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
       if (officialProfile.error) console.error("[comunidad] No se pudo localizar la cuenta oficial.", officialProfile.error);
@@ -106,6 +123,10 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       const newcomers = candidates
         .filter((row) => !row.is_official_profile && !row.is_verified_blue)
         .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")));
+      if (sortMode === "new") {
+        return [...official, ...candidates.filter((row) => !row.is_official_profile)
+          .sort((a, b) => Date.parse(String(b.created_at ?? "")) - Date.parse(String(a.created_at ?? "")))];
+      }
       return [...official, ...verified, ...newcomers];
     },
   });
@@ -204,13 +225,14 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         friend_count: person.friend_count ?? 0,
         follower_count: person.follower_count ?? 0,
         survey_completed: Boolean(person.survey_completed),
+        isOnline: onlineUserIds.includes(person.id),
         live_id: activeLives.data?.find((live) => live.host_id === person.id)?.id,
         live_viewers: (() => {
           const live = activeLives.data?.find((stream) => stream.host_id === person.id);
           return live ? livePresenceCounts[live.id] ?? live.viewers_count : undefined;
         })(),
       })),
-    [people.data, relations.data?.passed, optimisticPasses, viewerId, activeLives.data, livePresenceCounts],
+    [people.data, relations.data?.passed, optimisticPasses, viewerId, activeLives.data, livePresenceCounts, onlineUserIds],
   );
 
   const requireLogin = () => {
@@ -363,13 +385,23 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         </div>
         <div className="space-y-2">
           <Label>País</Label>
-          <Select value={country} onValueChange={setCountry}>
+          <Select value={country} onValueChange={(value) => { countryTouched.current = true; setCountry(value); }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent className="max-h-72">
               <SelectItem value="all">Todos los países</SelectItem>
               {COUNTRIES.map(([code, name]) => (
-                <SelectItem key={code} value={code}>{countryFlag(code)} {name}</SelectItem>
+                <SelectItem key={code} value={code}>{countryFlag(code)} {name}{code === viewerCountry.data?.toUpperCase() ? " · Tu país" : ""}</SelectItem>
               ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Ordenar perfiles</Label>
+          <Select value={sortMode} onValueChange={setSortMode}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="featured">Destacado</SelectItem>
+              <SelectItem value="new">Nuevo</SelectItem>
             </SelectContent>
           </Select>
         </div>

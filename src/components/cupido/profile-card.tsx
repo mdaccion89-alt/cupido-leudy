@@ -23,6 +23,7 @@ export type CupidoProfile = {
   follower_count: number;
   survey_completed: boolean;
   is_cupido_active?: boolean;
+  isOnline?: boolean;
   live_id?: string;
   live_viewers?: number;
 };
@@ -66,8 +67,8 @@ export function ProfileCard({
           {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.display_name} className="size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center bg-gradient-to-br from-violet-950 to-rose-950 text-4xl font-bold text-white/80">{initials}</div>}
           <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/95" />
           <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/25 bg-emerald-950/70 px-2 py-1 text-[10px] font-semibold text-emerald-100 backdrop-blur">
-            <span className={`size-1.5 rounded-full ${profile.is_cupido_active === false ? "bg-slate-400" : "animate-pulse bg-emerald-400"}`} />
-            {profile.is_cupido_active === false ? "Ahora no" : "Disponible"}
+            <span className={`size-1.5 rounded-full ${profile.isOnline ? "animate-pulse bg-emerald-400" : "bg-slate-400"}`} />
+            {profile.isOnline ? "Disponible" : "Desconectado"}
           </span>
           {profile.live_id && <span className="absolute left-2.5 top-10 inline-flex items-center gap-1 rounded-full bg-rose-600/95 px-2 py-1 text-[10px] font-bold text-white shadow"><span className="size-1.5 animate-pulse rounded-full bg-white" /> LIVE <Eye className="ml-1 size-3" /> {profile.live_viewers ?? 0}</span>}
           <span className="absolute inset-x-2.5 bottom-2.5">
@@ -82,7 +83,7 @@ export function ProfileCard({
           profile.live_id ? (
             <Link to="/directo" search={{ liveId: profile.live_id }} aria-label={`Entrar al Live de ${profile.display_name}`} className="absolute bottom-2.5 right-2.5 grid size-10 place-items-center rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500"><Video className="size-4" /></Link>
           ) : (
-            <Link to="/chat" search={{ userId: profile.id }} aria-label={`Videollamada con ${profile.display_name}`} className="absolute bottom-2.5 right-2.5 grid size-10 place-items-center rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500"><Video className="size-4" /></Link>
+            <Link to="/chat" search={{ userId: profile.id, startVideo: true, roulette: false }} aria-label={`Videollamada con ${profile.display_name}`} className="absolute bottom-2.5 right-2.5 grid size-10 place-items-center rounded-full border border-violet-200/30 bg-violet-600 text-white shadow-lg hover:bg-violet-500"><Video className="size-4" /></Link>
           )
         )}
       </div>

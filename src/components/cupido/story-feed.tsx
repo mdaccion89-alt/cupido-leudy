@@ -117,6 +117,10 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_stories" }, () => {
         void client.invalidateQueries({ queryKey: ["cupido-stories"] });
       })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cupido_story_views" }, () => {
+        void client.invalidateQueries({ queryKey: ["cupido-stories"] });
+        void client.invalidateQueries({ queryKey: ["cupido-story-viewers"] });
+      })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [client, viewerId]);
@@ -289,6 +293,16 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
 
   useEffect(() => {
     if (!activeStory) return;
+    const handleBack = (event: Event) => {
+      event.preventDefault();
+      setStoryViewerId(null);
+    };
+    window.addEventListener("cupido:android-back", handleBack);
+    return () => window.removeEventListener("cupido:android-back", handleBack);
+  }, [activeStory]);
+
+  useEffect(() => {
+    if (!activeStory) return;
     const timer = window.setTimeout(() => {
       setStoryViewerId(storySequence[activeStoryIndex + 1]?.id ?? null);
     }, 6_000);
@@ -416,12 +430,12 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
           </div>
           <div className="absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-3 px-4 pb-[calc(6.25rem+env(safe-area-inset-bottom))]">
             <div className="flex flex-wrap gap-2">
-              <Button asChild size="sm" className="rounded-full bg-violet-600 text-white hover:bg-violet-500"><Link to="/chat" search={{ userId: activeStory.user_id }}><Video className="size-4" /> Videollamada</Link></Button>
+              <Button asChild size="sm" className="rounded-full bg-violet-600 text-white hover:bg-violet-500"><Link to="/chat" search={{ userId: activeStory.user_id, startVideo: true, roulette: false }}><Video className="size-4" /> Videollamada</Link></Button>
               <Button asChild size="sm" variant="outline" className="rounded-full border-white/40 bg-black/30 text-white hover:bg-white/15"><Link to="/chat" search={{ userId: activeStory.user_id }}><MessageCircle className="size-4" /> Chat</Link></Button>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button type="button" size="icon" aria-label={activeStory.liked ? "Quitar corazón" : "Enviar corazón"} variant="outline" className="size-11 rounded-full border-pink-200/40 bg-black/35 text-white hover:bg-pink-500/40" onClick={() => void interact("cupido_toggle_story_heart", { _story: activeStory.id }, activeStory.liked ? "Quitaste tu corazón." : "Enviaste un corazón.")}><Heart className={`size-5 ${activeStory.liked ? "fill-pink-400 text-pink-400" : ""}`} /></Button>
-              <Button asChild size="icon" aria-label="Enviar un regalo" className="size-11 rounded-full bg-amber-400 text-amber-950 hover:bg-amber-300"><Link to="/tienda" search={{ userId: activeStory.user_id }}><Gift className="size-5" /></Link></Button>
+              <Button asChild size="icon" aria-label="Enviar un regalo" className="size-11 rounded-full bg-amber-400 text-amber-950 hover:bg-amber-300"><Link to="/chat" search={{ userId: activeStory.user_id, openGift: true }}><Gift className="size-5" /></Link></Button>
             </div>
           </div>
           <button type="button" aria-label="Historia anterior" className="absolute bottom-28 left-0 top-24 z-[5] w-1/4" onClick={() => setStoryViewerId(storySequence[Math.max(0, activeStoryIndex - 1)]?.id ?? activeStory.id)} />

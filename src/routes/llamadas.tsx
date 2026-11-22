@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Coffee, Flame, Phone, Radio, ShoppingBag, Users } from "lucide-react";
+import { Coffee, Flame, Phone, Radio, ShoppingBag, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { DailyReward } from "@/components/cupido/daily-reward";
@@ -52,14 +52,28 @@ type ActiveLive = {
 };
 
 function CallsPage() {
-  const { session } = useAuth();
+  const { session, onlineUserIds } = useAuth();
   const account = useAccount();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const viewerId = session?.user.id ?? null;
   const [liveTitle, setLiveTitle] = useState("");
   const [activeLive, setActiveLive] = useState<ActiveLive | null>(null);
   const [startingLive, setStartingLive] = useState(false);
   const pendingStreamRef = useRef<MediaStream | null>(null);
+  const matchIds = onlineUserIds.filter((id) => id !== viewerId);
+  const onlineMatches = useQuery({
+    queryKey: ["cupido-call-roulette-online", matchIds.join(",")],
+    enabled: matchIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles")
+        .select("id,display_name,avatar_url")
+        .in("id", matchIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 5_000,
+  });
 
   const calls = useQuery({
     queryKey: ["cupido-call-history", viewerId],
@@ -211,6 +225,21 @@ function CallsPage() {
     void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
   };
 
+  const startVideoRoulette = () => {
+    if (!viewerId) {
+      toast.info("Inicia sesión para buscar una videollamada.");
+      void navigate({ to: "/auth", search: { ref: "" } });
+      return;
+    }
+    const candidates = onlineMatches.data ?? [];
+    if (!candidates.length) {
+      toast.info("No hay personas conectadas en este momento. Prueba de nuevo en unos instantes.");
+      return;
+    }
+    const match = candidates[Math.floor(Math.random() * candidates.length)];
+    if (match) void navigate({ to: "/chat", search: { userId: match.id, startVideo: true, roulette: true } });
+  };
+
   const canHostLive = Boolean(account.isSupremeAdmin || account.isGranLiga || myProfile.data?.is_gran_liga || myProfile.data?.is_official || myProfile.data?.is_super_admin || myProfile.data?.is_verified_blue);
 
   return (
@@ -227,6 +256,9 @@ function CallsPage() {
           las llamadas usan monedas brillantes y se conectan por WebRTC con señalización Supabase Realtime.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
+          <Button onClick={startVideoRoulette} disabled={onlineMatches.isLoading} className="gap-2">
+            <Video className="size-4" /> Pulsa para comenzar
+          </Button>
           <Button asChild>
             <Link to="/chat">
               <Phone className="size-4" /> Abrir chat

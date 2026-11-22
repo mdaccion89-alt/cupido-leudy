@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Check, CreditCard, Flag, Gift, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
+import { Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -108,6 +108,9 @@ export function LiveRoom({
   const [sendingGift, setSendingGift] = useState(false);
   const [giftAnimation, setGiftAnimation] = useState<GiftAnimation | null>(null);
   const giftAnimationTimerRef = useRef<number | null>(null);
+  const [liveHeartId, setLiveHeartId] = useState(0);
+  const liveHeartTimerRef = useRef<number | null>(null);
+  const [pkScores, setPkScores] = useState({ host: 0, challenger: 0 });
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [viewers, setViewers] = useState(0);
@@ -300,9 +303,9 @@ export function LiveRoom({
       .subscribe();
 
     const giftChannel = supabase
-      .channel(`cupido-live-gifts-${roomId}-${crypto.randomUUID()}`, { config: { broadcast: { self: false } } })
+      .channel(`cupido-live-gifts-${roomId}`, { config: { broadcast: { self: false } } })
       .on("broadcast", { event: "gift" }, ({ payload }) => {
-        const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown };
+        const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown; points?: unknown; side?: unknown };
         const next: GiftAnimation = {
           id: Date.now(),
           emoji: typeof gift.emoji === "string" ? gift.emoji : "🎁",
@@ -310,8 +313,19 @@ export function LiveRoom({
           sender: typeof gift.sender === "string" ? gift.sender : "Un espectador",
         };
         setGiftAnimation(next);
+        const points = typeof gift.points === "number" ? Math.max(1, Math.min(100, gift.points)) : 1;
+        const side = gift.side === "host" ? "host" : "challenger";
+        setPkScores((current) => ({ ...current, [side]: current[side] + points }));
         if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
         giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
+      })
+      .on("broadcast", { event: "heart" }, ({ payload }) => {
+        const heart = payload as { side?: unknown };
+        const side = heart.side === "host" ? "host" : "challenger";
+        setPkScores((current) => ({ ...current, [side]: current[side] + 1 }));
+        setLiveHeartId(Date.now());
+        if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
+        liveHeartTimerRef.current = window.setTimeout(() => setLiveHeartId(0), 1800);
       })
       .subscribe();
 
@@ -423,6 +437,7 @@ export function LiveRoom({
       void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(signalsChannel);
       if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
+      if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
     };
   }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, sendSignal]);
 
@@ -518,6 +533,7 @@ export function LiveRoom({
     else if (data === "accepted") {
       toast.success("Solicitud PK aceptada. La batalla 1 vs 1 está lista.");
       setActivePkName(pendingPk?.requester_name ?? "Rival PK");
+      setPkScores({ host: 0, challenger: 0 });
     }
     else if (data === "rejected") toast.info("Solicitud PK rechazada.");
     setPendingPk(null);
@@ -553,6 +569,29 @@ export function LiveRoom({
       .then(async ({ data }) => { if (data) receive(data as PkRequest); });
     return () => { disposed = true; void supabase.removeChannel(channel); };
   }, [roomId, role, viewerId]);
+
+  useEffect(() => {
+    let disposed = false;
+    const showAcceptedPk = async (row: PkRequest, resetScores = false) => {
+      if (row.room_id !== roomId || row.host_id !== hostId || row.status !== "accepted") return;
+      const { data } = await supabase.from("cupido_public_profiles").select("display_name").eq("id", row.requester_id).maybeSingle();
+      if (disposed) return;
+      setActivePkName(data?.display_name?.trim() || "Rival PK");
+      setPkRequestId(row.id);
+      setPkRequestStatus("accepted");
+      if (resetScores) setPkScores({ host: 0, challenger: 0 });
+    };
+    const channel = supabase.channel(`cupido-pk-room-${roomId}-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cupido_pk_requests", filter: `room_id=eq.${roomId}` }, (payload) => {
+        void showAcceptedPk(payload.new as PkRequest, true);
+      })
+      .subscribe();
+    void supabase.from("cupido_pk_requests").select("id,room_id,host_id,requester_id,status,expires_at")
+      .eq("room_id", roomId).eq("host_id", hostId).eq("status", "accepted")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => { if (data) void showAcceptedPk(data as PkRequest); });
+    return () => { disposed = true; void supabase.removeChannel(channel); };
+  }, [hostId, roomId]);
 
   useEffect(() => {
     if (!pendingPk) return;
@@ -619,8 +658,11 @@ export function LiveRoom({
     if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
     giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
     const giftChannel = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
+    const side = "host";
+    const points = Math.max(1, Math.min(100, Math.round(gift.credits / 50)));
+    setPkScores((current) => ({ ...current, [side]: current[side] + points }));
     if (giftChannel) {
-      void giftChannel.send({ type: "broadcast", event: "gift", payload: { emoji: gift.emoji, name: gift.name, sender: "Un espectador" } });
+      void giftChannel.send({ type: "broadcast", event: "gift", payload: { emoji: gift.emoji, name: gift.name, sender: "Un espectador", side, points } });
     }
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
@@ -645,6 +687,16 @@ export function LiveRoom({
     void sendGift(gift);
   };
 
+  const sendLiveHeart = () => {
+    const side = role === "host" ? "host" : "challenger";
+    setPkScores((current) => ({ ...current, [side]: current[side] + 1 }));
+    setLiveHeartId(Date.now());
+    if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
+    liveHeartTimerRef.current = window.setTimeout(() => setLiveHeartId(0), 1800);
+    const channel = supabase.getChannels().find((item) => item.topic.includes(`cupido-live-gifts-${roomId}`));
+    if (channel) void channel.send({ type: "broadcast", event: "heart", payload: { side, user_id: viewerId } });
+  };
+
   const toggleMicrophone = () => {
     const next = !micMuted;
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
@@ -664,6 +716,16 @@ export function LiveRoom({
       onEnded();
     }
   };
+
+  useEffect(() => {
+    const handleBack = (event: Event) => {
+      event.preventDefault();
+      if (role === "host") void endLive();
+      else exitLive();
+    };
+    window.addEventListener("cupido:android-back", handleBack);
+    return () => window.removeEventListener("cupido:android-back", handleBack);
+  }, [role]);
 
   const reportHost = async () => {
     try {
@@ -701,6 +763,18 @@ export function LiveRoom({
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
         </DialogHeader>
+        {activePkName && (
+          <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+5.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
+              <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {pkScores.host.toLocaleString("es")}</span>
+              <Swords className="size-4 shrink-0 text-amber-300" />
+              <span className="truncate text-sky-200">{activePkName} · {pkScores.challenger.toLocaleString("es")}</span>
+            </div>
+            <div className="flex h-2 overflow-hidden rounded-full bg-sky-500">
+              <div className="bg-rose-500 transition-all duration-300" style={{ width: `${pkScores.host + pkScores.challenger ? (pkScores.host / (pkScores.host + pkScores.challenger)) * 100 : 50}%` }} />
+            </div>
+          </section>
+        )}
         <div className="absolute inset-0 z-0 overflow-hidden bg-black">
           <video
             ref={role === "host" ? localVideoRef : remoteVideoRef}
@@ -719,6 +793,9 @@ export function LiveRoom({
               </div>
             </div>
           )}
+          {liveHeartId > 0 && (
+            <div key={liveHeartId} className="pointer-events-none absolute bottom-[30%] right-[18%] z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-6xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" aria-hidden="true">❤️</div>
+          )}
           <Button
             type="button"
             size="icon"
@@ -735,6 +812,7 @@ export function LiveRoom({
           </span>
         </div>
         <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-20 flex flex-col gap-2">
+          {role === "viewer" && <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="rounded-full border-pink-300/50 bg-pink-600/80 text-white"><Heart className="size-4 fill-current" /></Button>}
           <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"} className="rounded-full border-white/30 bg-black/55 text-white">
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
