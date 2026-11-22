@@ -445,7 +445,7 @@ function ProfilePage() {
   const creator = profile.data?.creator ?? null;
   const privateProfile = profile.data?.privateProfile ?? null;
   const own = Boolean(viewerId && viewerId === profileId);
-  const isAdmin = Boolean(account.isAdmin) && own;
+  const isAdmin = isSupremeAdminEmail(session?.user.email) && own;
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));

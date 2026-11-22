@@ -12,6 +12,7 @@ import {
   Gift,
   Flag,
   FlipHorizontal,
+  History,
   ImagePlus,
   Loader2,
   Mic,
@@ -20,6 +21,7 @@ import {
   Phone,
   PhoneOff,
   Pencil,
+  Play,
   Reply,
   Send,
   SkipForward,
@@ -31,6 +33,7 @@ import {
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -42,6 +45,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_PACKAGES } from "@/lib/credits";
+import { recordRouletteSkip } from "@/lib/admob";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
@@ -143,6 +147,7 @@ function ChatPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [giftOpen, setGiftOpen] = useState(false);
+  const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
@@ -765,6 +770,7 @@ function ChatPage() {
     }
     const next = candidates[Math.floor(Math.random() * candidates.length)];
     if (!next) return;
+    await recordRouletteSkip();
     void navigate({ to: "/chat", search: { userId: next.id, startVideo: true, roulette: true } });
   };
 
@@ -878,9 +884,14 @@ function ChatPage() {
           <h1 className="font-display text-2xl text-white sm:text-3xl">Chat</h1>
           <p className="text-sm text-muted-foreground">Conversaciones privadas, notas de voz y llamadas Café o Hot.</p>
         </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={() => void openSupportChat()}><MessageCircle className="size-4" /> Cupi Support</Button>
-          <Button asChild variant="outline"><Link to="/comunidad">Descubrir personas</Link></Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button asChild variant="outline" className="max-w-full gap-1 px-2 text-xs sm:px-3"><Link to="/llamadas"><History className="size-4" /> Historial de llamadas</Link></Button>
+          <Button type="button" variant="outline" onClick={() => {
+            if (!viewerId) { toast.info("Inicia sesión para ganar monedas viendo anuncios."); void navigate({ to: "/auth", search: { ref: "" } }); return; }
+            setAdOpen(true);
+          }} className="max-w-full gap-1 px-2 text-xs sm:px-3"><Play className="size-4 fill-current" /> Gana monedas gratis ▶ Ver Videos</Button>
+          <Button type="button" variant="outline" onClick={() => void openSupportChat()} className="max-w-full gap-1 px-2 text-xs sm:px-3"><MessageCircle className="size-4" /> Cupi Support</Button>
+          <Button asChild variant="outline" className="max-w-full px-2 text-xs sm:px-3"><Link to="/comunidad">Descubrir personas</Link></Button>
         </div>
       </div>
 
@@ -1186,6 +1197,8 @@ function ChatPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 
       <Dialog open={Boolean(forwardTarget)} onOpenChange={(open) => !open && setForwardTarget(null)}>
         <DialogContent>

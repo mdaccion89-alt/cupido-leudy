@@ -12,10 +12,8 @@ type AdminContext = {
   claims?: { email?: string | null } | null;
 };
 
-async function assertAdmin({ supabase, userId, claims }: AdminContext) {
-  if (claims?.email?.toLowerCase() === ADMIN_EMAIL) return;
-  const { data } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
-  if (!data) throw new Error("Forbidden");
+function assertAdmin({ claims }: AdminContext) {
+  if (claims?.email?.trim().toLowerCase() !== ADMIN_EMAIL) throw new Error("Forbidden");
 }
 
 function assertSupremeAdmin({ claims }: AdminContext) {

@@ -180,8 +180,9 @@ function AdController() {
 
   useEffect(() => {
     const inFeed =
-      pathname.startsWith("/muro") || pathname.startsWith("/comunidad") || pathname.startsWith("/siguiendo");
-    const hidden = pathname.startsWith("/llamadas") || pathname.startsWith("/chat");
+      pathname.startsWith("/muro") || pathname.startsWith("/comunidad") || pathname.startsWith("/descubrir") ||
+      pathname.startsWith("/siguiendo") || pathname.startsWith("/chat") || pathname.startsWith("/mensajes");
+    const hidden = pathname.startsWith("/llamadas");
     if (inFeed && !hidden) void showFeedBanner();
     else void hideFeedBanner();
   }, [pathname]);

@@ -36,7 +36,7 @@ export function SiteHeader() {
                 <Link to="/tienda">
                   <CoinIcon className="size-4" />
                   <span>{account.loading ? "..." : account.balanceUnavailable ? "—" : account.isInfiniteCreditsAdmin ? "∞" : account.balance.toLocaleString("es")}</span>
-                  {account.isAdmin && <InfinityIcon className="size-3.5" />}
+                  {account.isInfiniteCreditsAdmin && <InfinityIcon className="size-3.5" />}
                 </Link>
               </Button>
               <NotificationBell />

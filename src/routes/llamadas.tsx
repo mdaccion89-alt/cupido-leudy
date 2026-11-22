@@ -25,6 +25,7 @@ type CallRow = {
   caller_id: string;
   callee_id: string;
   mode: "hot" | "cafe";
+  video: boolean;
   status: string;
   credits_spent: number;
   created_at: string;
@@ -58,6 +59,7 @@ function CallsPage() {
   const navigate = useNavigate();
   const viewerId = session?.user.id ?? null;
   const [liveTitle, setLiveTitle] = useState("");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "missed">("all");
   const [activeLive, setActiveLive] = useState<ActiveLive | null>(null);
   const [startingLive, setStartingLive] = useState(false);
   const pendingStreamRef = useRef<MediaStream | null>(null);
@@ -81,7 +83,7 @@ function CallsPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cupido_calls")
-        .select("id,caller_id,callee_id,mode,status,credits_spent,created_at")
+        .select("id,caller_id,callee_id,mode,video,status,credits_spent,created_at")
         .or(`caller_id.eq.${viewerId},callee_id.eq.${viewerId}`)
         .order("created_at", { ascending: false })
         .limit(20);
@@ -89,6 +91,18 @@ function CallsPage() {
       return (data ?? []) as CallRow[];
     },
   });
+
+  const callContactIds = [...new Set((calls.data ?? []).map((call) => call.caller_id === viewerId ? call.callee_id : call.caller_id))];
+  const callContacts = useQuery({
+    queryKey: ["cupido-call-history-profiles", callContactIds.join(",")],
+    enabled: callContactIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", callContactIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const displayedCalls = (calls.data ?? []).filter((call) => historyFilter === "all" || call.status === "rejected" || call.status === "ringing");
 
   const myProfile = useQuery({
     queryKey: ["cupido-my-verification", viewerId],
@@ -370,20 +384,30 @@ function CallsPage() {
             {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
           </p>
         </div>
-        <h3 className="mt-6 font-display text-lg text-white">Historial reciente</h3>
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-display text-lg text-white">Historial de llamadas</h3>
+          <div role="group" aria-label="Filtrar historial de llamadas" className="flex gap-1 rounded-full border border-white/10 bg-black/20 p-1">
+            {([["all", "Todo"], ["missed", "Perdida"]] as const).map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setHistoryFilter(value)} className={`rounded-full px-3 py-1.5 text-xs font-medium ${historyFilter === value ? "bg-pink-500/20 text-pink-100" : "text-muted-foreground hover:text-white"}`}>{label}</button>
+            ))}
+          </div>
+        </div>
         <div className="mt-3 space-y-2">
-          {(calls.data ?? []).length === 0 ? (
+          {displayedCalls.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {viewerId ? "Aún no tienes llamadas." : "Inicia sesión para ver tu historial."}
+              {!viewerId ? "Inicia sesión para ver tu historial." : historyFilter === "missed" ? "No tienes llamadas perdidas." : "Aún no tienes llamadas."}
             </p>
           ) : (
-            calls.data!.map((call) => (
+            displayedCalls.map((call) => {
+              const otherId = call.caller_id === viewerId ? call.callee_id : call.caller_id;
+              const contact = callContacts.data?.find((profile) => profile.id === otherId);
+              return (
               <div
                 key={call.id}
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-black/20 px-4 py-3 text-sm"
               >
                 <span className="text-white">
-                  {call.mode === "hot" ? "🔥 Hot" : "☕ Café"} · {call.status}
+                  {call.mode === "hot" ? "🔥 Hot" : "☕ Café"} · {call.video ? "Video" : "Voz"} · {call.status}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {new Date(call.created_at).toLocaleString("es")}
@@ -391,8 +415,12 @@ function CallsPage() {
                 <span className="flex items-center gap-1 text-amber-200">
                   <CoinIcon className="size-3.5" /> {call.credits_spent}
                 </span>
+                <Button type="button" size="sm" variant="outline" disabled={!viewerId || otherId === viewerId} onClick={() => void navigate({ to: "/chat", search: { userId: otherId, startVideo: true, roulette: false } })} aria-label={`Videollamar a ${contact?.display_name ?? "esta persona"}`}>
+                  <Video className="size-4" /> Videollamar
+                </Button>
               </div>
-            ))
+              );
+            })
           )}
         </div>
       </section>

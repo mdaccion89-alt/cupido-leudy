@@ -6,6 +6,7 @@ export const INTERSTITIAL_ID = "ca-app-pub-9590752647129001/6833278215";
 export const REWARDED_ID = "ca-app-pub-9590752647129001/6042940724";
 
 const INTERSTITIAL_COOLDOWN_MS = 3 * 60 * 1000;
+const ROULETTE_SKIPS_PER_INTERSTITIAL = 5;
 const BANNER_BOTTOM_MARGIN = 96;
 
 let initialization: Promise<void> | null = null;
@@ -13,6 +14,7 @@ let bannerShown = false;
 let interstitialLoad: Promise<boolean> | null = null;
 let interstitialReady = false;
 let lastInterstitialAt = 0;
+let rouletteSkipsSinceInterstitial = 0;
 
 export function isNativeAds(): boolean {
   return typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -91,6 +93,14 @@ export async function showInterstitialAd(): Promise<boolean> {
   }
 }
 
+export async function recordRouletteSkip(): Promise<boolean> {
+  if (!isNativeAds()) return false;
+  rouletteSkipsSinceInterstitial += 1;
+  if (rouletteSkipsSinceInterstitial < ROULETTE_SKIPS_PER_INTERSTITIAL) return false;
+  rouletteSkipsSinceInterstitial = 0;
+  return showInterstitialAd();
+}
+
 export type RewardedAdResult = "rewarded" | "dismissed" | "unavailable";
 
 export async function showRewardedAd(onReward: () => void | Promise<void>): Promise<RewardedAdResult> {
@@ -115,8 +125,8 @@ export async function showRewardedAd(onReward: () => void | Promise<void>): Prom
     });
     await AdMob.prepareRewardVideoAd({ adId: REWARDED_ID });
     await AdMob.showRewardVideoAd();
-    await grant();
-    return "rewarded";
+    if (granted && grantPromise) await grantPromise;
+    return granted ? "rewarded" : "dismissed";
   } catch {
     if (granted && grantPromise) await grantPromise;
     return granted ? "rewarded" : "dismissed";

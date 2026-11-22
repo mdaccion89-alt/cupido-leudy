@@ -51,14 +51,14 @@ type SpendingAccount = {
 };
 
 export function canSendGift(gift: { credits: number; id?: string }, account: SpendingAccount): boolean {
-  if (account.isInfiniteCreditsAdmin ?? account.isAdmin) return true;
+  if (account.isInfiniteCreditsAdmin === true) return true;
   if (gift.id === "gran-liga-diamond" && !account.isGranLiga) return false;
   if (!account.hasPurchased) return false;
   return account.balance >= gift.credits;
 }
 
 export function canStartCall(mode: CallMode, account: SpendingAccount): boolean {
-  if (account.isInfiniteCreditsAdmin ?? account.isSupremeAdmin) return true;
+  if (account.isInfiniteCreditsAdmin === true) return true;
   if (!account.hasPurchased) return false;
   return account.balance >= CALL_COSTS[mode];
 }
@@ -196,7 +196,8 @@ export const GIFTS = GIFT_CATALOG.map(([name, emoji, credits], imageIndex) => ({
 
 export type Gift = (typeof GIFTS)[number];
 
-export const MIN_WITHDRAWAL = 20;
+export const MIN_WITHDRAWAL = 50;
+export const GRAN_LIGA_MIN_WITHDRAWAL = 20;
 
 export const WITHDRAWAL_METHODS: Record<string, readonly string[]> = {
   DO: ["PayPal", "Zelle", "Transferencia bancaria"],

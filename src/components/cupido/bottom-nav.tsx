@@ -12,7 +12,7 @@ function matchesVideos(path: string) {
 }
 
 function matchesDiscover(path: string) {
-  return path.startsWith("/muro") || path.startsWith("/historia") || path.startsWith("/comunidad") || path.startsWith("/siguiendo");
+  return path.startsWith("/muro") || path.startsWith("/historia") || path.startsWith("/comunidad") || path.startsWith("/descubrir") || path.startsWith("/siguiendo");
 }
 
 function matchesMessages(path: string) {
@@ -25,7 +25,7 @@ function matchesProfile(path: string) {
 
 const NAV_ITEMS = [
   { to: "/videos", label: "Videos", icon: Clapperboard, isActive: matchesVideos },
-  { to: "/comunidad", label: "Descubrir", icon: Compass, isActive: matchesDiscover },
+  { to: "/descubrir", label: "Descubrir", icon: Compass, isActive: matchesDiscover },
   { to: "/chat", label: "Mensajes", icon: MessageCircle, isActive: matchesMessages },
   { to: "/perfil", label: "Perfil", icon: UserRound, isActive: matchesProfile },
 ] as const;
@@ -33,7 +33,7 @@ const NAV_ITEMS = [
 const SHORTCUTS = [
   { to: "/muro", label: "Muro", match: (path: string) => path.startsWith("/muro") },
   { to: "/historia", label: "Historias 24h", match: (path: string) => path.startsWith("/historia") },
-  { to: "/comunidad", label: "Conexiones", match: (path: string) => path.startsWith("/comunidad") || path.startsWith("/siguiendo") },
+  { to: "/descubrir", label: "Conexiones", match: (path: string) => path.startsWith("/comunidad") || path.startsWith("/descubrir") || path.startsWith("/siguiendo") },
 ] as const;
 
 export function RouteShortcuts() {

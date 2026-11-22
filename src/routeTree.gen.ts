@@ -15,6 +15,7 @@ import { Route as AjustesRouteImport } from './routes/ajustes'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as DescubrirRouteImport } from './routes/descubrir'
 import { Route as DirectoRouteImport } from './routes/directo'
 import { Route as HistoriaRouteImport } from './routes/historia'
 import { Route as LegalRouteImport } from './routes/legal'
@@ -53,6 +54,11 @@ const ChatRoute = ChatRouteImport.update({
 const ComunidadRoute = ComunidadRouteImport.update({
   id: '/comunidad',
   path: '/comunidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DescubrirRoute = DescubrirRouteImport.update({
+  id: '/descubrir',
+  path: '/descubrir',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DirectoRoute = DirectoRouteImport.update({
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descubrir'
     | '/directo'
     | '/historia'
     | '/legal'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descubrir'
     | '/directo'
     | '/historia'
     | '/legal'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descubrir'
     | '/directo'
     | '/historia'
     | '/legal'
@@ -214,6 +226,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
+  DescubrirRoute: typeof DescubrirRoute
   DirectoRoute: typeof DirectoRoute
   HistoriaRoute: typeof HistoriaRoute
   LegalRoute: typeof LegalRoute
@@ -267,6 +280,13 @@ declare module '@tanstack/react-router' {
       path: '/comunidad'
       fullPath: '/comunidad'
       preLoaderRoute: typeof ComunidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/descubrir': {
+      id: '/descubrir'
+      path: '/descubrir'
+      fullPath: '/descubrir'
+      preLoaderRoute: typeof DescubrirRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/directo': {
@@ -342,6 +362,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,
+  DescubrirRoute: DescubrirRoute,
   DirectoRoute: DirectoRoute,
   HistoriaRoute: HistoriaRoute,
   LegalRoute: LegalRoute,

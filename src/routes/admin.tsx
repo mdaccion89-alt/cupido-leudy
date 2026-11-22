@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { useAccount } from "@/lib/account";
+import { isSupremeAdminEmail, useAccount } from "@/lib/account";
+import { useAuth } from "@/lib/auth-context";
 import {
   adminAdjustCredits,
   adminSetPlan,
@@ -33,8 +34,10 @@ export const Route = createFileRoute("/admin")({
 });
 
 function AdminPage() {
-  const { isAdmin, loading } = useAccount();
-  if (loading)
+  const { loading } = useAccount();
+  const { session, loading: authLoading } = useAuth();
+  const isAdmin = isSupremeAdminEmail(session?.user.email);
+  if (loading || authLoading)
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         Cargando panel…

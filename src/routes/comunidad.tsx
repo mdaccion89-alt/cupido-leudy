@@ -33,6 +33,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState("all");
   const [sortMode, setSortMode] = useState("featured");
+  const [discoveryView, setDiscoveryView] = useState<"online" | "live" | "following">("online");
   const [looking, setLooking] = useState("all");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [optimisticPasses, setOptimisticPasses] = useState<string[]>([]);
@@ -235,6 +236,12 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     [people.data, relations.data?.passed, optimisticPasses, viewerId, activeLives.data, livePresenceCounts, onlineUserIds],
   );
 
+  const visibleCards = useMemo(() => cards.filter((person) => {
+    if (discoveryView === "online") return Boolean(person.isOnline);
+    if (discoveryView === "live") return Boolean(person.live_id);
+    return Boolean(relations.data?.following.has(person.id));
+  }), [cards, discoveryView, relations.data?.following]);
+
   const requireLogin = () => {
     toast.info("Inicia sesión para conectar.");
     void navigate({ to: "/auth", search: { ref: "" } });
@@ -347,6 +354,24 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         </p>
       </section>
 
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <nav aria-label="Vistas de Descubrir" className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.03] p-1">
+          {([["online", "En Línea"], ["live", "En directo"], ["following", "Siguiendo"]] as const).map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={discoveryView === value} onClick={() => setDiscoveryView(value)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold ${discoveryView === value ? "bg-pink-500/20 text-pink-100" : "text-muted-foreground hover:text-white"}`}>{label}</button>
+          ))}
+        </nav>
+        <div className="flex min-w-44 items-center gap-2">
+          <Label htmlFor="discovery-sort" className="shrink-0">Ordenar</Label>
+          <Select value={sortMode} onValueChange={setSortMode}>
+            <SelectTrigger id="discovery-sort"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="featured">Destacado</SelectItem>
+              <SelectItem value="new">Nuevo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {!session && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-pink-400/30 bg-pink-500/10 p-4">
           <p className="text-sm text-pink-100/80">Inicia sesión para dar me gusta, seguir y agregar amigos.</p>
@@ -396,16 +421,6 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
           </Select>
         </div>
         <div className="space-y-2">
-          <Label>Ordenar perfiles</Label>
-          <Select value={sortMode} onValueChange={setSortMode}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="featured">Destacado</SelectItem>
-              <SelectItem value="new">Nuevo</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
           <Label>Busca</Label>
           <Select value={looking} onValueChange={setLooking}>
             <SelectTrigger><SelectValue /></SelectTrigger>
@@ -437,9 +452,9 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 text-center text-sm text-muted-foreground">
           No se pudo cargar la comunidad. Intenta de nuevo más tarde.
         </div>
-      ) : cards.length > 0 ? (
+      ) : visibleCards.length > 0 ? (
         <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-          {cards.map((person) => (
+          {visibleCards.map((person) => (
             <ProfileCard
               key={person.id}
               profile={person}

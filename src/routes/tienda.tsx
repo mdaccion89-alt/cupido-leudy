@@ -22,6 +22,7 @@ import { CREDIT_PACKAGES, GRAN_LIGA_PACKAGE_ID } from "@/lib/credits";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import {
   COUNTRIES,
+  GRAN_LIGA_MIN_WITHDRAWAL,
   MIN_WITHDRAWAL,
   canSendGift,
   countryFlag,
@@ -50,6 +51,7 @@ function StorePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const account = useAccount();
+  const minimumWithdrawal = account.isGranLiga ? GRAN_LIGA_MIN_WITHDRAWAL : MIN_WITHDRAWAL;
   const createOrder = useServerFn(createPaypalOrder);
   const captureOrder = useServerFn(capturePaypalOrder);
   const capturedRef = useRef<string | null>(null);
@@ -209,7 +211,7 @@ function StorePage() {
   const withdraw = useMutation({
     mutationFn: async () => {
       const value = Number(amount);
-      if (!Number.isFinite(value) || value < MIN_WITHDRAWAL) throw new Error(`El mínimo es US$${MIN_WITHDRAWAL}.`);
+      if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error(`El mínimo es US$${minimumWithdrawal}.`);
       if (value > (wallet.data ?? 0)) throw new Error("No tienes saldo suficiente.");
       if (!accountDetails.trim()) throw new Error("Escribe los datos de tu cuenta.");
       const { error } = await supabase.rpc("cupido_request_withdrawal", {
@@ -276,7 +278,7 @@ function StorePage() {
           </p>
         </div>
         <Button variant="outline" className="mt-4 gap-2 border-amber-200/30 sm:mt-0" onClick={() => setAdOpen(true)}>
-          <Play className="size-4 fill-current" /> Ver anuncio (+25 monedas gratis)
+          <Play className="size-4 fill-current" /> Gana monedas gratis ▶ Ver Videos
         </Button>
       </section>
       <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
@@ -417,14 +419,14 @@ function StorePage() {
             <p className="font-display text-2xl text-white">
               US${(wallet.data ?? 0).toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
-            <p className="text-xs text-emerald-100/60">Mínimo de retiro: US${MIN_WITHDRAWAL}</p>
+            <p className="text-xs text-emerald-100/60">Mínimo de retiro: US${minimumWithdrawal}</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Monto (USD)</Label>
               <Input
                 type="number"
-                min={MIN_WITHDRAWAL}
+                min={minimumWithdrawal}
                 step="0.01"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
