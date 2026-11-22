@@ -56,6 +56,12 @@ GRANT EXECUTE ON FUNCTION public.cupido_public_paypal_client_id()
   TO anon, authenticated, service_role;
 
 -- Publish follows so profile, video and Live follow state updates immediately.
+ALTER TABLE public.cupido_follower_count_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS cupido_follower_count_events_public_read ON public.cupido_follower_count_events;
+CREATE POLICY cupido_follower_count_events_public_read
+  ON public.cupido_follower_count_events FOR SELECT TO anon, authenticated USING (true);
+GRANT SELECT ON public.cupido_follower_count_events TO anon, authenticated;
+
 DO $$
 DECLARE table_name text;
 BEGIN
