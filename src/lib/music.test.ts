@@ -181,11 +181,13 @@ describe("credit and plan rules", () => {
     expect(CREDIT_COSTS).toEqual({ song: 1, cover: 2, video: 5 });
   });
 
-  it("sells 10, 30 and 100 credits for $4.99, $12.99 and $34.99", () => {
+  it("sells the current credit packages", () => {
     expect(CREDIT_PACKAGES.map((p) => [p.credits, p.price])).toEqual([
-      [10, "4.99"],
-      [30, "12.99"],
-      [100, "34.99"],
+      [5000, "19.99"],
+      [12000, "39.99"],
+      [30000, "89.99"],
+      [80000, "199.99"],
+      [1000000, "100.00"],
     ]);
     expect(findPackage("pack-999")).toBeUndefined();
   });
@@ -196,9 +198,9 @@ describe("credit and plan rules", () => {
     expect(canUsePaidPerks("free", true)).toBe(true);
   });
 
-  it("verifies creators above 1,000 followers or with Premium", () => {
+  it("keeps creator verification under admin approval", () => {
     expect(isVerifiedCreator(1000, false)).toBe(false);
-    expect(isVerifiedCreator(1001, false)).toBe(true);
-    expect(isVerifiedCreator(0, true)).toBe(true);
+    expect(isVerifiedCreator(1001, false)).toBe(false);
+    expect(isVerifiedCreator(0, true)).toBe(false);
   });
 });
