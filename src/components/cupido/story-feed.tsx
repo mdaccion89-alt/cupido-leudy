@@ -9,12 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MediaComposer } from "@/components/cupido/media-composer";
 import { CupidoVideoPlayer } from "@/components/cupido/video-player";
+import { EmojiOverlayPicker, GlowingEmojiOverlay, parseEmojiOverlay, serializeEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { playCupidoSound } from "@/lib/cupido-sounds";
 import { notifyUser } from "@/lib/posts";
 import { compressImageFile, safeExtension } from "@/lib/storage";
 import type { MediaFilterId } from "@/lib/media-filters";
+import { mediaFilterCss } from "@/lib/media-filters";
 
 type Story = {
   id: string;
@@ -23,6 +25,7 @@ type Story = {
   media_type: "image" | "video";
   caption: string;
   filter_name: string;
+  emoji_overlay: string;
   created_at: string;
   expires_at: string;
   display_name: string;
@@ -42,6 +45,9 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
   const [caption, setCaption] = useState("");
+  const [emojiOverlay, setEmojiOverlay] = useState<string[]>([]);
+  const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
@@ -53,7 +59,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
     queryKey: ["cupido-stories", viewerId],
     queryFn: async () => {
       const { data, error } = await storyDb.from("cupido_stories")
-        .select("id,user_id,media_url,media_type,caption,filter_name,created_at,expires_at")
+        .select("id,user_id,media_url,media_type,caption,filter_name,emoji_overlay,created_at,expires_at")
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(100);
@@ -100,6 +106,13 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [client, viewerId]);
+
+  useEffect(() => {
+    if (!draft) { setPreviewUrl(null); return; }
+    const url = URL.createObjectURL(draft.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draft]);
 
   useEffect(() => {
     if (compact || !viewerId) return;
@@ -167,9 +180,12 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
         media_type: isVideo ? "video" : "image",
         caption: caption.trim().slice(0, 300),
         filter_name: filter,
+        emoji_overlay: serializeEmojiOverlay(emojiOverlay),
       });
       if (error) throw error;
       setCaption("");
+      setEmojiOverlay([]);
+      setDraft(null);
       toast.success("Historia publicada durante 24 horas.");
       await client.invalidateQueries({ queryKey: ["cupido-stories"] });
     } catch (error) {
@@ -231,7 +247,7 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
           {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
           {visibleStories.map((story) => (
             <Link key={story.id} to="/historia" aria-label={`Ver historia de ${story.display_name}`} className="relative h-[72px] w-[58px] shrink-0 overflow-hidden rounded-lg border border-pink-300/40 bg-black">
-              {story.media_type === "image" ? <img src={story.media_url} alt="" className="absolute inset-0 size-full object-cover" /> : <video src={story.media_url} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" />}
+              {story.media_type === "image" ? <img src={story.media_url} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url} muted playsInline preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
               <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />
               <Avatar className="absolute left-1 top-1 size-6 border border-pink-300">
                 <AvatarImage src={story.avatar_url} alt="" />
@@ -251,7 +267,23 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
         <div className="mb-3 flex items-center gap-2 font-display text-sm text-white"><Clock3 className="size-4 text-pink-300" /> Comparte una historia · desaparece en 24 h</div>
         <Input value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={300} placeholder="Escribe algo para acompañar la foto o el video..." className="mb-3" />
         {!viewerId && <p className="mb-3 text-xs text-muted-foreground">Inicia sesión para publicar historias.</p>}
-        <MediaComposer disabled={uploading || !viewerId} onFile={(file, filter) => publish(file, filter)} galleryLabel="Agregar foto o video" />
+        <div className="mb-3"><EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} /></div>
+        <MediaComposer disabled={uploading || !viewerId} onFile={(file, filter) => setDraft({ file, filter })} galleryLabel="Agregar foto o video" />
+        {draft && previewUrl && (
+          <div className="mt-3 space-y-3 rounded-xl border border-pink-300/20 bg-black/20 p-3">
+            <p className="text-xs font-semibold text-white">Vista previa</p>
+            <div className="relative overflow-hidden rounded-lg bg-black">
+              {draft.file.type.startsWith("video/")
+                ? <video src={previewUrl} controls playsInline className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+                : <img src={previewUrl} alt="Vista previa de la historia" className="max-h-80 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />}
+              <GlowingEmojiOverlay emojis={emojiOverlay} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" disabled={uploading} onClick={() => setDraft(null)}>Quitar</Button>
+              <Button type="button" disabled={uploading} onClick={() => void publish(draft.file, draft.filter)}>{uploading ? <Loader2 className="size-4 animate-spin" /> : null} Publicar 24 h</Button>
+            </div>
+          </div>
+        )}
         {uploading && <div className="mt-3 flex items-center justify-center gap-3 text-xs text-pink-200"><span className="flex items-center gap-2"><Loader2 className="size-3.5 animate-spin" /> {cancelRequested ? "Cancelando subida..." : "Publicando..."}</span><Button type="button" size="sm" variant="outline" disabled={cancelRequested} onClick={() => { cancelUploadRef.current = true; setCancelRequested(true); }}>Cancelar subida</Button></div>}
       </div>
 
@@ -265,7 +297,10 @@ export function StoryFeed({ compact = false }: { compact?: boolean }) {
               <div className="min-w-0 flex-1"><Link to="/perfil" search={{ userId: story.user_id }} className="truncate text-sm font-semibold text-white hover:underline">{story.display_name}</Link><p className="text-[11px] text-muted-foreground">Vence {new Date(story.expires_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</p></div>
               {story.user_id === viewerId ? <><Button type="button" variant="ghost" size="icon" aria-label="Ver quién vio la historia" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /><span className="sr-only">{story.viewer_count}</span></Button><Button type="button" variant="ghost" size="icon" aria-label="Eliminar historia" onClick={() => void deleteStory(story)}><Trash2 className="size-4" /></Button></> : <details className="relative"><summary className="list-none cursor-pointer rounded p-2 text-muted-foreground hover:text-white" aria-label="Más opciones de historia"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-white/10 bg-slate-950 p-1 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void interact("cupido_hide_story_user", { _owner: story.user_id }, "Historias de este usuario ocultas.")}>Ocultar usuario</button><button className="w-full rounded px-3 py-2 text-left text-xs text-red-200 hover:bg-white/10" onClick={() => void interact("cupido_report_story", { _story: story.id, _reason: "Contenido reportado desde Historias" }, "Reporte enviado al Administrador.")}>Reportar al Admin</button></div></details>}
             </div>
-            {story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" />}
+            <div className="relative">
+              {story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url} filter={story.filter_name as MediaFilterId} className="aspect-[4/5] w-full bg-black object-cover" /> : <img src={story.media_url} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[4/5] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
+              <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />
+            </div>
             {story.caption && <p className="px-3 pt-3 text-sm text-foreground/90">{story.caption}</p>}
             <div className="flex items-center justify-between px-3 pt-3 text-xs text-muted-foreground"><button type="button" className="inline-flex items-center gap-1.5 hover:text-pink-200" disabled={!viewerId || story.user_id === viewerId} onClick={() => void interact("cupido_toggle_story_heart", { _story: story.id }, story.liked ? "Quitaste tu corazón." : "Enviaste un corazón.")}><Heart className={`size-4 ${story.liked ? "fill-pink-400 text-pink-400" : ""}`} /> {story.heart_count}</button>{story.user_id === viewerId && <button type="button" className="inline-flex items-center gap-1.5" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /> {story.viewer_count} vistas</button>}</div>
             {viewerId && viewerId !== story.user_id && (

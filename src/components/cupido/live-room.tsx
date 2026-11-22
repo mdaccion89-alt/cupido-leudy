@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
 import { showInterstitialAd } from "@/lib/admob";
-import { canSendGift, FREE_GIFT_MAX_CREDITS, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
+import { canSendGift, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
 import { CREDIT_PACKAGES } from "@/lib/credits";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -536,9 +536,9 @@ export function LiveRoom({
   const sendGift = async (gift: GiftType) => {
     if (!canSendGift(gift, account)) {
       toast.error(
-        account.hasPurchased || account.isAdmin
+        account.hasPurchased || account.isInfiniteCreditsAdmin
           ? "No tienes monedas brillantes suficientes."
-          : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
+          : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
       );
       return;
     }
@@ -732,7 +732,7 @@ export function LiveRoom({
             </div>
             <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />
             {pendingGiftPurchase && (() => {
-              const shortage = Math.max(pendingGiftPurchase.credits - account.balance, !account.hasPurchased && pendingGiftPurchase.credits > FREE_GIFT_MAX_CREDITS ? 1 : 0);
+              const shortage = Math.max(pendingGiftPurchase.credits - account.balance, account.hasPurchased ? 0 : 1);
               const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
               const readyToSend = canSendGift(pendingGiftPurchase, account);
               return (
@@ -772,14 +772,14 @@ export function LiveRoom({
                 </section>
               );
             })()}
-            {!account.loading && !account.balanceUnavailable && account.balance < 10 && !account.isAdmin && (
+            {!account.loading && !account.balanceUnavailable && account.balance < 10 && !account.isInfiniteCreditsAdmin && (
               <Button asChild variant="outline" size="sm" className="mt-2 gap-1.5">
                 <Link to="/tienda"><CreditCard className="size-3.5" /> Recargar monedas con PayPal</Link>
               </Button>
             )}
-            {!account.hasPurchased && !account.isAdmin && (
+            {!account.hasPurchased && !account.isInfiniteCreditsAdmin && (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                Puedes usar tus 500 créditos de bienvenida para regalos. Recarga para enviar regalos más caros.
+                Las 500 monedas de bienvenida se desbloquean tras una recarga real confirmada. Usa PayPal Live o tarjeta para empezar.
               </p>
             )}
           </div>

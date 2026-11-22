@@ -45,7 +45,6 @@ import {
   callErrorMessage,
   canSendGift,
   canStartCall,
-  FREE_GIFT_MAX_CREDITS,
   giftErrorMessage,
   type Gift as GiftItem,
 } from "@/lib/cupido";
@@ -124,7 +123,7 @@ function actionErrorMessage(error: unknown, fallback: string): string {
 }
 
 function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) {
-  const shortage = Math.max(gift.credits - balance, !hasPurchased && gift.credits > FREE_GIFT_MAX_CREDITS ? 1 : 0);
+  const shortage = Math.max(gift.credits - balance, hasPurchased ? 0 : 1);
   return CREDIT_PACKAGES.find((pack) => pack.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
 }
 
@@ -609,7 +608,7 @@ function ChatPage() {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canStartCall(mode, account))
         throw new Error(
-          account.hasPurchased || account.isSupremeAdmin
+          account.hasPurchased || account.isInfiniteCreditsAdmin
             ? "No tienes monedas brillantes suficientes."
             : "Las llamadas requieren una recarga real confirmada.",
         );
@@ -638,9 +637,9 @@ function ChatPage() {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canSendGift(gift, account))
         throw new Error(
-          account.hasPurchased || account.isAdmin
+          account.hasPurchased || account.isInfiniteCreditsAdmin
             ? "No tienes monedas brillantes suficientes."
-            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
+            : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
         );
       const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: activeConversation.other.id,

@@ -46,7 +46,7 @@ export function useAccount() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased,is_gran_liga")
+          .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased,has_recharged,is_gran_liga")
           .eq("id", userId!)
           .maybeSingle(),
         supabase
@@ -70,7 +70,7 @@ export function useAccount() {
         isOfficial: Boolean(profile.data?.is_official),
         isGranLiga: Boolean(profile.data?.is_gran_liga || privateProfile.data?.is_gran_liga),
         plan: profile.data?.is_premium ? "premium" : "free",
-        hasPurchased: Boolean(privateProfile.data?.has_purchased || capturedOrders.data?.length),
+        hasPurchased: isImmediateAdmin || Boolean(privateProfile.data?.has_recharged || capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
         lastDailyClaim: privateProfile.data?.last_daily_claim ?? null,
       };
@@ -78,10 +78,11 @@ export function useAccount() {
   });
   return {
     userId,
-    balance: isImmediateAdmin || query.data?.balance === -1 ? Infinity : (query.data?.balance ?? 0),
+    balance: isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
     balanceUnavailable: query.isError && !query.data,
     nextReset: query.data?.nextReset ?? null,
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
+    isInfiniteCreditsAdmin: isImmediateAdmin,
     isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
     isGranLiga: isImmediateAdmin || Boolean(query.data?.isGranLiga),

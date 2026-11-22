@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Volume2, VolumeX } from "lucide-react";
+import { mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
 
 type CupidoVideoPlayerProps = {
   src: string;
@@ -12,6 +13,7 @@ type CupidoVideoPlayerProps = {
   onPause?: (currentTime: number) => void;
   onSeeking?: (currentTime: number) => void;
   onTimeUpdate?: (currentTime: number) => void;
+  filter?: MediaFilterId;
 };
 
 export function CupidoVideoPlayer({
@@ -25,6 +27,7 @@ export function CupidoVideoPlayer({
   onPause,
   onSeeking,
   onTimeUpdate,
+  filter = "normal",
 }: CupidoVideoPlayerProps) {
   const [muted, setMuted] = useState(initialMuted || autoPlay);
 
@@ -46,6 +49,7 @@ export function CupidoVideoPlayer({
         loop={loop}
         muted={muted}
         className={className}
+        style={{ filter: mediaFilterCss(filter) }}
         onPlay={(event) => onPlay?.(event.currentTarget.currentTime)}
         onPause={(event) => onPause?.(event.currentTarget.currentTime)}
         onSeeking={(event) => onSeeking?.(event.currentTarget.currentTime)}

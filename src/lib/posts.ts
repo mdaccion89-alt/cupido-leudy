@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { MediaFilterId } from "@/lib/media-filters";
 
 export const SUPREME_ADMIN_EMAIL = "leudyfeliz81@gmail.com";
 
@@ -6,6 +7,8 @@ export type FeedPost = {
   id: string;
   user_id: string;
   media_url: string;
+  filter_name: MediaFilterId;
+  emoji_overlay: string;
   kind: "photo" | "video" | "text";
   caption: string;
   title: string;
@@ -60,6 +63,8 @@ type AnyRow = Record<string, any> & {
   is_cupido_active?: any;
   is_super_admin?: any;
   media_url?: any;
+  filter_name?: any;
+  emoji_overlay?: any;
   media_path?: any;
   caption?: any;
   title?: any;
@@ -87,7 +92,7 @@ type AnyQueryClient = {
 
 const db = supabase as unknown as AnyQueryClient;
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -100,34 +105,18 @@ export function formatCount(value: number): string {
   return String(Math.max(0, Math.floor(value)));
 }
 
-function numericHash(value: string, salt: number): number {
-  let hash = (2166136261 ^ salt) >>> 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-export function hashInRange(id?: string | null, min = 0, max = 0, salt = 0): number {
-  const low = Math.floor(min);
-  const high = Math.floor(max);
-  if (high < low) return low;
-  return low + (numericHash(String(id ?? ""), salt) % (high - low + 1));
-}
+const OFFICIAL_LIKE_BASELINE = 40_900;
 
 export function displayedLikeCount(post?: FeedPost | null): number {
   const realLikes = Math.max(0, Number(post?.likes_count) || 0);
-  return post?.is_super_admin ? realLikes + hashInRange(post.id, 14_200, 68_900) : realLikes;
+  return post?.is_super_admin ? OFFICIAL_LIKE_BASELINE + realLikes : realLikes;
 }
 
 export function displayedMetrics(post?: FeedPost | null): { likes: string; views: string } {
-  const realLikes = Math.max(0, Number(post?.likes_count) || 0);
   const realViews = Math.max(0, Number(post?.views_count) || 0);
-  if (!post?.is_super_admin) return { likes: formatCount(realLikes), views: formatCount(realViews) };
   return {
     likes: formatCount(displayedLikeCount(post)),
-    views: formatCount(realViews + hashInRange(post.id, 78_400, 342_900, 0x9e3779b9)),
+    views: formatCount(realViews),
   };
 }
 
@@ -270,6 +259,8 @@ export async function fetchFeed(options: {
       id: row.id,
       user_id: row.user_id,
       media_url: url,
+      filter_name: row.filter_name ?? "normal",
+      emoji_overlay: String(row.emoji_overlay ?? "[]"),
       kind,
       caption: row.caption ?? "",
       title: String(row.title ?? ""),
@@ -296,7 +287,7 @@ export async function fetchFeed(options: {
   return { posts, liked: engagement.liked, disliked: engagement.disliked, saved: engagement.saved };
 }
 
-export async function createPost(input: { userId: string; caption: string; title?: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text"; sharedPostId?: string }): Promise<string> {
+export async function createPost(input: { userId: string; caption: string; title?: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text"; sharedPostId?: string; filterName?: MediaFilterId; emojiOverlay?: string }): Promise<string> {
   const kind = input.kind ?? (input.isVideo ? "video" : "photo");
   const result = await db
     .from("cupido_posts")
@@ -307,6 +298,8 @@ export async function createPost(input: { userId: string; caption: string; title
       shared_post_id: input.sharedPostId ?? null,
       media_path: input.url || null,
       kind,
+      filter_name: input.filterName ?? "normal",
+      emoji_overlay: input.emojiOverlay ?? "[]",
     })
     .select("id")
     .maybeSingle();
@@ -315,8 +308,13 @@ export async function createPost(input: { userId: string; caption: string; title
   return String(result.data.id);
 }
 
-export async function updatePost(postId: string, title: string, caption: string): Promise<void> {
-  const { error } = await db.from("cupido_posts").update({ title: title.trim() || null, caption: caption.trim() }).eq("id", postId);
+export async function updatePost(postId: string, title: string, caption: string, filterName?: MediaFilterId, emojiOverlay?: string): Promise<void> {
+  const { error } = await db.from("cupido_posts").update({
+    title: title.trim() || null,
+    caption: caption.trim(),
+    ...(filterName ? { filter_name: filterName } : {}),
+    ...(emojiOverlay !== undefined ? { emoji_overlay: emojiOverlay } : {}),
+  }).eq("id", postId);
   if (error) throw error;
 }
 

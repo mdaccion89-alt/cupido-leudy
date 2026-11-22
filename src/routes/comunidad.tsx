@@ -33,9 +33,10 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const [country, setCountry] = useState("all");
   const [looking, setLooking] = useState("all");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [optimisticPasses, setOptimisticPasses] = useState<string[]>([]);
 
   const people = useQuery({
-    queryKey: ["cupido-people", search, country, looking, verifiedOnly],
+    queryKey: ["cupido-people", viewerId, search, country, looking, verifiedOnly],
     queryFn: async () => {
       const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
       if (officialProfile.error) console.error("[comunidad] No se pudo localizar la cuenta oficial.", officialProfile.error);
@@ -150,6 +151,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       if (follows.error) throw follows.error;
       if (friends.error) throw friends.error;
       const liked = new Set((likes.data ?? []).filter((row) => row.kind === "interested").map((row) => row.target_id));
+      const passed = new Set((likes.data ?? []).filter((row) => row.kind === "pass").map((row) => row.target_id));
       const profileLikes = new Set((likes.data ?? []).filter((row) => row.kind === "like").map((row) => row.target_id));
       const following = new Set((follows.data ?? []).map((row) => row.following_id));
       const latestPostByUser = new Map<string, string>();
@@ -160,13 +162,15 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
           row.status,
         ]),
       );
-      return { liked, profileLikes, following, friendMap, latestPostByUser, likedPosts };
+      return { liked, passed, profileLikes, following, friendMap, latestPostByUser, likedPosts };
     },
   });
 
   const cards = useMemo<CupidoProfile[]>(
     () =>
-      (people.data ?? []).map((person) => ({
+      (people.data ?? []).filter((person) =>
+        person.id === viewerId || (!relations.data?.passed.has(person.id) && !optimisticPasses.includes(person.id)),
+      ).map((person) => ({
         id: person.id,
         display_name: person.display_name?.trim() || (person.is_official_profile ? "Cupido Leudy Cuenta Oficial" : "Miembro"),
         avatar_url: person.avatar_url ?? "",
@@ -183,7 +187,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         follower_count: person.follower_count ?? 0,
         survey_completed: Boolean(person.survey_completed),
       })),
-    [people.data],
+    [people.data, relations.data?.passed, optimisticPasses, viewerId],
   );
 
   const requireLogin = () => {
@@ -204,8 +208,15 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     onSuccess: () => {
       toast.success("Preferencia guardada ❤️");
       void queryClient.invalidateQueries({ queryKey: ["cupido-relations", viewerId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-people", viewerId] });
     },
-    onError: () => toast.error("No se pudo guardar tu interés."),
+    onMutate: async ({ targetId, kind }) => {
+      if (kind === "pass") setOptimisticPasses((ids) => ids.includes(targetId) ? ids : [...ids, targetId]);
+    },
+    onError: (error, variables) => {
+      if (variables.kind === "pass") setOptimisticPasses((ids) => ids.filter((id) => id !== variables.targetId));
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar tu interés.");
+    },
   });
 
   const mediaLike = useMutation({

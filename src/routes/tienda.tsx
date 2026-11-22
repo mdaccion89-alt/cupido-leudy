@@ -21,7 +21,6 @@ import { useAccount } from "@/lib/account";
 import { CREDIT_PACKAGES, GRAN_LIGA_PACKAGE_ID } from "@/lib/credits";
 import {
   COUNTRIES,
-  FREE_GIFT_MAX_CREDITS,
   MIN_WITHDRAWAL,
   canSendGift,
   countryFlag,
@@ -36,30 +35,6 @@ import {
   getPaypalCheckoutConfig,
 } from "@/lib/payments.functions";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
-
-type CheckoutConfig = {
-  email?: string | null;
-  paypalMeLink?: string | null;
-  businessName?: string | null;
-};
-
-function fallbackCheckoutUrl(config: CheckoutConfig | undefined, credits: number, price: string, packId: string): string {
-  const concept = encodeURIComponent(`Cupido Leudy - ${credits.toLocaleString("es")} monedas (${packId})`);
-  const amount = Number(price).toFixed(2);
-  const meLink = config?.paypalMeLink?.trim();
-  if (meLink) return `${meLink.replace(/\/$/, "")}/${amount}/USD?text=${concept}`;
-  const email = config?.email?.trim();
-  if (!email) return "";
-  const params = new URLSearchParams({
-    cmd: "_xclick",
-    business: email,
-    item_name: `Cupido Leudy - ${credits.toLocaleString("es")} monedas`,
-    amount,
-    currency_code: "USD",
-    custom: packId,
-  });
-  return `https://www.paypal.com/cgi-bin/webscr?${params.toString()}`;
-}
 
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
@@ -79,6 +54,7 @@ function StorePage() {
   const capturedRef = useRef<string | null>(null);
 
   const [adOpen, setAdOpen] = useState(false);
+  const [pendingGift, setPendingGift] = useState<GiftItem | null>(null);
   const [amount, setAmount] = useState("20");
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
@@ -196,14 +172,13 @@ function StorePage() {
   });
 
   const sendGift = useMutation({
-    mutationFn: async (gift: GiftItem) => {
+    mutationFn: async ({ gift, verifiedRecharge = false }: { gift: GiftItem; verifiedRecharge?: boolean }) => {
       if (!giftTo) throw new Error("Elige a quién regalar.");
-      if (!canSendGift(gift, account))
-        throw new Error(
-          account.hasPurchased || account.isAdmin
-            ? "No tienes monedas brillantes suficientes para ese regalo."
-            : `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`,
-        );
+      if (!canSendGift(gift, account) && !verifiedRecharge) {
+        throw new Error(account.hasPurchased || account.isInfiniteCreditsAdmin
+          ? "No tienes monedas brillantes suficientes para ese regalo."
+          : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.");
+      }
       const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: giftTo,
         _gift_id: gift.id,
@@ -214,12 +189,17 @@ function StorePage() {
     },
     onSuccess: () => {
       account.refresh();
+      setPendingGift(null);
       toast.success("Regalo enviado ❤️");
 
     },
     onError: (error) =>
       toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.")),
   });
+
+  const pendingGiftPackage = pendingGift
+    ? CREDIT_PACKAGES.find((pack) => pack.credits >= Math.max(pendingGift.credits - (Number.isFinite(account.balance) ? account.balance : pendingGift.credits), account.hasPurchased ? 0 : 1))
+    : undefined;
 
   const withdraw = useMutation({
     mutationFn: async () => {
@@ -323,10 +303,41 @@ function StorePage() {
             <h2 className="font-display text-lg text-white">99 regalos para enamorar</h2>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            500 créditos gratis de bienvenida: regalos hasta 500 monedas. Los regalos más caros y las llamadas requieren una recarga real.
+            Las 500 monedas de bienvenida se desbloquean después de una recarga real confirmada. Solo PayPal Live y tarjeta acreditan monedas automáticamente.
           </p>
+          {pendingGift && (
+            <div className="mt-3 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
+              <div>
+                <p className="font-semibold text-white">Desbloquea y envía {pendingGift.name}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Elige una recarga confirmada para habilitar las monedas. Al aprobarse el pago, el regalo se enviará a {target.data?.display_name ?? "la persona elegida"}.
+                </p>
+              </div>
+              {paypalConfig.isLoading ? (
+                <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal Live...</p>
+              ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pendingGiftPackage ? (
+                <PayPalCheckoutButtons
+                  clientId={paypalConfig.data.clientId}
+                  packageId={pendingGiftPackage.id}
+                  disabled={sendGift.isPending}
+                  onSuccess={(credits) => {
+                    account.addPurchasedCredits(credits);
+                    void account.refresh();
+                    sendGift.mutate({ gift: pendingGift, verifiedRecharge: true });
+                  }}
+                  onError={(message) => toast.error(message)}
+                />
+              ) : (
+                <p className="text-center text-sm text-amber-100/80">Configura PayPal Business Live en /admin para completar el pago seguro con PayPal o tarjeta.</p>
+              )}
+              <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGift(null)}>Cancelar</Button>
+            </div>
+          )}
           <div className="mt-3">
-            <GiftGrid onSelect={(gift) => sendGift.mutate(gift)} disabled={sendGift.isPending || account.loading || account.balanceUnavailable} />
+            <GiftGrid onSelect={(gift) => {
+              if (canSendGift(gift, account)) sendGift.mutate({ gift });
+              else setPendingGift(gift);
+            }} disabled={sendGift.isPending || account.loading || account.balanceUnavailable} />
           </div>
         </section>
       )}
@@ -340,7 +351,6 @@ function StorePage() {
           {CREDIT_PACKAGES.map((pack) => {
             const config = paypalConfig.data;
             const officialCheckout = Boolean(config?.configured && config.clientId);
-            const fallbackUrl = pack.id === GRAN_LIGA_PACKAGE_ID ? "" : fallbackCheckoutUrl(config, pack.credits, pack.price, pack.id);
             return (
               <article
                 key={pack.id}
@@ -374,12 +384,6 @@ function StorePage() {
                   <Button className="mt-2 h-12 w-full text-base" disabled>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Comprar con PayPal / Tarjeta
                   </Button>
-                ) : fallbackUrl ? (
-                  <Button asChild className="mt-2 h-12 w-full text-base">
-                    <a href={fallbackUrl} target="_blank" rel="noreferrer">
-                      <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
-                    </a>
-                  </Button>
                 ) : (
                   <Button className="mt-2 h-12 w-full text-base" disabled>
                     <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
@@ -393,9 +397,7 @@ function StorePage() {
         <p className="mt-3 text-xs text-muted-foreground">
           {paypalConfig.data?.configured && paypalConfig.data.clientId
             ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
-            : paypalConfig.data?.email
-              ? `Pago directo seguro a la cuenta PayPal del administrador (${paypalConfig.data.email}). Envía el comprobante por chat para acreditar tus monedas.`
-              : "El Admin Supremo debe guardar correo, Client ID y Secret de PayPal Business en /admin para habilitar el pago directo."}
+            : "El Admin Supremo debe guardar las credenciales de PayPal Business Live en /admin para habilitar pagos verificados y acreditación automática."}
         </p>
       </section>
 

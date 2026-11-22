@@ -1,6 +1,9 @@
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GIFTS, type Gift } from "@/lib/cupido";
 
+const SHEET_COLUMNS = 9;
+const SHEET_ROWS = 11;
+
 type GiftGridProps = {
   gifts?: readonly Gift[];
   onSelect: (gift: Gift) => void;
@@ -11,7 +14,10 @@ type GiftGridProps = {
 export function GiftGrid({ gifts = GIFTS, onSelect, disabled = false, compact = false }: GiftGridProps) {
   return (
     <div className={`grid gap-2 overflow-y-auto pr-1 ${compact ? "max-h-72 grid-cols-3 sm:grid-cols-4" : "max-h-[26rem] grid-cols-2 sm:grid-cols-4 lg:grid-cols-6"}`}>
-      {gifts.map((gift, index) => (
+          {gifts.map((gift, index) => {
+            const column = gift.imageIndex % SHEET_COLUMNS;
+            const row = Math.floor(gift.imageIndex / SHEET_COLUMNS);
+            return (
         <button
           key={gift.id}
           type="button"
@@ -22,11 +28,11 @@ export function GiftGrid({ gifts = GIFTS, onSelect, disabled = false, compact = 
         >
           <span
             aria-hidden="true"
-            className={`mx-auto flex h-14 w-[4.5rem] items-center justify-center rounded-lg bg-black bg-no-repeat mix-blend-screen ${gift.id === "gran-liga-diamond" ? "border border-amber-200/50 text-4xl drop-shadow-[0_0_14px_rgba(251,191,36,0.9)]" : ""}`}
+            className={`mx-auto flex h-[3.69rem] w-[4.5rem] items-center justify-center rounded-lg bg-black bg-no-repeat mix-blend-screen ${gift.id === "gran-liga-diamond" ? "border border-amber-200/50 text-4xl drop-shadow-[0_0_14px_rgba(251,191,36,0.9)]" : ""}`}
             style={{
               backgroundImage: gift.id === "gran-liga-diamond" ? "none" : "url('/gifts-sheet.png')",
-              backgroundSize: "900% 1100%",
-              backgroundPosition: `${(index % 9) * 12.5}% ${Math.floor(index / 9) * 10}%`,
+              backgroundSize: `${SHEET_COLUMNS * 100}% ${SHEET_ROWS * 100}%`,
+              backgroundPosition: `${(column / (SHEET_COLUMNS - 1)) * 100}% ${(row / (SHEET_ROWS - 1)) * 100}%`,
             }}
           >{gift.id === "gran-liga-diamond" ? "💎" : null}</span>
           <span className="mt-1 block truncate text-xs font-medium text-white">{gift.name}</span>
@@ -36,7 +42,8 @@ export function GiftGrid({ gifts = GIFTS, onSelect, disabled = false, compact = 
           </span>
           <span className="block text-[10px] text-muted-foreground">US${gift.cash.toFixed(2)}</span>
         </button>
-      ))}
+          );
+        })}
     </div>
   );
 }

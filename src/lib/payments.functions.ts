@@ -242,7 +242,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
         const approveUrl =
           links.find((link) => link.rel === "approve")?.href ??
           `https://www.paypal.com/checkoutnow?token=${orderId}`;
-        await admin.from("paypal_orders").insert({
+        const { error: orderSaveError } = await admin.from("paypal_orders").insert({
           user_id: context.userId,
           package_id: pack.id,
           credits: pack.credits,
@@ -250,6 +250,7 @@ export const createPaypalOrder = createServerFn({ method: "POST" })
           currency: "USD",
           paypal_order_id: orderId,
         });
+        if (orderSaveError) throw new Error("No se pudo registrar el pedido de PayPal. Inténtalo de nuevo.");
         return { ok: true, orderId, approveUrl };
       } catch (err) {
         return { ok: false, message: paypalMessage(err) };

@@ -45,26 +45,27 @@ type SpendingAccount = {
   balance: number;
   hasPurchased: boolean;
   isAdmin: boolean;
+  isInfiniteCreditsAdmin?: boolean;
   isGranLiga?: boolean;
   isSupremeAdmin?: boolean;
 };
 
 export function canSendGift(gift: { credits: number; id?: string }, account: SpendingAccount): boolean {
-  if (account.isAdmin) return true;
+  if (account.isInfiniteCreditsAdmin ?? account.isAdmin) return true;
   if (gift.id === "gran-liga-diamond" && !account.isGranLiga) return false;
-  if (gift.credits > FREE_GIFT_MAX_CREDITS && !account.hasPurchased) return false;
+  if (!account.hasPurchased) return false;
   return account.balance >= gift.credits;
 }
 
 export function canStartCall(mode: CallMode, account: SpendingAccount): boolean {
-  if (account.isSupremeAdmin) return true;
+  if (account.isInfiniteCreditsAdmin ?? account.isSupremeAdmin) return true;
   if (!account.hasPurchased) return false;
   return account.balance >= CALL_COSTS[mode];
 }
 
 export function giftErrorMessage(message: string, fallback: string): string {
   if (message.includes("GRAN_LIGA_REQUIRED")) return "El Diamante Gran Liga solo puede enviarse desde una cuenta Gran Liga activa.";
-  if (message.includes("PURCHASE_REQUIRED")) return `Los regalos de más de ${FREE_GIFT_MAX_CREDITS} monedas requieren una recarga real.`;
+  if (message.includes("PURCHASE_REQUIRED")) return "Confirma una recarga real para desbloquear tus monedas y enviar regalos.";
   if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
   if (message.includes("GIFT_NOT_FOUND")) return "Este regalo ya no está disponible. Actualiza la página e intenta de nuevo.";
   if (message.includes("INVALID_RECEIVER")) return "No se pudo encontrar a la persona que recibirá el regalo.";

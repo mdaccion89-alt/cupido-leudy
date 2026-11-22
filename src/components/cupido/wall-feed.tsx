@@ -4,6 +4,7 @@ import { Globe2, Hash, Play, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { MediaCard } from "@/components/cupido/media-card";
 import { MediaComposer } from "@/components/cupido/media-composer";
+import { EmojiOverlayPicker, GlowingEmojiOverlay, serializeEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,7 +21,7 @@ import {
   togglePostSave,
 } from "@/lib/posts";
 import { compressImageFile, readVideoDuration, safeExtension } from "@/lib/storage";
-import { applyMediaFilter, type MediaFilterId } from "@/lib/media-filters";
+import { mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
 
 const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "m4v"];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
@@ -72,7 +73,8 @@ export function WallFeed({
   const [caption, setCaption] = useState("");
   const [title, setTitle] = useState("");
   const [mediaFilter, setMediaFilter] = useState<MediaFilterId>("normal");
-  const [draft, setDraft] = useState<{ file: File; alreadyFiltered: boolean } | null>(null);
+  const [emojiOverlay, setEmojiOverlay] = useState<string[]>([]);
+  const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [followingOnly, setFollowingOnly] = useState(initialFollowingOnly);
   const [feedLimit, setFeedLimit] = useState(24);
@@ -221,9 +223,9 @@ export function WallFeed({
     }
   };
 
-  const handleEdit = async (postId: string, nextTitle: string, nextCaption: string) => {
+  const handleEdit = async (postId: string, nextTitle: string, nextCaption: string, filter: MediaFilterId, emojiOverlay: string) => {
     try {
-      await updatePost(postId, nextTitle, nextCaption);
+      await updatePost(postId, nextTitle, nextCaption, filter, emojiOverlay);
       await invalidateFeed();
       toast.success("Publicación actualizada.");
     } catch (error) { toast.error(errorMessage(error, "No se pudo editar la publicación.")); }
@@ -258,14 +260,8 @@ export function WallFeed({
 
   const handlePick = async (file: File | null) => {
     if (!file) return;
-    try {
-      const filtered = await applyMediaFilter(file, mediaFilter);
-      setDraft({ file: filtered, alreadyFiltered: true });
-    } catch (error) {
-      toast.error(errorMessage(error, "No se pudo preparar la vista previa."));
-    } finally {
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    setDraft({ file, filter: mediaFilter });
+    if (fileRef.current) fileRef.current.value = "";
   };
 
   const handleTextPost = async () => {
@@ -290,7 +286,7 @@ export function WallFeed({
     }
   };
 
-  const handleUpload = async (file: File | null, alreadyFiltered = false) => {
+  const handleUpload = async (file: File | null, filter = mediaFilter) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
     const videoMime = file.type === "video/mp4" || file.type === "video/webm" || file.type === "video/quicktime";
@@ -329,7 +325,7 @@ export function WallFeed({
     let uploadedPath: string | null = null;
     let uploadedBucket: "cupido-media" | "media" = "cupido-media";
     try {
-      let uploadFile = alreadyFiltered ? file : await applyMediaFilter(file, mediaFilter);
+      let uploadFile = file;
       if (isVideo) {
         const duration = await readVideoDuration(uploadFile);
         if (duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
@@ -354,10 +350,11 @@ export function WallFeed({
       const { data: publicData } = supabase.storage.from(uploadedBucket).getPublicUrl(path);
       const url = publicData?.publicUrl ?? "";
       if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
-      await createPost({ userId: viewerId, caption, title, url, isVideo });
+      await createPost({ userId: viewerId, caption, title, url, isVideo, filterName: filter, emojiOverlay: serializeEmojiOverlay(emojiOverlay) });
       setCaption("");
       setTitle("");
       setDraft(null);
+      setEmojiOverlay([]);
       toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -385,17 +382,18 @@ export function WallFeed({
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:flex-row sm:items-center">
           <div className="flex-1">
             <p className="flex items-center gap-2 text-sm font-semibold text-white">
-              <Play className="h-4 w-4 text-pink-300" /> {videoOnly ? "Publica un video en Historia" : "Publica en tu muro"}
+              <Play className="h-4 w-4 text-pink-300" /> {videoOnly ? "Publica un video permanente" : "Publica en tu muro"}
             </p>
             <p className="text-xs text-muted-foreground">
               {videoOnly
-                ? "Videos MP4/WEBM/MOV de hasta 50 MB y 30 segundos. Se publican al instante."
+                ? "Videos MP4/WEBM/MOV de hasta 50 MB y 30 segundos. La publicación permanece en tu perfil."
                 : "Fotos comprimidas y videos MP4/WEBM/MOV de hasta 50 MB. Se publican al instante."}
             </p>
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
             <MentionInput value={caption} onChange={setCaption} placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video… Usa @ para mencionar y # para etiquetar."} className="min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
+            <EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} />
           </div>
           <input
             ref={fileRef}
@@ -408,7 +406,7 @@ export function WallFeed({
             cameraOnly
             disabled={uploading}
             onFilterChange={setMediaFilter}
-            onFile={(file) => setDraft({ file, alreadyFiltered: true })}
+            onFile={(file, filter) => setDraft({ file, filter })}
           />
           <Button onClick={() => fileRef.current?.click()} disabled={uploading} variant="outline" className="gap-2">
             <Upload className="h-4 w-4" />
@@ -425,16 +423,19 @@ export function WallFeed({
       {draft && previewUrl && !hideUpload && (
         <div className="rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
           <p className="mb-3 text-sm font-semibold text-white">Vista previa</p>
+          <div className="relative overflow-hidden rounded-xl bg-black">
           {isVideoFile(draft.file) ? (
-            <video src={previewUrl} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" />
+            <video src={previewUrl} controls playsInline className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           ) : (
-            <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" />
+            <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           )}
+          <GlowingEmojiOverlay emojis={emojiOverlay} />
+          </div>
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setDraft(null)} disabled={uploading}>
               Quitar
             </Button>
-            <Button type="button" onClick={() => void handleUpload(draft.file, draft.alreadyFiltered)} disabled={uploading} className="gap-2">
+            <Button type="button" onClick={() => void handleUpload(draft.file, draft.filter)} disabled={uploading} className="gap-2">
               <Upload className="size-4" /> {uploading ? "Publicando…" : "Publicar en el muro"}
             </Button>
           </div>
@@ -490,7 +491,7 @@ export function WallFeed({
               onDislike={() => void handleDislike(post.id, dislikedIds.has(post.id) ?? false)}
               onSave={() => void handleSave(post.id, savedIds.has(post.id))}
               onShare={() => void handleShare(post.id)}
-              onEdit={(nextTitle, nextCaption) => void handleEdit(post.id, nextTitle, nextCaption)}
+              onEdit={(nextTitle, nextCaption, filter, emojiOverlay) => void handleEdit(post.id, nextTitle, nextCaption, filter, emojiOverlay)}
               onDelete={() => void handleDelete(post.id)}
               onPin={() => void handlePin(post.id, post.is_pinned)}
               onRepost={() => void handleRepost(post.id)}

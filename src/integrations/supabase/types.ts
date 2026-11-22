@@ -479,6 +479,7 @@ export type Database = {
           has_kids: boolean;
           hide_followers: boolean;
           has_purchased: boolean;
+          has_recharged: boolean;
           is_gran_liga: boolean;
           id: string;
           last_daily_claim: string | null;
@@ -517,6 +518,7 @@ export type Database = {
           has_kids?: boolean;
           hide_followers?: boolean;
           has_purchased?: boolean;
+          has_recharged?: boolean;
           is_gran_liga?: boolean;
           id: string;
           last_daily_claim?: string | null;
@@ -555,6 +557,7 @@ export type Database = {
           has_kids?: boolean;
           hide_followers?: boolean;
           has_purchased?: boolean;
+          has_recharged?: boolean;
           is_gran_liga?: boolean;
           id?: string;
           last_daily_claim?: string | null;

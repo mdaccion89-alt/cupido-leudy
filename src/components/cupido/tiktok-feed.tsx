@@ -7,10 +7,12 @@ import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { StoryFeed } from "@/components/cupido/story-feed";
+import { GlowingEmojiOverlay, parseEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { mediaFilterCss } from "@/lib/media-filters";
 import { deliverFile, safeFilename } from "@/lib/download";
 import {
   addComment,
@@ -451,7 +453,9 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 onClick={() => toggleVideoPlayback(post)}
                 onTimeUpdate={(event) => reportWatch(post.id, event.currentTarget.currentTime)}
                 className="absolute inset-0 h-full w-full bg-black object-cover"
+                style={{ filter: mediaFilterCss(post.filter_name) }}
               />
+              <GlowingEmojiOverlay emojis={parseEmojiOverlay(post.emoji_overlay)} />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
               {playFeedback?.postId === post.id && (
                 <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-xl backdrop-blur-sm" aria-hidden="true">

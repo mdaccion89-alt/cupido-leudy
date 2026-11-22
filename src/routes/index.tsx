@@ -105,7 +105,8 @@ function CupidoHome() {
     queryKey: ["cupido-likes", userId],
     enabled: Boolean(userId),
     queryFn: async () => {
-      const { data } = await supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", userId!);
+      const { data, error } = await supabase.from("cupido_likes").select("target_id,kind").eq("actor_id", userId!);
+      if (error) throw error;
       return data ?? [];
     },
   });
@@ -176,6 +177,9 @@ function CupidoHome() {
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_post_likes" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-media", userId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_likes", filter: userId ? `actor_id=eq.${userId}` : undefined }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-likes", userId] });
+      })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
@@ -184,7 +188,9 @@ function CupidoHome() {
 
   const profiles = (profilesQuery.data ?? []).filter((profile) => {
     const official = profile.email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
-    return (profile.id !== userId || official) && (official || !passed.includes(profile.id));
+    const persistedPass = likesQuery.data?.some((row) => row.target_id === profile.id && row.kind === "pass") ?? false;
+    const isSelf = profile.id === userId;
+    return (isSelf ? official : true) && (isSelf || (!persistedPass && !passed.includes(profile.id)));
   });
 
   const requireSession = () => {
@@ -195,17 +201,18 @@ function CupidoHome() {
 
   const handleInterested = async (targetId: string, kind: "interested" | "pass") => {
     if (!requireSession()) return;
+    if (kind === "pass") setPassed((current) => current.includes(targetId) ? current : [...current, targetId]);
     const { error } = await supabase.rpc("cupido_set_like", {
       _target: targetId,
       _kind: kind,
       _remove: false,
     });
     if (error) {
+      if (kind === "pass") setPassed((current) => current.filter((id) => id !== targetId));
       toast.error(error.message);
       return;
     }
-    if (kind === "pass") setPassed((current) => [...current, targetId]);
-    else toast.success("Me interesa guardado ❤️");
+    if (kind === "interested") toast.success("Me interesa guardado ❤️");
     void queryClient.invalidateQueries({ queryKey: ["cupido-likes", userId] });
   };
 

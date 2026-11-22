@@ -7,12 +7,14 @@ import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CupidoVideoPlayer } from "@/components/cupido/video-player";
+import { EmojiOverlayPicker, GlowingEmojiOverlay, parseEmojiOverlay, serializeEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { isSupremePost, notifyUser } from "@/lib/posts";
+import { MEDIA_FILTERS, mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
 import {
   addComment,
   displayedMetrics,
@@ -42,7 +44,7 @@ type MediaCardProps = {
   onDislike: () => void;
   onSave: () => void;
   onShare: () => void;
-  onEdit: (title: string, caption: string) => void;
+  onEdit: (title: string, caption: string, filter: MediaFilterId, emojiOverlay: string) => void;
   onDelete: () => void;
   onPin: () => void;
   onRepost: () => void;
@@ -65,6 +67,8 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const [shareOpen, setShareOpen] = useState(false);
   const [editTitle, setEditTitle] = useState(media.title);
   const [editCaption, setEditCaption] = useState(media.caption);
+  const [editFilter, setEditFilter] = useState<MediaFilterId>(media.filter_name);
+  const [editEmojiOverlay, setEditEmojiOverlay] = useState<string[]>(parseEmojiOverlay(media.emoji_overlay));
   const [shareMessage, setShareMessage] = useState("");
   const adminStatus = useQuery({
     queryKey: ["cupido-social-admin", currentUserId],
@@ -252,6 +256,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               src={mediaUrl}
               controls
               loop
+              filter={media.filter_name}
               className="h-full w-full object-cover"
               onPlay={(currentTime) => {
                 watchPositionRef.current = currentTime;
@@ -281,7 +286,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             )}
           </>
         ) : (
-          <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" />
+          <img src={mediaUrl} alt={caption || "Foto de Cupido Leudy"} className="h-full w-full object-cover" style={{ filter: mediaFilterCss(media.filter_name) }} />
         )}
         <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
           {media?.kind === "video" ? <Play className="mr-1 inline h-3 w-3 fill-white" /> : media?.kind === "text" ? null : <ImageIcon className="mr-1 inline h-3 w-3" />}
@@ -289,6 +294,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         </span>
         {media.is_pinned && <span className="absolute right-3 top-3 rounded-full bg-pink-600/90 px-2.5 py-1 text-[11px] font-semibold text-white">📌 Fijada</span>}
         {media.is_promoted && <span className="absolute bottom-3 left-3 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-semibold text-black">Promocionada</span>}
+        {media.kind !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(media.emoji_overlay)} />}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
@@ -370,7 +376,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
 
         {canManage && (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
-            <Button variant="outline" size="sm" onClick={() => { setEditTitle(media.title); setEditCaption(media.caption); setEditOpen(true); }}>Editar</Button>
+            <Button variant="outline" size="sm" onClick={() => { setEditTitle(media.title); setEditCaption(media.caption); setEditFilter(media.filter_name); setEditEmojiOverlay(parseEmojiOverlay(media.emoji_overlay)); setEditOpen(true); }}>Editar</Button>
             <Button variant="outline" size="sm" onClick={onPin}><Pin className="mr-1 size-3.5" />{media.is_pinned ? "Desfijar" : "Fijar en perfil"}</Button>
             {canPromote && <Button variant="outline" size="sm" onClick={() => void promotePost()}><Megaphone className="mr-1 size-3.5" />Promocionar · 500</Button>}
             {media.is_promoted && media.user_id === currentUserId && <span className="inline-flex items-center gap-1 text-xs text-amber-200"><Megaphone className="size-3.5" /> Promocionada</span>}
@@ -404,7 +410,13 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           <div className="space-y-3">
             <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-10 w-full rounded-md border border-input bg-transparent px-3 text-sm" />
             <MentionInput value={editCaption} onChange={setEditCaption} placeholder="Texto de la publicación" className="min-h-32 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
-            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button><Button onClick={() => { onEdit(editTitle, editCaption); setEditOpen(false); }}>Guardar cambios</Button></div>
+            {media.kind !== "text" && <>
+              <label className="block space-y-1 text-xs text-muted-foreground">Filtro
+                <select value={editFilter} onChange={(event) => setEditFilter(event.target.value as MediaFilterId)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-foreground">{MEDIA_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}</select>
+              </label>
+              <EmojiOverlayPicker value={editEmojiOverlay} onChange={setEditEmojiOverlay} />
+            </>}
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button><Button onClick={() => { onEdit(editTitle, editCaption, editFilter, serializeEmojiOverlay(editEmojiOverlay)); setEditOpen(false); }}>Guardar cambios</Button></div>
           </div>
         </DialogContent>
       </Dialog>
