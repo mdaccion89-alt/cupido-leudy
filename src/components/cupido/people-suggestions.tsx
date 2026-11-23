@@ -126,7 +126,7 @@ export function PeopleSuggestions({ search = "", title = "Sugerencias para ti" }
               <article key={person.id} className="relative flex w-36 shrink-0 flex-col items-center rounded-2xl border border-white/10 bg-zinc-900/90 p-3">
                 <button type="button" aria-label={`Descartar a ${name}`} title="Descartar" onClick={() => setDismissedIds((current) => [...current, person.id])} className="absolute right-2 top-2 grid size-6 place-items-center rounded-full text-white/55 transition hover:bg-white/10 hover:text-white"><X className="size-3.5" /></button>
                 <Link to="/perfil" search={{ userId: person.id }} aria-label={`Ver perfil de ${name}`} className="mb-2 rounded-full bg-[linear-gradient(135deg,#ec4899,#f59e0b)] p-[3px]">
-                  <Avatar className="size-14 border-2 border-zinc-900">
+                  <Avatar userId={person.id} className="size-14 border-2 border-zinc-900">
                     <AvatarImage src={person.avatar_url ?? ""} alt={name} />
                     <AvatarFallback className="bg-pink-500/20 text-pink-100">{name.slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>

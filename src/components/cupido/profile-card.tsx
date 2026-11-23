@@ -100,7 +100,7 @@ export function ProfileCard({
       <div className="flex items-start gap-3 sm:gap-4">
         <Link to="/perfil" search={{ userId: profile.id }} className="relative block shrink-0">
           <GranLigaStar active={profile.is_gran_liga} />
-          <Avatar className="h-12 w-12 border-2 border-pink-500/40 sm:h-16 sm:w-16">
+          <Avatar userId={profile.id} className="h-12 w-12 border-2 border-pink-500/40 sm:h-16 sm:w-16">
             <AvatarImage src={profile.avatar_url} alt={profile.display_name} />
             <AvatarFallback className="bg-pink-500/20 text-lg text-pink-200">{initials}</AvatarFallback>
           </Avatar>

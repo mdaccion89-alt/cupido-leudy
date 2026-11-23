@@ -193,7 +193,7 @@ export function NotificationBell() {
               className={`flex w-full gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-accent ${row.read ? "" : "bg-pink-500/10"}`}
             >
               <span className="relative shrink-0">
-                <Avatar className="size-10 border border-pink-400/30">
+                <Avatar userId={row.actor_id} className="size-10 border border-pink-400/30">
                   <AvatarImage src={row.actor?.avatar_url ?? ""} alt={row.actor?.display_name ?? "Usuario"} />
                   <AvatarFallback className="bg-pink-500/20 text-xs text-pink-100">{row.kind === "withdrawal_paid" ? "🪙" : row.actor?.display_name?.slice(0, 1)?.toUpperCase() || notificationIcon(row.kind)}</AvatarFallback>
                 </Avatar>

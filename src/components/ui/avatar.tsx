@@ -4,17 +4,23 @@ import * as React from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
 import { cn } from "@/lib/utils";
+import { useIsWeeklyTopThree } from "@/components/cupido/weekly-ranking";
 
+type AvatarProps = React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> & { userId?: string | null };
 const Avatar = React.forwardRef<
   React.ElementRef<typeof AvatarPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
->(({ className, ...props }, ref) => (
+  AvatarProps
+>(({ className, userId, ...props }, ref) => {
+  const isWeeklyTopThree = useIsWeeklyTopThree(userId);
+  return (
   <AvatarPrimitive.Root
     ref={ref}
-    className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", className)}
+    data-weekly-top-three={isWeeklyTopThree || undefined}
+    className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", isWeeklyTopThree && "ring-2 ring-amber-300 ring-offset-1 ring-offset-black animate-pulse", className)}
     {...props}
   />
-));
+  );
+});
 Avatar.displayName = AvatarPrimitive.Root.displayName;
 
 const AvatarImage = React.forwardRef<

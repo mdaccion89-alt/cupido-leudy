@@ -32,7 +32,7 @@ export function VideoCard({ video, liked, onLike }: VideoCardProps) {
         </span>
       </div>
       <div className="flex items-center gap-3 p-4">
-        <Avatar className="h-10 w-10 border border-pink-400/40">
+        <Avatar userId={video.user_id} className="h-10 w-10 border border-pink-400/40">
           <AvatarImage src={video.avatar_url} alt={video.display_name} />
           <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
             {(video.display_name ?? "Miembro").slice(0, 2).toUpperCase()}

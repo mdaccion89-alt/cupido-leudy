@@ -978,6 +978,7 @@ export type Database = {
     };
     cupido_live_rooms: {
       Row: {
+        coin_goal: number;
         created_at: string;
         ended_at: string | null;
         host_id: string;
@@ -990,6 +991,7 @@ export type Database = {
         viewer_count: number;
       };
       Insert: {
+        coin_goal?: number;
         created_at?: string;
         ended_at?: string | null;
         host_id: string;
@@ -1002,6 +1004,7 @@ export type Database = {
         viewer_count?: number;
       };
       Update: {
+        coin_goal?: number;
         created_at?: string;
         ended_at?: string | null;
         host_id?: string;
@@ -1033,6 +1036,24 @@ export type Database = {
         room_id?: string;
         sender_id?: string;
       };
+      Relationships: [];
+    };
+    cupido_live_pk_battles: {
+      Row: { challenger_coins: number; challenger_id: string; ends_at: string; finished_at: string | null; host_coins: number; host_id: string; id: string; request_id: string; room_id: string; started_at: string; winner_id: string | null };
+      Insert: { challenger_coins?: number; challenger_id: string; ends_at?: string; finished_at?: string | null; host_coins?: number; host_id: string; id?: string; request_id: string; room_id: string; started_at?: string; winner_id?: string | null };
+      Update: { challenger_coins?: number; challenger_id?: string; ends_at?: string; finished_at?: string | null; host_coins?: number; host_id?: string; id?: string; request_id?: string; room_id?: string; started_at?: string; winner_id?: string | null };
+      Relationships: [];
+    };
+    cupido_live_treasures: {
+      Row: { claim_limit: number; created_at: string; expires_at: string; host_id: string; id: string; room_id: string; total_coins: number };
+      Insert: { claim_limit?: number; created_at?: string; expires_at?: string; host_id: string; id?: string; room_id: string; total_coins?: number };
+      Update: { claim_limit?: number; created_at?: string; expires_at?: string; host_id?: string; id?: string; room_id?: string; total_coins?: number };
+      Relationships: [];
+    };
+    cupido_live_treasure_claims: {
+      Row: { claimed_at: string; coins: number; treasure_id: string; user_id: string };
+      Insert: { claimed_at?: string; coins?: number; treasure_id: string; user_id: string };
+      Update: { claimed_at?: string; coins?: number; treasure_id?: string; user_id?: string };
       Relationships: [];
     };
     cupido_live_viewers: {
@@ -1470,6 +1491,14 @@ export type Database = {
       cupido_promote_post: { Args: { _post: string }; Returns: boolean };
       cupido_request_pk: { Args: { _room: string }; Returns: string };
       cupido_respond_pk: { Args: { _accept: boolean; _request: string }; Returns: string };
+    cupido_set_live_coin_goal: { Args: { _goal: number; _room: string }; Returns: number };
+    cupido_get_live_top_fans: { Args: { _room: string }; Returns: { user_id: string; display_name: string; avatar_url: string; coins: number }[] };
+    cupido_get_live_gift_total: { Args: { _room: string }; Returns: number };
+    cupido_get_weekly_ranking: { Args: never; Returns: Json };
+    cupido_start_live_treasure: { Args: { _room: string }; Returns: string };
+    cupido_claim_live_treasure: { Args: { _treasure: string }; Returns: Json };
+    cupido_get_live_pk_state: { Args: { _room: string }; Returns: { battle_id: string; challenger_id: string; challenger_name: string; started_at: string; ends_at: string; finished_at: string | null; host_coins: number; challenger_coins: number; winner_id: string | null; seconds_left: number }[] };
+    cupido_finish_live_pk_battle: { Args: { _battle: string }; Returns: Json };
     cupido_send_live_gift: {
       Args: { _cash_value: number; _credits: number; _gift_id: string; _receiver: string; _room: string };
       Returns: string;

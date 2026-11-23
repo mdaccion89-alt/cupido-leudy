@@ -340,7 +340,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
         <div translate="no" className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(!onlyUserId || onlyUserId === viewerId) && <Link to="/historia" search={{ story: undefined }} aria-label="Tu historia: subir foto o video" className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
             <span className={`relative grid size-16 place-items-center rounded-full p-[3px] ${ownStory ? "bg-[linear-gradient(135deg,#ec4899,#f59e0b)]" : "bg-white/15"}`}>
-              <Avatar className="size-full border-2 border-background bg-zinc-900">
+              <Avatar userId={viewerId} className="size-full border-2 border-background bg-zinc-900">
                 <AvatarImage src={ownStory?.avatar_url ?? ""} alt="" />
                 <AvatarFallback className="bg-zinc-900 text-white"><Plus className="size-6" /></AvatarFallback>
               </Avatar>
@@ -354,7 +354,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
             return (
               <Link key={story.user_id} to="/historia" search={{ story: story.id }} aria-label={`Ver historia de ${story.display_name}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
                 <span className="relative rounded-full bg-[linear-gradient(135deg,#ec4899,#f59e0b)] p-[3px]">
-                  <Avatar className="size-16 border-2 border-background">
+                  <Avatar userId={story.user_id} className="size-16 border-2 border-background">
                     <AvatarImage src={story.avatar_url} alt={story.display_name} />
                     <AvatarFallback className="bg-pink-500/20 text-pink-100">{story.display_name.slice(0, 1).toUpperCase()}</AvatarFallback>
                   </Avatar>
@@ -416,7 +416,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
         {visibleStories.map((story) => (
           <article key={story.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04]">
             <div className="flex items-center gap-3 p-3">
-              <Avatar className="size-10 border border-pink-400/50"><AvatarImage src={story.avatar_url} alt={story.display_name} /><AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback></Avatar>
+              <Avatar userId={story.user_id} className="size-10 border border-pink-400/50"><AvatarImage src={story.avatar_url} alt={story.display_name} /><AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback></Avatar>
               <div className="min-w-0 flex-1"><Link to="/perfil" search={{ userId: story.user_id }} className="truncate text-sm font-semibold text-white hover:underline">{story.display_name}</Link><p className="text-[11px] text-muted-foreground">Vence {new Date(story.expires_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</p></div>
               {story.user_id === viewerId ? <><Button type="button" variant="ghost" size="icon" aria-label="Ver quién vio la historia" onClick={() => setViewersStory(story.id)}><Eye className="size-4" /><span className="sr-only">{story.viewer_count}</span></Button><Button type="button" variant="ghost" size="icon" aria-label="Eliminar historia" onClick={() => void deleteStory(story)}><Trash2 className="size-4" /></Button></> : <details className="relative"><summary className="list-none cursor-pointer rounded p-2 text-muted-foreground hover:text-white" aria-label="Más opciones de historia"><MoreHorizontal className="size-4" /></summary><div className="absolute right-0 z-20 mt-1 w-44 rounded-xl border border-white/10 bg-slate-950 p-1 shadow-xl"><button className="w-full rounded px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void interact("cupido_hide_story_user", { _owner: story.user_id }, "Historias de este usuario ocultas.")}>Ocultar usuario</button><button className="w-full rounded px-3 py-2 text-left text-xs text-red-200 hover:bg-white/10" onClick={() => void interact("cupido_report_story", { _story: story.id, _reason: "Contenido reportado desde Historias" }, "Reporte enviado al Administrador.")}>Reportar al Admin</button></div></details>}
             </div>
@@ -453,7 +453,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
               {storySequence.map((story, index) => <span key={story.id} className="h-1 flex-1 overflow-hidden rounded-full bg-white/30"><span key={`${story.id}-${activeStory.id}`} className={`block h-full bg-white ${index < activeStoryIndex ? "w-full" : index === activeStoryIndex ? "story-progress-fill w-full origin-left" : "w-0"}`} /></span>)}
             </div>
             <div className="mt-3 flex items-center gap-2.5">
-              <Avatar className="size-10 border border-white/60"><AvatarImage src={activeStory.avatar_url} alt={activeStory.display_name} /><AvatarFallback>{activeStory.display_name.slice(0, 1)}</AvatarFallback></Avatar>
+              <Avatar userId={activeStory.user_id} className="size-10 border border-white/60"><AvatarImage src={activeStory.avatar_url} alt={activeStory.display_name} /><AvatarFallback>{activeStory.display_name.slice(0, 1)}</AvatarFallback></Avatar>
               <Link to="/perfil" search={{ userId: activeStory.user_id }} className="min-w-0 flex-1 text-sm font-semibold text-white drop-shadow">{activeStory.display_name}{activeStory.age ? ` · ${activeStory.age}` : ""}<span className="ml-1 inline-flex align-middle"><VerifiedBadge verified={activeStory.is_verified_blue} className="size-4" /></span></Link>
               <span className="text-[11px] text-white/80">{new Date(activeStory.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}</span>
               <Button type="button" variant="ghost" size="icon" aria-label="Cerrar historia" className="size-9 shrink-0 text-white hover:bg-white/15" onClick={() => setStoryViewerId(null)}><X className="size-5" /></Button>
@@ -474,7 +474,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
         </div>
       )}
       <Dialog open={Boolean(viewersStory)} onOpenChange={(open) => !open && setViewersStory(null)}>
-        <DialogContent><DialogHeader><DialogTitle>Vieron tu historia</DialogTitle><DialogDescription>{viewers.data?.length ?? 0} personas</DialogDescription></DialogHeader><div className="max-h-72 space-y-2 overflow-y-auto">{viewers.data?.map((row) => <Link key={row.viewer_id} to="/perfil" search={{ userId: row.viewer_id }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-white/5"><Avatar className="size-9"><AvatarImage src={row.profile?.avatar_url ?? ""} /><AvatarFallback>{row.profile?.display_name?.slice(0, 1) ?? "?"}</AvatarFallback></Avatar><span className="text-sm text-white">{row.profile?.display_name ?? "Miembro de Cupido"}</span><span className="ml-auto text-[10px] text-muted-foreground">{new Date(row.viewed_at).toLocaleString("es", { hour: "2-digit", minute: "2-digit" })}</span></Link>)}</div></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Vieron tu historia</DialogTitle><DialogDescription>{viewers.data?.length ?? 0} personas</DialogDescription></DialogHeader><div className="max-h-72 space-y-2 overflow-y-auto">{viewers.data?.map((row) => <Link key={row.viewer_id} to="/perfil" search={{ userId: row.viewer_id }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-white/5"><Avatar userId={row.viewer_id} className="size-9"><AvatarImage src={row.profile?.avatar_url ?? ""} /><AvatarFallback>{row.profile?.display_name?.slice(0, 1) ?? "?"}</AvatarFallback></Avatar><span className="text-sm text-white">{row.profile?.display_name ?? "Miembro de Cupido"}</span><span className="ml-auto text-[10px] text-muted-foreground">{new Date(row.viewed_at).toLocaleString("es", { hour: "2-digit", minute: "2-digit" })}</span></Link>)}</div></DialogContent>
       </Dialog>
       <ImageCropDialog
         file={cropFile}

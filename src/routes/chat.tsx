@@ -7,6 +7,7 @@ import {
   Coffee,
   Copy,
   CreditCard,
+  Dices,
   Flame,
   Forward,
   Gift,
@@ -121,6 +122,14 @@ type ActiveCall = {
   role: "caller" | "callee";
   video: boolean;
 };
+
+const ICEBREAKER_QUESTIONS = [
+  "¿Qué plan sencillo te mejora cualquier día?",
+  "¿Qué canción pondrías para empezar un viaje?",
+  "¿Cuál es una comida que siempre te hace feliz?",
+  "¿Qué lugar de tu ciudad recomendarías para una primera cita?",
+  "¿Qué habilidad te gustaría aprender este año?",
+];
 
 type SignalPayload =
   | { kind: "offer"; sdp: RTCSessionDescriptionInit }
@@ -1079,7 +1088,7 @@ function ChatPage() {
               >
                 <div className="relative shrink-0">
                   <GranLigaStar active={row.other?.is_gran_liga} />
-                  <Avatar className="size-14 border border-border">
+                  <Avatar userId={row.other?.id} className="size-14 border border-border">
                     <AvatarImage src={row.other?.avatar_url ?? ""} alt={row.other?.display_name ?? "Chat"} />
                     <AvatarFallback className="bg-primary/10 text-sm text-primary">
                       {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
@@ -1118,7 +1127,7 @@ function ChatPage() {
             <>
               <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-3 sm:gap-3 sm:px-4">
                 <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 md:hidden" aria-label="Volver a conversaciones" onClick={() => setMobileShowChat(false)}><ArrowLeft className="size-4" /></Button>
-                <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar className="h-10 w-10">
+                <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar userId={activeConversation.other?.id} className="h-10 w-10">
                   <AvatarImage src={activeConversation.other?.avatar_url ?? ""} alt={activeConversation.other?.display_name ?? ""} />
                   <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">
                     {(activeConversation.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
@@ -1197,7 +1206,7 @@ function ChatPage() {
                         )}
                         <p className={`mt-1 text-[10px] ${mine ? "text-pink-100/80" : "text-muted-foreground"}`}>
                           {message.edited_at ? "Editado · " : ""}{new Date(message.created_at).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })}
-                          {mine && <span className="ml-1 font-semibold text-sky-200">{message.read_at ? "✓✓ Leído" : "✓"}</span>}
+                          {mine && <span className="ml-1 font-semibold text-sky-200">{message.read_at ? "Visto ✓✓" : "✓"}</span>}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-white/10 pt-1">
                           <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setReplyTarget({ id: message.id, body: message.body || (message.audio_path ? "Nota de voz" : "Foto"), sender_id: message.sender_id })} aria-label="Responder citando este mensaje"><Reply className="inline size-3" /> Responder</button>
@@ -1252,6 +1261,20 @@ function ChatPage() {
                   />
                   <Button
                     type="button"
+                    size="icon"
+                    variant="outline"
+                    aria-label="Enviar pregunta rompehielos aleatoria"
+                    title="Dado Rompehielos 🎲"
+                    disabled={sendMessage.isPending || !activeId}
+                    onClick={() => {
+                      const question = ICEBREAKER_QUESTIONS[Math.floor(Math.random() * ICEBREAKER_QUESTIONS.length)];
+                      if (question) sendMessage.mutate(question);
+                    }}
+                  >
+                    <Dices className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
                     onClick={() => text.trim() && (editingMessage ? void editMessage() : sendMessage.mutate(text.trim()))}
                     disabled={sendMessage.isPending || !text.trim()}
                   >
@@ -1283,7 +1306,7 @@ function ChatPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-3">
-            <Avatar className="h-14 w-14">
+            <Avatar userId={incoming?.profile?.id} className="h-14 w-14">
               <AvatarImage src={incoming?.profile?.avatar_url ?? ""} alt="" />
               <AvatarFallback className="bg-pink-500/20 text-pink-100">
                 {(incoming?.profile?.display_name ?? "C").slice(0, 2).toUpperCase()}
@@ -1377,7 +1400,7 @@ function ChatPage() {
           <div className="max-h-72 space-y-2 overflow-y-auto">
             {(conversations.data ?? []).filter((row) => row.id !== activeId).map((row) => (
               <Button key={row.id} type="button" variant="outline" className="w-full justify-start" onClick={() => void forwardMessage(row.id)}>
-                <Avatar className="size-7"><AvatarImage src={row.other?.avatar_url ?? ""} /><AvatarFallback>{row.other?.display_name.slice(0, 1) ?? "C"}</AvatarFallback></Avatar>
+                <Avatar userId={row.other?.id} className="size-7"><AvatarImage src={row.other?.avatar_url ?? ""} /><AvatarFallback>{row.other?.display_name.slice(0, 1) ?? "C"}</AvatarFallback></Avatar>
                 {row.other?.display_name ?? "Miembro"}
               </Button>
             ))}

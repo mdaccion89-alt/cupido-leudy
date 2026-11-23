@@ -19,6 +19,7 @@ import { BottomNav, RouteShortcuts } from "@/components/cupido/bottom-nav";
 import { SiteHeader } from "@/components/studio/site-header";
 import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
+import { WeeklyRankingProvider } from "@/components/cupido/weekly-ranking";
 import { Toaster } from "@/components/ui/sonner";
 import { hideFeedBanner, initializeAdMob, showFeedBanner } from "@/lib/admob";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
@@ -276,6 +277,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
+        <WeeklyRankingProvider>
         <ThemeSync onThemeChange={setTheme} />
         <SystemNotificationSetup />
         <LoginMetadataSetup />
@@ -297,6 +299,7 @@ function RootComponent() {
         <EscudoWidget />
         <TermsModal />
         <Toaster theme={theme} position="top-center" />
+        </WeeklyRankingProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

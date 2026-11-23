@@ -213,7 +213,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const renderComment = (comment: PostComment, depth = 0): ReactNode => (
     <div key={comment.id} className="space-y-2">
       <div className="flex gap-2 text-xs" style={{ marginLeft: `${Math.min(depth, 4) * 12}px` }}>
-        <div className="relative shrink-0"><GranLigaStar active={comment.is_gran_liga} /><Avatar className="size-6">
+        <div className="relative shrink-0"><GranLigaStar active={comment.is_gran_liga} /><Avatar userId={comment.user_id} className="size-6">
           <AvatarImage src={safeText(comment.avatar_url)} alt={safeText(comment.display_name, "Miembro")} />
           <AvatarFallback className="bg-pink-500/20 text-[9px] text-pink-100">{safeText(comment.display_name, "Miembro").slice(0, 2).toUpperCase()}</AvatarFallback>
         </Avatar></div>
@@ -300,7 +300,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
-          <div className="relative shrink-0"><GranLigaStar active={media.is_gran_liga} /><Avatar className="h-10 w-10 border border-pink-400/40">
+          <div className="relative shrink-0"><GranLigaStar active={media.is_gran_liga} /><Avatar userId={media.user_id} className="h-10 w-10 border border-pink-400/40">
             <AvatarImage src={safeText(media?.avatar_url)} alt={authorName} />
             <AvatarFallback className="bg-pink-500/20 text-xs text-pink-200">
               {authorName.slice(0, 2).toUpperCase()}

@@ -104,7 +104,7 @@ export function MentionInput({ value, onChange, placeholder, className, maxLengt
           {people.isLoading && <p className="px-3 py-2 text-xs text-muted-foreground">Buscando amigos y seguidores…</p>}
           {!people.isLoading && suggestions.map((person) => (
             <button key={person.id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => insert(person)} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-white hover:bg-white/10">
-              <Avatar className="size-7"><AvatarImage src={person.avatar_url} alt={person.display_name} /><AvatarFallback>{person.display_name.slice(0, 1)}</AvatarFallback></Avatar>
+              <Avatar userId={person.id} className="size-7"><AvatarImage src={person.avatar_url} alt={person.display_name} /><AvatarFallback>{person.display_name.slice(0, 1)}</AvatarFallback></Avatar>
               <span className="truncate">{person.display_name}</span>
             </button>
           ))}

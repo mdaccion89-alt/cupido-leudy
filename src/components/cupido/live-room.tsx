@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
+import { ArrowLeft, Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { blockUser, reportUser } from "@/lib/safety";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import { releaseLivePresenceCount } from "@/lib/use-live-presence-counts";
+import { useWeeklyRankingData } from "@/components/cupido/weekly-ranking";
 
 type LiveRoomProps = {
   roomId: string;
@@ -70,7 +71,7 @@ function decodeLiveSignal(row: StoredLiveSignal): LiveSignal | null {
 }
 
 type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
-type GiftAnimation = { id: number; emoji: string; name: string; sender: string };
+type GiftAnimation = { id: number; emoji: string; name: string; sender: string; coins: number };
 type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean };
 type PkRequest = { id: string; room_id: string; host_id: string; requester_id: string; status: string; expires_at: string; requester_name?: string };
 
@@ -112,6 +113,67 @@ export function LiveRoom({
       };
     },
   });
+  const coinGoal = useQuery({
+    queryKey: ["cupido-live-coin-goal", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_rooms").select("coin_goal").eq("id", roomId).maybeSingle();
+      if (error) throw error;
+      return Number(data?.coin_goal ?? 0);
+    },
+  });
+  const liveGiftTotal = useQuery({
+    queryKey: ["cupido-live-gift-total", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_get_live_gift_total", { _room: roomId });
+      if (error) throw error;
+      return Number(data ?? 0);
+    },
+  });
+  const topFans = useQuery({
+    queryKey: ["cupido-live-top-fans", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_get_live_top_fans", { _room: roomId });
+      if (error) throw error;
+      return data ?? [];
+    },
+    refetchInterval: 15_000,
+  });
+  const pkState = useQuery({
+    queryKey: ["cupido-live-pk-state", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_get_live_pk_state", { _room: roomId });
+      if (error) throw error;
+      return data?.[0] ?? null;
+    },
+    refetchInterval: 5_000,
+  });
+  const activePkChallengerIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activePkChallengerIdRef.current = pkState.data && !pkState.data.finished_at && pkState.data.seconds_left > 0 ? pkState.data.challenger_id : null;
+  }, [pkState.data]);
+  const treasure = useQuery({
+    queryKey: ["cupido-live-treasure", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_treasures").select("id,expires_at").eq("room_id", roomId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const weeklyRanking = useWeeklyRankingData();
+  const senderProfile = useQuery({
+    queryKey: ["cupido-live-sender-profile", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles").select("display_name").eq("id", viewerId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
   const updatePrivateCallPrice = useMutation({
     mutationFn: async (price: number) => {
       const { data, error } = await supabase.rpc("cupido_set_live_call_minute_price", { _room: roomId, _price: price });
@@ -144,7 +206,7 @@ export function LiveRoom({
     queryKey: ["cupido-pk-profile", viewerId],
     enabled: role === "viewer",
     queryFn: async () => {
-      const { data, error } = await supabase.from("creator_profiles").select("is_verified_blue,is_gran_liga").eq("id", viewerId).maybeSingle();
+      const { data, error } = await supabase.from("creator_profiles").select("is_verified_blue,is_gran_liga,is_premium").eq("id", viewerId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -155,6 +217,10 @@ export function LiveRoom({
   const [giftPanelOpen, setGiftPanelOpen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const pkRemoteVideoRef = useRef<HTMLVideoElement>(null);
+  const pkLocalVideoRef = useRef<HTMLVideoElement>(null);
+  const pkCameraStreamRef = useRef<MediaStream | null>(null);
+  const pkStreamIdRef = useRef<string | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>());
@@ -162,10 +228,22 @@ export function LiveRoom({
   const [ready, setReady] = useState(false);
   const [sendingGift, setSendingGift] = useState(false);
   const [giftAnimation, setGiftAnimation] = useState<GiftAnimation | null>(null);
+  const [highValueGift, setHighValueGift] = useState<{ sender: string; name: string; coins: number } | null>(null);
   const giftAnimationTimerRef = useRef<number | null>(null);
-  const [liveHeartId, setLiveHeartId] = useState(0);
-  const liveHeartTimerRef = useRef<number | null>(null);
-  const [pkScores, setPkScores] = useState({ host: 0, challenger: 0 });
+  const highValueGiftTimerRef = useRef<number | null>(null);
+  const entryNoticeTimerRef = useRef<number | null>(null);
+  const [floatingHearts, setFloatingHearts] = useState<Array<{ id: number; right: number }>>([]);
+  const lastHeartAt = useRef(0);
+  const [entryNotice, setEntryNotice] = useState("");
+  const [pkRemaining, setPkRemaining] = useState(0);
+  const [goalInput, setGoalInput] = useState("");
+  const [rankingOpen, setRankingOpen] = useState(false);
+  const [treasureSeconds, setTreasureSeconds] = useState(0);
+  const [pkSide, setPkSide] = useState<"host" | "challenger">("host");
+  const [treasureBusy, setTreasureBusy] = useState(false);
+  const [goalCelebration, setGoalCelebration] = useState(false);
+  const goalCelebratedRef = useRef(false);
+  const pkFinishStartedRef = useRef(false);
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
@@ -181,7 +259,7 @@ export function LiveRoom({
     },
   });
   const [comments, setComments] = useState<LiveComment[]>([]);
-  const [joinMessages, setJoinMessages] = useState<string[]>([]);
+  const joinMessages: string[] = [];
   const [commentText, setCommentText] = useState("");
   const [sendingComment, setSendingComment] = useState(false);
   const [pendingPk, setPendingPk] = useState<PkRequest | null>(null);
@@ -277,9 +355,32 @@ export function LiveRoom({
         peer.addTrack(track, localStreamRef.current!);
       });
       peer.ontrack = (event) => {
-        if (role !== "host" || event.track.kind !== "audio" || !remoteAudioRef.current) return;
-        remoteAudioRef.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-        void remoteAudioRef.current.play().catch(() => undefined);
+        if (role !== "host") return;
+        const stream = event.streams[0] ?? new MediaStream([event.track]);
+        if (event.track.kind === "audio") {
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = stream;
+            void remoteAudioRef.current.play().catch(() => undefined);
+          }
+          return;
+        }
+        if (event.track.kind !== "video" || peerId !== activePkChallengerIdRef.current) return;
+        if (pkRemoteVideoRef.current) {
+          pkRemoteVideoRef.current.srcObject = stream;
+          void pkRemoteVideoRef.current.play().catch(() => undefined);
+        }
+        const gifts = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
+        if (gifts) void gifts.send({ type: "broadcast", event: "pk-stream-id", payload: { stream_id: stream.id } });
+        for (const [viewerPeerId, viewerPeer] of peersRef.current) {
+          if (viewerPeerId === peerId || viewerPeer.signalingState !== "stable") continue;
+          try {
+            viewerPeer.addTrack(event.track, stream);
+            void viewerPeer.createOffer().then(async (offer) => {
+              await viewerPeer.setLocalDescription(offer);
+              await sendSignal({ kind: "offer", sender: viewerId, receiver: viewerPeerId, sdp: offer });
+            });
+          } catch { /* a viewer connection may be closing */ }
+        }
       };
       peer.onicecandidate = (event) => {
         if (event.candidate) {
@@ -291,7 +392,7 @@ export function LiveRoom({
       await peer.setLocalDescription(offer);
       await sendSignal({ kind: "offer", sender: viewerId, receiver: peerId, sdp: offer });
     },
-    [role, sendSignal, viewerId],
+    [role, roomId, sendSignal, viewerId],
   );
 
   useEffect(() => {
@@ -327,9 +428,11 @@ export function LiveRoom({
           const offerPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
           peersRef.current.set(hostId, offerPeer);
           offerPeer.ontrack = (event) => {
-            if (!remoteVideoRef.current) return;
-            remoteVideoRef.current.srcObject = event.streams[0] ?? new MediaStream([event.track]);
-            void remoteVideoRef.current.play().catch(() => undefined);
+            const stream = event.streams[0] ?? new MediaStream([event.track]);
+            const target = stream.id === pkStreamIdRef.current ? pkRemoteVideoRef.current : remoteVideoRef.current;
+            if (!target) return;
+            target.srcObject = stream;
+            void target.play().catch(() => undefined);
           };
           viewerStream?.getAudioTracks().forEach((track) => offerPeer.addTrack(track, viewerStream));
           offerPeer.onicecandidate = (event) => {
@@ -368,30 +471,49 @@ export function LiveRoom({
       .channel(`cupido-live-gifts-${roomId}`, { config: { broadcast: { self: false } } })
       .on("broadcast", { event: "earnings-updated" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-gift-total", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-top-fans", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-pk-state", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-coin-goal", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-weekly-ranking"] });
       })
       .on("broadcast", { event: "gift" }, ({ payload }) => {
-        const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown; points?: unknown; side?: unknown };
+        const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown; points?: unknown; coins?: unknown; side?: unknown };
         void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-gift-total", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-top-fans", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-pk-state", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-coin-goal", roomId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-weekly-ranking"] });
+        const coins = typeof gift.coins === "number" ? gift.coins : typeof gift.points === "number" ? gift.points : 0;
         const next: GiftAnimation = {
           id: Date.now(),
           emoji: typeof gift.emoji === "string" ? gift.emoji : "🎁",
           name: typeof gift.name === "string" ? gift.name : "Regalo",
           sender: typeof gift.sender === "string" ? gift.sender : "Un espectador",
+          coins,
         };
         setGiftAnimation(next);
-        const points = typeof gift.points === "number" ? Math.max(1, Math.min(100, gift.points)) : 1;
-        const side = gift.side === "host" ? "host" : "challenger";
-        setPkScores((current) => ({ ...current, [side]: current[side] + points }));
+        if (coins >= 300) {
+          setHighValueGift({ sender: next.sender, name: next.name, coins });
+          if (highValueGiftTimerRef.current !== null) window.clearTimeout(highValueGiftTimerRef.current);
+          highValueGiftTimerRef.current = window.setTimeout(() => setHighValueGift(null), 7000);
+        }
         if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
-        giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
+        giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 3500);
       })
       .on("broadcast", { event: "heart" }, ({ payload }) => {
-        const heart = payload as { side?: unknown };
-        const side = heart.side === "host" ? "host" : "challenger";
-        setPkScores((current) => ({ ...current, [side]: current[side] + 1 }));
-        setLiveHeartId(Date.now());
-        if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
-        liveHeartTimerRef.current = window.setTimeout(() => setLiveHeartId(0), 1800);
+        const heart = payload as { id?: unknown; right?: unknown };
+        const id = typeof heart.id === "number" ? heart.id : Date.now() + Math.random();
+        const right = typeof heart.right === "number" ? heart.right : 8 + Math.random() * 14;
+        setFloatingHearts((current) => [...current.slice(-12), { id, right }]);
+        window.setTimeout(() => setFloatingHearts((current) => current.filter((item) => item.id !== id)), 2200);
+      })
+      .on("broadcast", { event: "pk-stream-id" }, ({ payload }) => {
+        const value = payload as { stream_id?: unknown };
+        if (typeof value.stream_id === "string") {
+          pkStreamIdRef.current = value.stream_id;
+        }
       })
       .subscribe();
 
@@ -409,8 +531,12 @@ export function LiveRoom({
           for (const person of joined) {
             if (person.user_id === viewerId || person.role !== "viewer") continue;
             const name = person.display_name?.trim() || "Usuario";
-            const message = `${name.startsWith("@") ? name : `@${name}`} se unió a la transmisión`;
-            setJoinMessages((current) => [...current.slice(-4), message]);
+            void supabase.from("cupido_public_profiles").select("is_verified_blue,is_gran_liga,is_premium").eq("id", person.user_id).maybeSingle().then(({ data }) => {
+              if (!data || (!data.is_verified_blue && !data.is_gran_liga && !data.is_premium)) return;
+              setEntryNotice(`✨ ${name} entró a la sala`);
+              if (entryNoticeTimerRef.current !== null) window.clearTimeout(entryNoticeTimerRef.current);
+              entryNoticeTimerRef.current = window.setTimeout(() => setEntryNotice(""), 3000);
+            });
           }
         })
         .on("presence", { event: "sync" }, () => {
@@ -463,6 +589,16 @@ export function LiveRoom({
               onEnded();
               return;
             }
+            if (signal.kind === "offer" && role === "host") {
+              const peer = peersRef.current.get(signal.sender);
+              if (!peer) return;
+              if (peer.signalingState !== "stable") await peer.setLocalDescription({ type: "rollback" });
+              await peer.setRemoteDescription(signal.sdp);
+              const answer = await peer.createAnswer();
+              await peer.setLocalDescription(answer);
+              await sendSignal({ kind: "answer", sender: viewerId, receiver: signal.sender, sdp: answer });
+              return;
+            }
             if (signal.kind === "offer" && role === "viewer") {
               const peer = peersRef.current.get(hostId);
               if (!peer) return;
@@ -475,8 +611,8 @@ export function LiveRoom({
               await sendSignal({ kind: "answer", sender: viewerId, receiver: hostId, sdp: answer });
               return;
             }
-            if (signal.kind === "answer" && role === "host") {
-              const peer = peersRef.current.get(signal.sender);
+            if (signal.kind === "answer") {
+              const peer = peersRef.current.get(role === "host" ? signal.sender : hostId);
               if (!peer) return;
               await peer.setRemoteDescription(signal.sdp);
               const pending = pendingIceRef.current.get(signal.sender) ?? [];
@@ -507,6 +643,8 @@ export function LiveRoom({
       if (role === "host") void sendSignal({ kind: "end", sender: viewerId }).catch(() => undefined);
       void supabase.from("cupido_live_viewers").delete().eq("room_id", roomId).eq("user_id", viewerId).then(() => undefined);
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
+      pkCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      pkCameraStreamRef.current = null;
       peersRef.current.forEach((peer) => peer.close());
       peersRef.current.clear();
       void supabase.removeChannel(roomChannel);
@@ -514,7 +652,8 @@ export function LiveRoom({
       if (presenceChannel) void supabase.removeChannel(presenceChannel);
       void supabase.removeChannel(signalsChannel);
       if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
-      if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
+      if (highValueGiftTimerRef.current !== null) window.clearTimeout(highValueGiftTimerRef.current);
+      if (entryNoticeTimerRef.current !== null) window.clearTimeout(entryNoticeTimerRef.current);
     };
   }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, queryClient, sendSignal]);
 
@@ -610,7 +749,6 @@ export function LiveRoom({
     else if (data === "accepted") {
       toast.success("Solicitud PK aceptada. La batalla 1 vs 1 está lista.");
       setActivePkName(pendingPk?.requester_name ?? "Rival PK");
-      setPkScores({ host: 0, challenger: 0 });
     }
     else if (data === "rejected") toast.info("Solicitud PK rechazada.");
     setPendingPk(null);
@@ -621,8 +759,15 @@ export function LiveRoom({
       toast.error("Para solicitar una Batalla PK necesitas Insignia Azul o Gran Liga.");
       return;
     }
+    try {
+      await requestNativeMediaPermissions({ camera: true, microphone: false });
+      pkCameraStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "user" } }, audio: false });
+    } catch (error) {
+      toast.error(mediaPermissionMessage(error) ?? "Permite la cámara para participar en la Batalla PK.");
+      return;
+    }
     const { data, error } = await supabase.rpc("cupido_request_pk", { _room: roomId });
-    if (error) { toast.error(error.message); return; }
+    if (error) { pkCameraStreamRef.current?.getTracks().forEach((track) => track.stop()); pkCameraStreamRef.current = null; toast.error(error.message); return; }
     setPkRequestId(data);
     setPkRequestStatus("pending");
     setPkSeconds(10);
@@ -649,18 +794,17 @@ export function LiveRoom({
 
   useEffect(() => {
     let disposed = false;
-    const showAcceptedPk = async (row: PkRequest, resetScores = false) => {
+    const showAcceptedPk = async (row: PkRequest) => {
       if (row.room_id !== roomId || row.host_id !== hostId || row.status !== "accepted") return;
       const { data } = await supabase.from("cupido_public_profiles").select("display_name").eq("id", row.requester_id).maybeSingle();
       if (disposed) return;
       setActivePkName(data?.display_name?.trim() || "Rival PK");
       setPkRequestId(row.id);
       setPkRequestStatus("accepted");
-      if (resetScores) setPkScores({ host: 0, challenger: 0 });
     };
     const channel = supabase.channel(`cupido-pk-room-${roomId}-${crypto.randomUUID()}`)
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cupido_pk_requests", filter: `room_id=eq.${roomId}` }, (payload) => {
-        void showAcceptedPk(payload.new as PkRequest, true);
+        void showAcceptedPk(payload.new as PkRequest);
       })
       .subscribe();
     void supabase.from("cupido_pk_requests").select("id,room_id,host_id,requester_id,status,expires_at")
@@ -703,6 +847,32 @@ export function LiveRoom({
     return () => window.clearInterval(interval);
   }, [pkRequestId, pkRequestStatus, role]);
 
+  useEffect(() => {
+    if (role === "viewer" && (pkRequestStatus === "rejected" || pkRequestStatus === "expired")) {
+      pkCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      pkCameraStreamRef.current = null;
+    }
+  }, [pkRequestStatus, role]);
+
+  useEffect(() => {
+    const battle = pkState.data;
+    const stream = pkCameraStreamRef.current;
+    const peer = peersRef.current.get(hostId);
+    if (role !== "viewer" || !battle || battle.finished_at || battle.seconds_left <= 0 || battle.challenger_id !== viewerId || !stream || !peer) return;
+    if (pkLocalVideoRef.current) pkLocalVideoRef.current.srcObject = stream;
+    let cancelled = false;
+    void (async () => {
+      const existing = peer.getSenders().filter((sender) => sender.track?.kind === "video");
+      stream.getVideoTracks().forEach((track, index) => { if (!existing[index]) peer.addTrack(track, stream); });
+      if (peer.signalingState !== "stable") return;
+      const offer = await peer.createOffer();
+      if (cancelled) return;
+      await peer.setLocalDescription(offer);
+      await sendSignal({ kind: "offer", sender: viewerId, receiver: hostId, sdp: offer });
+    })().catch(() => toast.error("No se pudo conectar la cámara a la Batalla PK."));
+    return () => { cancelled = true; };
+  }, [hostId, pkState.data?.battle_id, pkState.data?.challenger_id, pkState.data?.finished_at, role, sendSignal, viewerId]);
+
   const sendGift = async (gift: GiftType) => {
     if (!canSendGift(gift, account)) {
       toast.error(
@@ -713,9 +883,12 @@ export function LiveRoom({
       return;
     }
     setSendingGift(true);
+    const activeBattle = pkState.data && !pkState.data.finished_at && pkState.data.seconds_left > 0 ? pkState.data : null;
+    const side = activeBattle ? pkSide : "host";
+    const receiverId = side === "challenger" ? activeBattle?.challenger_id ?? hostId : hostId;
     const { error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
-      _receiver: hostId,
+      _receiver: receiverId,
       _gift_id: gift.id,
       _credits: gift.credits,
       _cash_value: gift.cash,
@@ -727,18 +900,25 @@ export function LiveRoom({
     }
     await account.refresh();
     void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-live-gift-total", roomId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-live-top-fans", roomId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-live-pk-state", roomId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-weekly-ranking"] });
     setPendingGiftPurchase(null);
     setGiftPanelOpen(false);
     setGiftCheckoutOpen(false);
-    setGiftAnimation({ id: Date.now(), emoji: gift.emoji, name: gift.name, sender: "Un espectador" });
+    const sender = senderProfile.data?.display_name?.trim() || "Un espectador";
+    setGiftAnimation({ id: Date.now(), emoji: gift.emoji, name: gift.name, sender, coins: gift.credits });
     if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
-    giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
+    giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 3500);
     const giftChannel = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
-    const side = "host";
-    const points = Math.max(1, Math.min(100, Math.round(gift.credits / 50)));
-    setPkScores((current) => ({ ...current, [side]: current[side] + points }));
+    if (gift.credits >= 300) {
+      setHighValueGift({ sender, name: gift.name, coins: gift.credits });
+      if (highValueGiftTimerRef.current !== null) window.clearTimeout(highValueGiftTimerRef.current);
+      highValueGiftTimerRef.current = window.setTimeout(() => setHighValueGift(null), 7000);
+    }
     if (giftChannel) {
-      void giftChannel.send({ type: "broadcast", event: "gift", payload: { emoji: gift.emoji, name: gift.name, sender: "Un espectador", side, points } });
+      void giftChannel.send({ type: "broadcast", event: "gift", payload: { emoji: gift.emoji, name: gift.name, sender, coins: gift.credits, side } });
     }
     toast.success(`Regalo ${gift.emoji} enviado a ${hostName} ❤️`);
   };
@@ -769,13 +949,44 @@ export function LiveRoom({
   };
 
   const sendLiveHeart = () => {
-    const side = role === "host" ? "host" : "challenger";
-    setPkScores((current) => ({ ...current, [side]: current[side] + 1 }));
-    setLiveHeartId(Date.now());
-    if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
-    liveHeartTimerRef.current = window.setTimeout(() => setLiveHeartId(0), 1800);
+    if (Date.now() - lastHeartAt.current < 150) return;
+    lastHeartAt.current = Date.now();
+    const id = Date.now() + Math.random();
+    const right = 8 + Math.random() * 14;
+    setFloatingHearts((current) => [...current.slice(-12), { id, right }]);
+    window.setTimeout(() => setFloatingHearts((current) => current.filter((item) => item.id !== id)), 2200);
     const channel = supabase.getChannels().find((item) => item.topic.includes(`cupido-live-gifts-${roomId}`));
-    if (channel) void channel.send({ type: "broadcast", event: "heart", payload: { side, user_id: viewerId } });
+    if (channel) void channel.send({ type: "broadcast", event: "heart", payload: { id, right, user_id: viewerId } });
+  };
+
+  const setLiveGoal = async (goalValue = Number(goalInput)) => {
+    const goal = goalValue;
+    if (!Number.isInteger(goal) || goal < 0) { toast.error("Escribe una meta válida de monedas."); return; }
+    const { error } = await supabase.rpc("cupido_set_live_coin_goal", { _room: roomId, _goal: goal });
+    if (error) { toast.error(error.message); return; }
+    await coinGoal.refetch();
+    setGoalInput("");
+    goalCelebratedRef.current = false;
+    toast.success(goal ? "Meta de monedas guardada." : "Meta de monedas desactivada.");
+  };
+
+  const dropTreasure = async () => {
+    const { error } = await supabase.rpc("cupido_start_live_treasure", { _room: roomId });
+    if (error) { toast.error(error.message); return; }
+    await treasure.refetch();
+  };
+
+  const claimTreasure = async () => {
+    if (!treasure.data || treasureBusy) return;
+    setTreasureBusy(true);
+    const { data, error } = await supabase.rpc("cupido_claim_live_treasure", { _treasure: treasure.data.id });
+    setTreasureBusy(false);
+    if (error) { toast.error(error.message); return; }
+    const result = data as { claimed?: boolean; coins?: number; reason?: string };
+    if (result.claimed) {
+      await account.refresh();
+      toast.success(`¡Cofre reclamado! +${result.coins ?? 5} monedas.`);
+    } else toast.info(result.reason === "INFINITE_BALANCE" ? "Tu saldo es infinito." : "El cofre ya no está disponible.");
   };
 
   const toggleMicrophone = () => {
@@ -861,9 +1072,67 @@ export function LiveRoom({
     }
   };
 
+  useEffect(() => {
+    const channel = supabase.channel(`cupido-vip-live-db-${roomId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_pk_battles", filter: `room_id=eq.${roomId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-pk-state", roomId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_treasures", filter: `room_id=eq.${roomId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-treasure", roomId] });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "cupido_live_rooms", filter: `id=eq.${roomId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-coin-goal", roomId] });
+      }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, roomId]);
+
+  useEffect(() => {
+    if (!pkState.data || pkState.data.finished_at) { setPkRemaining(0); return; }
+    const tick = () => setPkRemaining(Math.max(0, Math.ceil((new Date(pkState.data!.ends_at).getTime() - Date.now()) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [pkState.data]);
+
+  useEffect(() => { pkFinishStartedRef.current = false; }, [pkState.data?.battle_id]);
+
+  useEffect(() => {
+    if (!pkState.data || pkState.data.finished_at || pkRemaining > 0 || role !== "host" || pkFinishStartedRef.current) return;
+    pkFinishStartedRef.current = true;
+    void supabase.rpc("cupido_finish_live_pk_battle", { _battle: pkState.data.battle_id }).then(({ data, error }) => {
+      if (error) return;
+      const result = data as { winner_id?: string | null; host_coins?: number; challenger_coins?: number };
+      toast.success(result.winner_id ? `Batalla terminada. Ganador: ${result.winner_id === hostId ? hostName : pkState.data?.challenger_name}. 🏆` : "Batalla terminada en empate.");
+      setActivePkName(null);
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-pk-state", roomId] });
+    });
+  }, [hostId, hostName, pkRemaining, pkState.data, queryClient, role, roomId]);
+
+  useEffect(() => {
+    if (!treasure.data) { setTreasureSeconds(0); return; }
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((new Date(treasure.data!.expires_at).getTime() - Date.now()) / 1000));
+      setTreasureSeconds(remaining);
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [treasure.data, treasure.refetch]);
+
+  useEffect(() => {
+    const goal = Number(coinGoal.data ?? 0);
+    if (goal <= 0 || liveGiftTotal.isLoading || goalCelebratedRef.current || (liveGiftTotal.data ?? 0) < goal) return;
+    goalCelebratedRef.current = true;
+    setGoalCelebration(true);
+    window.setTimeout(() => setGoalCelebration(false), 3000);
+    toast.success("¡Meta de monedas completada! 🎉✨");
+  }, [coinGoal.data, liveGiftTotal.data, liveGiftTotal.isLoading]);
+
+  const pkIsActive = Boolean(activePkName && pkState.data && !pkState.data.finished_at && pkRemaining > 0);
+
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
-      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-10 text-white sm:!max-w-md">
+      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
         <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-w-[72vw] rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
           <DialogTitle className="flex items-center gap-2">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
@@ -875,7 +1144,6 @@ export function LiveRoom({
           <DialogDescription className="flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
             {role === "viewer" && <span className={`flex items-center gap-1 ${hostOnline ? "text-emerald-300" : "text-white/65"}`}><span className={`size-1.5 rounded-full ${hostOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />{hostOnline ? "En línea" : "Desconectado"}</span>}
-            <span className="flex items-center gap-1"><CoinIcon className="size-3.5" /> Monedas brillantes activas</span>
             <span className="inline-flex flex-col rounded-xl border border-amber-300/25 bg-amber-400/10 px-2.5 py-1 text-amber-100" aria-live="polite">
               <span className="text-xs font-semibold">{liveEarnings.isError ? "—" : (liveEarnings.data?.coins ?? 0).toLocaleString("es")} monedas recibidas</span>
               <span className="text-[10px]">≈ US${liveEarnings.isError ? "—" : (liveEarnings.data?.usd ?? 0).toFixed(2)} USD</span>
@@ -884,8 +1152,11 @@ export function LiveRoom({
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
+          {topFans.data?.length > 0 && <div className="flex max-w-[70vw] items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
+            {topFans.data.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
+          </div>}
         </DialogHeader>
-        {role === "host" && !activePkName && (
+        {role === "host" && !pkIsActive && (
           <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
             Precio privado/min
             <select
@@ -902,15 +1173,42 @@ export function LiveRoom({
         {activePkName && (
           <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
-              <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {pkScores.host.toLocaleString("es")}</span>
+              <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {Number(pkState.data?.host_coins ?? 0).toLocaleString("es")}</span>
               <Swords className="size-4 shrink-0 text-amber-300" />
-              <span className="truncate text-sky-200">{activePkName} · {pkScores.challenger.toLocaleString("es")}</span>
+              <span className="truncate text-sky-200">{activePkName} · {Number(pkState.data?.challenger_coins ?? 0).toLocaleString("es")}</span>
             </div>
             <div className="flex h-2 overflow-hidden rounded-full bg-sky-500">
-              <div className="bg-rose-500 transition-all duration-300" style={{ width: `${pkScores.host + pkScores.challenger ? (pkScores.host / (pkScores.host + pkScores.challenger)) * 100 : 50}%` }} />
+              <div className="bg-rose-500 transition-all duration-300" style={{ width: `${Number(pkState.data?.host_coins ?? 0) + Number(pkState.data?.challenger_coins ?? 0) ? (Number(pkState.data?.host_coins ?? 0) / (Number(pkState.data?.host_coins ?? 0) + Number(pkState.data?.challenger_coins ?? 0))) * 100 : 50}%` }} />
             </div>
+            <div className="mt-1 flex justify-between text-[10px] font-semibold text-white/75"><span>Rojo vs. dorado</span><span>{Math.floor(pkRemaining / 60)}:{String(pkRemaining % 60).padStart(2, "0")}</span></div>
+            {role === "viewer" && <div className="mt-2 flex justify-end gap-1"><Button size="sm" variant={pkSide === "host" ? "default" : "outline"} className="h-7 px-2 text-[10px]" onClick={() => setPkSide("host")}>Apoyar anfitrión</Button><Button size="sm" variant={pkSide === "challenger" ? "default" : "outline"} className="h-7 px-2 text-[10px]" onClick={() => setPkSide("challenger")}>Apoyar rival</Button></div>}
           </section>
         )}
+        {role === "host" && !pkIsActive && (
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+11.4rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
+            <span className="shrink-0">Meta</span><Input aria-label="Meta de monedas del Live" inputMode="numeric" value={goalInput} onChange={(event) => setGoalInput(event.target.value)} placeholder={coinGoal.data ? `${coinGoal.data}` : "500"} className="h-7 min-w-0 bg-black/60 px-2 text-xs" />
+            <Button size="sm" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal()}>Guardar</Button>
+            <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal(0)}>Quitar</Button>
+          </div>
+        )}
+        {Number(coinGoal.data ?? 0) > 0 && !pkIsActive && (
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+14.2rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2.5 py-2 text-[10px] text-amber-100 backdrop-blur">
+            <div className="mb-1 flex justify-between gap-2"><span>Meta del anfitrión</span><span>{Math.min(100, Math.round(((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100))}%</span></div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-gradient-to-r from-amber-400 to-yellow-200 transition-all" style={{ width: `${Math.min(100, ((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100)}%` }} /></div>
+            <div className="mt-1 text-right">{(liveGiftTotal.data ?? 0).toLocaleString("es")} / {Number(coinGoal.data).toLocaleString("es")} monedas</div>
+          </div>
+        )}
+        <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+17rem)] z-20 flex gap-2">
+          <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => setRankingOpen(true)}><Trophy className="mr-1 size-3.5" /> Ranking semanal</Button>
+          {(role === "host" || pkProfile.data?.is_verified_blue || pkProfile.data?.is_gran_liga || pkProfile.data?.is_premium) && !treasure.data && <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => void dropTreasure()}>🎁 Cofre</Button>}
+        </div>
+        {treasure.data && treasureSeconds > 0 && !giftAnimation && !entryNotice && !highValueGift && (
+          <button type="button" onClick={() => void claimTreasure()} disabled={treasureBusy} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+20rem)] z-30 -translate-x-1/2 rounded-2xl border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-center text-sm font-bold text-amber-100 shadow-lg shadow-amber-500/20 backdrop-blur">
+            <span className="mr-2 text-xl">🎁</span>{treasureBusy ? "Abriendo…" : `¡Cofre! ${treasureSeconds}s · 5 monedas`}
+          </button>
+        )}
+        {goalCelebration && <div className="pointer-events-none absolute inset-x-0 top-1/2 z-40 flex justify-center gap-3 text-4xl" aria-hidden="true"><span className="animate-bounce">&#127881;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127874;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127881;</span></div>}
+        {giftAnimation ? <div key={giftAnimation.id} className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center" aria-live="polite"><div className="animate-in slide-in-from-top-4 fade-in duration-300 rounded-2xl border border-pink-300/50 bg-black/85 px-4 py-2 text-center text-white shadow-xl shadow-pink-500/20"><span className="mr-2 text-3xl">{giftAnimation.emoji}</span><span className="text-sm font-bold">{giftAnimation.sender} envio {giftAnimation.name}</span><span className="mt-0.5 block text-xs text-amber-200">{giftAnimation.coins.toLocaleString("es")} monedas</span></div></div> : entryNotice ? <div className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center"><div className="rounded-full border border-violet-300/40 bg-zinc-950/85 px-4 py-2 text-center text-xs font-semibold text-violet-100 shadow-lg backdrop-blur">{entryNotice}</div></div> : highValueGift ? <button type="button" onClick={() => setGiftPanelOpen(true)} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-300/60 bg-gradient-to-r from-amber-600/90 via-amber-300/90 to-yellow-600/90 px-4 py-1.5 text-center text-xs font-bold text-zinc-950 shadow-lg shadow-amber-400/20">&#10024; {highValueGift.sender} · {highValueGift.name} · {highValueGift.coins} monedas <span className="ml-2 underline">Ir</span></button> : null}
         <div className="absolute inset-0 z-0 overflow-hidden bg-black">
           <video
             ref={role === "host" ? localVideoRef : remoteVideoRef}
@@ -918,21 +1216,14 @@ export function LiveRoom({
             playsInline
             webkit-playsinline="true"
             muted={role === "host" || liveMuted}
-            className="h-full w-full object-cover"
+            onClick={sendLiveHeart}
+            className={`${pkIsActive ? "absolute inset-x-0 top-0 h-1/2" : "h-full w-full"} cursor-pointer object-cover`}
             style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
           />
+          {pkIsActive && <video ref={role === "host" ? pkRemoteVideoRef : pkState.data?.challenger_id === viewerId ? pkLocalVideoRef : pkRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role !== "host" || liveMuted} className="absolute inset-x-0 bottom-0 h-1/2 w-full object-cover" />}
+          {pkIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">🔴 {hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-amber-100">✨ {activePkName}</span></>}
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
-          {giftAnimation && (
-            <div key={giftAnimation.id} className="pointer-events-none absolute inset-x-0 bottom-8 z-10 flex justify-center" aria-live="polite">
-              <div className="animate-in slide-in-from-bottom-4 fade-in duration-300 rounded-full border border-pink-300/50 bg-black/75 px-5 py-3 text-center text-white shadow-xl shadow-pink-500/20">
-                <span className="block animate-bounce text-5xl leading-none">{giftAnimation.emoji}</span>
-                <span className="mt-2 block text-sm font-bold">{giftAnimation.sender} envió {giftAnimation.name} ❤️</span>
-              </div>
-            </div>
-          )}
-          {liveHeartId > 0 && (
-            <div key={liveHeartId} className="pointer-events-none absolute bottom-[30%] right-[18%] z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-6xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" aria-hidden="true">❤️</div>
-          )}
+          {floatingHearts.map((heart) => <div key={heart.id} className="pointer-events-none absolute bottom-1/4 z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-4xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" style={{ right: `${heart.right}%`, animationDuration: "1.8s" }} aria-hidden="true">💖</div>)}
           <Button
             type="button"
             size="icon"
@@ -940,7 +1231,7 @@ export function LiveRoom({
             aria-label={liveMuted ? "Activar sonido del Live" : "Silenciar Live"}
             title={liveMuted ? "Activar sonido" : "Silenciar"}
             onClick={() => setLiveMuted((value) => !value)}
-            className="absolute right-3 top-3 rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+            className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
           >
             {liveMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
           </Button>
@@ -959,7 +1250,7 @@ export function LiveRoom({
           )}
         </div>
         <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-20 flex flex-col gap-2">
-          {role === "viewer" && <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="rounded-full border-pink-300/50 bg-pink-600/80 text-white"><Heart className="size-4 fill-current" /></Button>}
+          <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="rounded-full border-pink-300/50 bg-pink-600/80 text-white"><Heart className="size-4 fill-current" /></Button>
           <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"} className="rounded-full border-white/30 bg-black/55 text-white">
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
@@ -1135,6 +1426,23 @@ export function LiveRoom({
             </SheetContent>
           </Sheet>
         )}
+        <Sheet open={rankingOpen} onOpenChange={setRankingOpen}>
+          <SheetContent side="bottom" className="z-[95] max-h-[72dvh] overflow-y-auto rounded-t-3xl border-amber-300/30 bg-zinc-950 pb-8 text-white">
+            <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-amber-100"><Trophy className="size-5" /> Ranking semanal</SheetTitle><SheetDescription>Creadores y fans con más actividad esta semana. Se actualiza con nuevos regalos y llamadas.</SheetDescription></SheetHeader>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {([["Top 10 Creadores", weeklyRanking.data.creators], ["Top 10 Fans", weeklyRanking.data.fans]] as const).map(([title, rows]) => (
+                <section key={title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                  <h3 className="mb-2 text-sm font-bold text-amber-100">{title}</h3>
+                  <div className="space-y-2">{rows.slice(0, 10).map((person, index) => (
+                    <Link key={person.user_id} to="/perfil" search={{ userId: person.user_id }} onClick={() => setRankingOpen(false)} className="flex items-center gap-2 rounded-xl px-2 py-1.5 hover:bg-white/5">
+                      <span className="w-5 text-xs font-bold text-amber-200">{index + 1}</span><Avatar userId={person.user_id} className="size-8"><AvatarImage src={person.avatar_url} /><AvatarFallback>{person.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="min-w-0 flex-1 truncate text-sm">{person.display_name}</span><span className="text-xs text-amber-100">{Number(person.coins).toLocaleString("es")}</span>
+                    </Link>
+                  ))}{!rows.length && <p className="py-3 text-center text-xs text-muted-foreground">Aún no hay actividad esta semana.</p>}</div>
+                </section>
+              ))}
+            </div>
+          </SheetContent>
+        </Sheet>
       </DialogContent>
     </Dialog>
   );

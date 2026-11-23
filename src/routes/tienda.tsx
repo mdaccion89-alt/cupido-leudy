@@ -278,7 +278,7 @@ function StorePage() {
         <section className="mb-8 rounded-3xl border border-pink-400/30 bg-pink-500/10 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="relative shrink-0"><GranLigaStar active={target.data?.is_gran_liga} /><Avatar className="h-14 w-14 border border-pink-300/40">
+              <div className="relative shrink-0"><GranLigaStar active={target.data?.is_gran_liga} /><Avatar userId={target.data?.id} className="h-14 w-14 border border-pink-300/40">
                 <AvatarImage src={target.data?.avatar_url ?? ""} alt={target.data?.display_name ?? ""} />
                 <AvatarFallback className="bg-pink-500/20 text-pink-100">
                   {(target.data?.display_name ?? "C").slice(0, 2).toUpperCase()}
