@@ -292,3 +292,125 @@ export const adminSetPlan = createServerFn({ method: "POST" })
     if (error) throw error;
     return { ok: true };
   });
+
+type UserCleanupError = { code?: string; message: string };
+type UserCleanupClient = {
+  from: (table: string) => {
+    delete: () => {
+      eq: (column: string, value: string) => PromiseLike<{ error: UserCleanupError | null }>;
+    };
+  };
+};
+
+const CUPIDO_USER_REFERENCES: Array<[table: string, column: string]> = [
+  ["cupido_story_views", "viewer_id"],
+  ["cupido_story_hearts", "user_id"],
+  ["cupido_story_hides", "user_id"],
+  ["cupido_story_hides", "story_owner"],
+  ["cupido_story_reports", "reporter_id"],
+  ["cupido_stories", "user_id"],
+  ["stories", "user_id"],
+  ["cupido_post_likes", "user_id"],
+  ["cupido_post_dislikes", "user_id"],
+  ["cupido_post_saves", "user_id"],
+  ["cupido_saved_posts", "user_id"],
+  ["cupido_post_comments", "user_id"],
+  ["cupido_post_metric_events", "user_id"],
+  ["cupido_video_watch_events", "viewer_id"],
+  ["cupido_posts", "user_id"],
+  ["posts", "user_id"],
+  ["follows", "follower_id"],
+  ["follows", "following_id"],
+  ["cupido_messages", "sender_id"],
+  ["messages", "sender_id"],
+  ["messages", "receiver_id"],
+  ["cupido_message_hides", "user_id"],
+  ["cupido_conversations", "participant_a"],
+  ["cupido_conversations", "participant_b"],
+  ["friend_requests", "requester_id"],
+  ["friend_requests", "addressee_id"],
+  ["cupido_friends", "requester_id"],
+  ["cupido_friends", "addressee_id"],
+  ["cupido_user_blocks", "blocker_id"],
+  ["cupido_user_blocks", "blocked_id"],
+  ["cupido_group_members", "user_id"],
+  ["cupido_group_invites", "inviter_id"],
+  ["cupido_group_invites", "invitee_id"],
+  ["cupido_groups", "owner_id"],
+  ["cupido_pk_requests", "host_id"],
+  ["cupido_pk_requests", "requester_id"],
+  ["cupido_live_viewers", "user_id"],
+  ["cupido_live_signals", "sender_id"],
+  ["cupido_live_signals", "receiver_id"],
+  ["live_comments", "user_id"],
+  ["live_streams", "host_id"],
+  ["cupido_live_rooms", "host_id"],
+  ["cupido_gift_sends", "sender_id"],
+  ["cupido_gift_sends", "receiver_id"],
+  ["cupido_calls", "caller_id"],
+  ["cupido_calls", "callee_id"],
+  ["cupido_balances", "user_id"],
+  ["cupido_withdrawals", "user_id"],
+  ["cupido_referrals", "referrer_id"],
+  ["cupido_referrals", "referee_id"],
+  ["cupido_comment_likes", "user_id"],
+  ["cupido_reports", "reporter_id"],
+  ["cupido_reports", "reported_id"],
+  ["cupido_face_verification_videos", "user_id"],
+  ["cupido_follower_count_events", "user_id"],
+  ["cupido_live_access", "user_id"],
+  ["cupido_live_moderation_log", "host_id"],
+  ["cupido_login_metadata", "user_id"],
+  ["cupido_support_tickets", "user_id"],
+  ["cupido_terms_acceptance", "user_id"],
+  ["notifications", "user_id"],
+  ["notifications", "actor_id"],
+  ["manual_payments", "user_id"],
+  ["paypal_orders", "user_id"],
+  ["credit_transactions", "user_id"],
+  ["user_roles", "user_id"],
+  ["user_credits", "user_id"],
+  ["songs", "user_id"],
+  ["support_messages", "user_id"],
+  ["creator_profiles", "id"],
+  ["profiles", "id"],
+];
+
+const OPTIONAL_USER_REFERENCE_ERRORS = new Set(["PGRST204", "PGRST205", "42P01", "42703"]);
+
+export const adminDeleteCupidoUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { userId: string }) => {
+    const userId = typeof input?.userId === "string" ? input.userId.trim().toLowerCase() : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      throw new Error("El identificador de la cuenta no es válido.");
+    }
+    return { userId };
+  })
+  .handler(async ({ data, context }): Promise<{ ok: true }> => {
+    if (context.claims?.email?.trim().toLowerCase() !== ADMIN_EMAIL) {
+      throw new Error("Solo el Administrador Oficial puede eliminar cuentas.");
+    }
+    if (data.userId === context.userId) {
+      throw new Error("No puedes eliminar tu propia cuenta desde el panel.");
+    }
+
+    let serviceClient: SupabaseClient<Database>;
+    try {
+      serviceClient = getSupabaseServiceClient();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "clave segura no disponible";
+      throw new Error(`No se pudo eliminar la cuenta: ${reason}`);
+    }
+
+    const cleanupDb = serviceClient as unknown as UserCleanupClient;
+    for (const [table, column] of CUPIDO_USER_REFERENCES) {
+      const { error } = await cleanupDb.from(table).delete().eq(column, data.userId);
+      if (!error || OPTIONAL_USER_REFERENCE_ERRORS.has(error.code ?? "")) continue;
+      throw new Error(`No se pudo limpiar ${table}.${column}: ${error.message}`);
+    }
+
+    const { error } = await serviceClient.auth.admin.deleteUser(data.userId);
+    if (error) throw new Error(`No se pudo eliminar la cuenta: ${error.message}`);
+    return { ok: true };
+  });

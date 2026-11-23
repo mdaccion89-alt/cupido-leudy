@@ -1341,6 +1341,10 @@ export type Database = {
         Args: { _room: string };
         Returns: { received_coins: number; usd_value: number }[];
       };
+      cupido_transfer_gift: {
+        Args: { _receiver: string; _gift_id: string; _room?: string | null };
+        Returns: string;
+      };
       cupido_set_live_call_minute_price: { Args: { _price: number; _room: string }; Returns: number };
       cupido_submit_face_verification_selfie: { Args: { _selfie_path: string }; Returns: undefined };
       cupido_public_paypal_client_id: { Args: never; Returns: string };

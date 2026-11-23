@@ -22,6 +22,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
+import { adminDeleteCupidoUser } from "@/lib/admin.functions";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
 
@@ -242,16 +243,18 @@ function AdminDashboard() {
   });
   const deleteAccount = useMutation({
     mutationFn: async (userId: string) => {
-      const { data, error } = await moderationDb.rpc("cupido_admin_delete_user", { _user_id: userId });
-      if (error) throw error;
-      if (data !== true) throw new Error("No se pudo eliminar la cuenta.");
+      const result = await adminDeleteCupidoUser({ data: { userId } });
+      if (!result.ok) throw new Error("No se pudo eliminar la cuenta.");
     },
     onSuccess: () => {
       setSelectedUserId(null);
       toast.success("Cuenta eliminada completamente.");
       void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo eliminar la cuenta."),
+    onError: (error) => {
+      console.error("[admin] No se pudo eliminar la cuenta.", error);
+      toast.error(error instanceof Error ? error.message : "No se pudo eliminar la cuenta.");
+    },
   });
   const [settings, setSettings] = useState<AdminSettings>(EMPTY_ADMIN_SETTINGS);
   const [uploadingAsset, setUploadingAsset] = useState(false);

@@ -300,7 +300,7 @@ function CupidoHome() {
               </Button>
             )}
             <Button asChild size="lg" variant="outline">
-              <Link to="/tienda" className="w-full max-w-full whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto">Comprar monedas brillantes desde 5,000</Link>
+              <Link to="/tienda" className="w-full max-w-full rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-center text-sm font-medium text-amber-200 whitespace-normal leading-tight sm:w-auto">Comprar monedas brillantes desde 5,000</Link>
             </Button>
           </div>
         </div>
