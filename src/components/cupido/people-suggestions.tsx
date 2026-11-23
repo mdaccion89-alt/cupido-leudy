@@ -133,7 +133,7 @@ export function PeopleSuggestions({ search = "", title = "Sugerencias para ti" }
                 </Link>
                 <p className="flex w-full items-center justify-center gap-1 text-center text-xs font-semibold text-white">
                   <span className="max-w-[5.8rem] truncate">{name}</span>
-                  <VerifiedBadge verified={person.is_verified_blue} official={person.is_official || person.is_super_admin} granLiga={person.is_gran_liga} className="size-3.5 shrink-0" />
+                  <VerifiedBadge verified={Boolean(person.is_verified_blue)} official={Boolean(person.is_official || person.is_super_admin)} granLiga={Boolean(person.is_gran_liga)} className="size-3.5 shrink-0" />
                 </p>
                 <p className={`mt-1 flex w-full items-center justify-center gap-1 truncate text-[10px] ${isOnline ? "text-emerald-300" : "text-white/55"}`}>
                   <span className={`size-1.5 shrink-0 rounded-full ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />{subtitle}

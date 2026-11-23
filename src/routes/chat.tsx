@@ -187,6 +187,9 @@ function ChatPage() {
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null);
   const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
+  const [voiceSending, setVoiceSending] = useState(false);
   const [openingConversation, setOpeningConversation] = useState(false);
   const [chatFilter, setChatFilter] = useState<"all" | "online" | "unread" | "following">("all");
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
@@ -197,11 +200,27 @@ function ChatPage() {
   const openedRef = useRef<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const discardRecordingRef = useRef(false);
+  const recordingStartedAtRef = useRef(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const startVideoAttemptRef = useRef<string | null>(null);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!recording) return;
+    const updateTimer = () => setRecordingSeconds(Math.floor((Date.now() - recordingStartedAtRef.current) / 1000));
+    updateTimer();
+    const timer = window.setInterval(updateTimer, 250);
+    return () => window.clearInterval(timer);
+  }, [recording]);
+
+  useEffect(() => () => {
+    discardRecordingRef.current = true;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recorderRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!isNativeAds()) return;
@@ -643,26 +662,42 @@ function ChatPage() {
   };
 
   const uploadVoice = async (blob: Blob) => {
-    if (!activeId || !viewerId) return;
-    const path = `${activeId}/${viewerId}/${Date.now()}.webm`;
+    if (!activeId || !viewerId) throw new Error("Abre una conversación antes de enviar la nota.");
+    const conversationId = activeId;
+    const recipientId = activeConversation?.other?.id;
+    const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+    const path = `${conversationId}/${viewerId}/${Date.now()}.${extension}`;
     const { error } = await supabase.storage.from("cupido-voice").upload(path, blob, {
       contentType: blob.type || "audio/webm",
     });
-    if (error) {
-      toast.error("No se pudo subir la nota de voz.");
-      return;
-    }
+    if (error) throw error;
     const { error: messageError } = await supabase.from("cupido_messages").insert({
-      conversation_id: activeId,
+      conversation_id: conversationId,
       sender_id: viewerId,
       audio_path: path,
     });
     if (messageError) {
-      toast.error("No se pudo enviar la nota de voz.");
-      return;
+      void supabase.storage.from("cupido-voice").remove([path]);
+      throw messageError;
     }
+    if (recipientId) void notifyUser({ userId: recipientId, title: "🎙️ Nota de voz", body: "Te enviaron una nota de voz.", kind: "message", actorId: viewerId, targetId: conversationId });
     void playCupidoSound("message-sent", viewerId);
-    void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
+    void queryClient.invalidateQueries({ queryKey: ["cupido-messages", conversationId] });
+  };
+
+  const sendVoiceNote = async () => {
+    if (!voiceBlob || voiceSending) return;
+    setVoiceSending(true);
+    try {
+      await uploadVoice(voiceBlob);
+      setVoiceBlob(null);
+      setRecordingSeconds(0);
+      toast.success("Nota de voz enviada.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo enviar la nota de voz.");
+    } finally {
+      setVoiceSending(false);
+    }
   };
 
   const editMessage = async () => {
@@ -759,15 +794,25 @@ function ChatPage() {
       await requestNativeMediaPermissions({ camera: false, microphone: true });
       const recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream = recordingStream;
-      const recorder = new MediaRecorder(recordingStream);
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
+      discardRecordingRef.current = false;
+      setVoiceBlob(null);
+      setRecordingSeconds(0);
+      recordingStartedAtRef.current = Date.now();
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
         recordingStream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        if (blob.size > 0) void uploadVoice(blob);
+        if (!discardRecordingRef.current && blob.size > 0) {
+          setVoiceBlob(blob);
+          toast.success("Nota grabada. Puedes enviarla o descartarla.");
+        }
+        setRecording(false);
       };
       recorder.start();
       recorderRef.current = recorder;
@@ -787,9 +832,18 @@ function ChatPage() {
   };
 
   const stopRecording = () => {
-    recorderRef.current?.stop();
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
     recorderRef.current = null;
+  };
+
+  const cancelVoiceRecording = () => {
+    discardRecordingRef.current = true;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recorderRef.current = null;
+    chunksRef.current = [];
     setRecording(false);
+    setVoiceBlob(null);
+    setRecordingSeconds(0);
   };
 
   const uploadChatPhoto = async (file: File | null) => {
@@ -928,11 +982,7 @@ function ChatPage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) => {
-      const message = error instanceof Error
-        ? error.message
-        : error && typeof error === "object" && "message" in error && typeof error.message === "string"
-          ? error.message
-          : "";
+      const message = error instanceof Error ? error.message : String(error ?? "");
       console.error("[chat] No se pudo enviar el regalo.", error);
       toast.error(giftErrorMessage(message, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
     },
@@ -1088,7 +1138,7 @@ function ChatPage() {
               >
                 <div className="relative shrink-0">
                   <GranLigaStar active={row.other?.is_gran_liga} />
-                  <Avatar userId={row.other?.id} className="size-14 border border-border">
+                  <Avatar userId={row.other?.id ?? null} className="size-14 border border-border">
                     <AvatarImage src={row.other?.avatar_url ?? ""} alt={row.other?.display_name ?? "Chat"} />
                     <AvatarFallback className="bg-primary/10 text-sm text-primary">
                       {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
@@ -1127,7 +1177,7 @@ function ChatPage() {
             <>
               <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-3 sm:gap-3 sm:px-4">
                 <Button type="button" variant="ghost" size="icon" className="size-9 shrink-0 md:hidden" aria-label="Volver a conversaciones" onClick={() => setMobileShowChat(false)}><ArrowLeft className="size-4" /></Button>
-                <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar userId={activeConversation.other?.id} className="h-10 w-10">
+                <div className="relative shrink-0"><GranLigaStar active={activeConversation.other?.is_gran_liga} /><Avatar userId={activeConversation.other?.id ?? null} className="h-10 w-10">
                   <AvatarImage src={activeConversation.other?.avatar_url ?? ""} alt={activeConversation.other?.display_name ?? ""} />
                   <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">
                     {(activeConversation.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
@@ -1223,63 +1273,78 @@ function ChatPage() {
                 <div ref={bottomRef} />
               </div>
 
-              <div className="border-t border-white/10 p-3">
+              <div className="border-t border-white/10 px-3 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
                 <p className="mb-2 text-center text-[11px] text-muted-foreground">Mensajes de texto, notas de voz y fotos son gratis. Las llamadas privadas cuestan monedas.</p>
                 {(replyTarget || editingMessage) && <div className="mb-2 flex items-center gap-2 rounded-lg border border-pink-300/20 bg-pink-500/10 px-3 py-2 text-xs"><span className="min-w-0 flex-1 truncate">{editingMessage ? "Editando mensaje" : `Respondiendo a ${replyTarget?.sender_id === viewerId ? "ti" : activeConversation.other?.display_name}: ${replyTarget?.body}`}</span><button type="button" onClick={() => { setReplyTarget(null); setEditingMessage(null); setText(""); }} aria-label="Cancelar respuesta o edición"><X className="size-4" /></button></div>}
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant={recording ? "destructive" : "outline"}
-                    onClick={recording ? stopRecording : () => void startRecording()}
-                    aria-label={recording ? "Detener nota de voz" : "Grabar nota de voz"}
-                  >
-                    {recording ? <Square /> : <Mic />}
-                  </Button>
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(event) => void uploadChatPhoto(event.target.files?.[0] ?? null)}
-                  />
-                  <Button type="button" size="icon" variant="outline" onClick={() => photoInputRef.current?.click()} aria-label="Enviar foto gratis">
-                    <ImagePlus />
-                  </Button>
-                  <Input
-                    data-message-composer="true"
-                    value={text}
-                    onChange={(event) => { setText(event.target.value); broadcastTyping(event.target.value); }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        if (text.trim()) editingMessage ? void editMessage() : sendMessage.mutate(text.trim());
-                      }
-                    }}
-                    placeholder="Escribe un mensaje…"
-                    maxLength={1000}
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    aria-label="Enviar pregunta rompehielos aleatoria"
-                    title="Dado Rompehielos 🎲"
-                    disabled={sendMessage.isPending || !activeId}
-                    onClick={() => {
-                      const question = ICEBREAKER_QUESTIONS[Math.floor(Math.random() * ICEBREAKER_QUESTIONS.length)];
-                      if (question) sendMessage.mutate(question);
-                    }}
-                  >
-                    <Dices className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => text.trim() && (editingMessage ? void editMessage() : sendMessage.mutate(text.trim()))}
-                    disabled={sendMessage.isPending || !text.trim()}
-                  >
-                    {sendMessage.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-                  </Button>
+                <div className="flex min-w-0 items-center gap-2">
+                  {recording || voiceBlob ? (
+                    <>
+                      <span className="min-w-12 text-center text-xs font-semibold tabular-nums text-amber-200" aria-live="polite">
+                        {recording ? "● " : "♫ "}{Math.floor(recordingSeconds / 60).toString().padStart(2, "0")}:{(recordingSeconds % 60).toString().padStart(2, "0")}
+                      </span>
+                      <Button type="button" size="icon" variant="outline" className="h-11 w-11 min-w-[44px] shrink-0" onClick={cancelVoiceRecording} aria-label="Cancelar nota de voz"><X /></Button>
+                      {recording ? (
+                        <Button type="button" size="icon" variant="secondary" className="h-11 w-11 min-w-[44px] shrink-0" onClick={stopRecording} aria-label="Terminar grabación"><Square /></Button>
+                      ) : (
+                        <Button type="button" size="icon" className="h-11 w-11 min-w-[44px] shrink-0" onClick={() => void sendVoiceNote()} disabled={voiceSending} aria-label="Enviar nota de voz">
+                          {voiceSending ? <Loader2 className="animate-spin" /> : <Send />}
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Button type="button" size="icon" variant="outline" className="h-11 w-11 min-w-[44px] shrink-0" onClick={() => void startRecording()} aria-label="Grabar nota de voz"><Mic /></Button>
+                      <input
+                        ref={photoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => void uploadChatPhoto(event.target.files?.[0] ?? null)}
+                      />
+                      <Button type="button" size="icon" variant="outline" className="h-11 w-11 min-w-[44px] shrink-0" onClick={() => photoInputRef.current?.click()} aria-label="Enviar foto gratis">
+                        <ImagePlus />
+                      </Button>
+                      <Input
+                        data-message-composer="true"
+                        className="min-w-0 flex-1"
+                        value={text}
+                        onChange={(event) => { setText(event.target.value); broadcastTyping(event.target.value); }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            if (text.trim()) editingMessage ? void editMessage() : sendMessage.mutate(text.trim());
+                          }
+                        }}
+                        placeholder="Escribe un mensaje…"
+                        maxLength={1000}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-11 w-11 min-w-[44px] shrink-0"
+                        aria-label="Enviar pregunta rompehielos aleatoria"
+                        title="Dado Rompehielos 🎲"
+                        disabled={sendMessage.isPending || !activeId}
+                        onClick={() => {
+                          const question = ICEBREAKER_QUESTIONS[Math.floor(Math.random() * ICEBREAKER_QUESTIONS.length)];
+                          if (question) sendMessage.mutate(question);
+                        }}
+                      >
+                        <Dices className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-11 w-11 min-w-[44px] shrink-0"
+                        aria-label="Enviar mensaje"
+                        onClick={() => text.trim() && (editingMessage ? void editMessage() : sendMessage.mutate(text.trim()))}
+                        disabled={sendMessage.isPending || !text.trim()}
+                      >
+                        {sendMessage.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </>

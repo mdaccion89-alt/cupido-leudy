@@ -86,11 +86,11 @@ function DirectPage() {
         await supabase.rpc("cupido_end_stale_lives");
         const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
         const { data: liveRows, error } = await supabase
-          .from("live_streams")
-          .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
-          .eq("status", "live")
+          .from("cupido_live_rooms")
+          .select("id,host_id,title,viewer_count,created_at,is_live,premium_coins,premium_minutes,premium_ends_at")
+          .eq("is_live", true)
           .neq("host_id", viewerId ?? "00000000-0000-0000-0000-000000000000")
-          .order("started_at", { ascending: false });
+          .order("created_at", { ascending: false });
         if (error) {
           console.error("[directo] No se pudieron cargar los Directos activos.", error);
           return [];
@@ -111,8 +111,8 @@ function DirectPage() {
             id: stream.id,
             host_id: stream.host_id,
             title: stream.title,
-            viewers_count: stream.viewers_count,
-            started_at: stream.started_at,
+            viewers_count: stream.viewer_count,
+            started_at: stream.created_at,
             host_name: host?.display_name?.trim() || "Miembro de Cupido",
             host_avatar: host?.avatar_url ?? "",
             is_verified_blue: Boolean(host?.is_verified_blue),
@@ -139,7 +139,7 @@ function DirectPage() {
     const channelName = `cupido-direct-list-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const channel = supabase
       .channel((channelName) + "-" + crypto.randomUUID())
-      .on("postgres_changes", { event: "*", schema: "public", table: "live_streams" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
       })
       .subscribe();
@@ -147,6 +147,23 @@ function DirectPage() {
       void supabase.removeChannel(channel);
     };
   }, [queryClient, viewerId]);
+
+  const onlineProfiles = useQuery({
+    queryKey: ["cupido-direct-online", viewerId, onlineUserIds],
+    enabled: onlineUserIds.length > 0,
+    queryFn: async () => {
+      const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
+      const userIds = onlineUserIds.filter((id) => id !== viewerId && !blockedIds.has(id));
+      if (!userIds.length) return [];
+      const { data, error } = await supabase
+        .from("cupido_public_profiles")
+        .select("id,display_name,avatar_url,is_verified_blue,is_gran_liga")
+        .in("id", userIds);
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 0,
+  });
 
   useEffect(() => {
     if (!liveId || liveId === autoOpened.current || !streams.data) return;
@@ -254,6 +271,30 @@ function DirectPage() {
           {!viewerId && <Button asChild><Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link></Button>}
         </div>
       </header>
+
+      <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-display text-lg text-white">En línea ahora</h2>
+          <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-200">{onlineProfiles.data?.length ?? 0} conectados</span>
+        </div>
+        {onlineProfiles.isError ? (
+          <p className="text-xs text-rose-200">No se pudo cargar la lista de usuarios conectados.</p>
+        ) : onlineProfiles.data?.length ? (
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {onlineProfiles.data.map((person) => (
+              <Link key={person.id} to="/perfil" search={{ userId: person.id }} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
+                <span className="relative block size-14 rounded-full bg-gradient-to-br from-emerald-300 to-emerald-700 p-0.5">
+                  <img src={person.avatar_url || "/favicon.ico"} alt="" className="size-full rounded-full border-2 border-zinc-950 object-cover" />
+                  <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-zinc-950 bg-emerald-400" />
+                </span>
+                <span className="w-full truncate text-[10px] text-white/85">{person.display_name || "Miembro"}</span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">No hay otros usuarios conectados ahora.</p>
+        )}
+      </section>
 
       {viewerId && (
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 sm:p-6">

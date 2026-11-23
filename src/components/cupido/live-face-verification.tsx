@@ -341,7 +341,7 @@ export function FaceSelfieVerification({ onComplete }: { onComplete: (selfie: Bl
       setCameraReady(true);
     } catch (cause) {
       stopCamera();
-      setError(mediaPermissionMessage(cause, "No pudimos abrir la cámara frontal. Revisa los permisos e inténtalo otra vez."));
+      setError(mediaPermissionMessage(cause) ?? "No pudimos abrir la cámara frontal. Revisa los permisos e inténtalo otra vez.");
     }
   };
 

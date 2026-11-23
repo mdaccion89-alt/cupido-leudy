@@ -107,7 +107,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         const realFollowers = (followerMap.get(row.id) ?? Number(row.follower_count)) || 0;
         return {
           ...row,
-          email: official ? SUPREME_ADMIN_EMAIL : null,
+          email: row.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
           is_cupido_active: Boolean(row.is_cupido_active) || official,
           follower_count: realFollowers,
           is_official_profile: official,
@@ -130,14 +130,14 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     queryKey: ["cupido-discovery-live-streams"],
     queryFn: async () => {
       await supabase.rpc("cupido_end_stale_lives");
-      let query = supabase.from("live_streams").select("id,host_id,viewers_count").eq("status", "live").order("started_at", { ascending: false }).limit(40);
+      let query = supabase.from("cupido_live_rooms").select("id,host_id,viewer_count").eq("is_live", true).order("created_at", { ascending: false }).limit(40);
       if (viewerId) query = query.neq("host_id", viewerId);
       const { data, error } = await query;
       if (error) {
         console.warn("[comunidad] No se pudo cargar la lista de Lives activos.", error);
         return [];
       }
-      return data ?? [];
+      return (data ?? []).map((room) => ({ id: room.id, host_id: room.host_id, viewers_count: room.viewer_count }));
     },
     staleTime: 0,
     refetchInterval: 20_000,
@@ -150,7 +150,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-people"] });
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "live_streams" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-discovery-live-streams"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, () => {
@@ -218,6 +218,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         country_code: person.country_code ?? "",
         email: person.email ?? null,
         official: Boolean(person.is_super_admin || person.is_official),
+        isAdmin: Boolean(person.is_super_admin),
         looking_for: person.looking_for ?? "amistad",
         drinks: Boolean(person.drinks),
         has_kids: Boolean(person.has_kids),

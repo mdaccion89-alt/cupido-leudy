@@ -14,6 +14,7 @@ export type CupidoProfile = {
   country_code: string;
   email?: string | null;
   official?: boolean;
+  isAdmin?: boolean;
   looking_for: string;
   drinks: boolean;
   has_kids: boolean;
@@ -58,7 +59,7 @@ export function ProfileCard({
   const isMe = Boolean(myId && myId === profile.id);
   const looking = LOOKING_FOR.find((item) => item.value === profile.looking_for);
   const initials = profile.display_name.slice(0, 2).toUpperCase();
-  const displayFollowers = displayedFollowerCount(profile.follower_count, profile.email, profile.official);
+  const displayFollowers = displayedFollowerCount(profile.follower_count, profile.email, profile.isAdmin);
 
   return (
     <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-0 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">

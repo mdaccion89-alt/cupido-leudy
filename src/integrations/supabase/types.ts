@@ -488,6 +488,8 @@ export type Database = {
           has_recharged: boolean;
           is_gran_liga: boolean;
           id: string;
+          is_verified: boolean;
+          verification_status: string;
           last_daily_claim: string | null;
           last_wheel_spin: string | null;
           theme_mode: string;
@@ -527,6 +529,8 @@ export type Database = {
           has_recharged?: boolean;
           is_gran_liga?: boolean;
           id: string;
+          is_verified?: boolean;
+          verification_status?: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
           theme_mode?: string;
@@ -566,6 +570,8 @@ export type Database = {
           has_recharged?: boolean;
           is_gran_liga?: boolean;
           id?: string;
+          is_verified?: boolean;
+          verification_status?: string;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
           theme_mode?: string;

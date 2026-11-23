@@ -213,6 +213,9 @@ function ProfilePage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles", filter: `id=eq.${profileId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${profileId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `following_id=eq.${profileId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-followers", profileId] });
@@ -456,7 +459,8 @@ function ProfilePage() {
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
   const displayLabel = displayName || (officialProfile ? "Cupido Leudy Cuenta Oficial" : "Miembro de Cupido");
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
-  const followers = displayedFollowerCount(actualFollowerCount, profileEmail, officialProfile);
+  const isAdminProfile = isSupremeAdminEmail(profileEmail) || Boolean(creator?.is_super_admin);
+  const followers = displayedFollowerCount(actualFollowerCount, profileEmail, isAdminProfile);
   const friends = safeCount(creator?.friend_count);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();

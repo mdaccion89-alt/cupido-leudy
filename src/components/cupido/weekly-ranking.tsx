@@ -26,12 +26,12 @@ function readRankUsers(value: unknown): WeeklyRankUser[] {
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];
     const row = entry as Record<string, unknown>;
-    if (typeof row.user_id !== "string") return [];
+    if (typeof row["user_id"] !== "string") return [];
     return [{
-      user_id: row.user_id,
-      display_name: typeof row.display_name === "string" ? row.display_name : "Miembro",
-      avatar_url: typeof row.avatar_url === "string" ? row.avatar_url : "",
-      coins: Number(row.coins ?? 0),
+      user_id: row["user_id"],
+      display_name: typeof row["display_name"] === "string" ? row["display_name"] : "Miembro",
+      avatar_url: typeof row["avatar_url"] === "string" ? row["avatar_url"] : "",
+      coins: Number(row["coins"] ?? 0),
     }];
   });
 }
@@ -41,9 +41,9 @@ export async function fetchWeeklyRanking(): Promise<WeeklyRanking> {
   if (error) throw error;
   const value = data && typeof data === "object" ? data as Record<string, unknown> : {};
   return {
-    week_starts_at: typeof value.week_starts_at === "string" ? value.week_starts_at : "",
-    creators: readRankUsers(value.creators),
-    fans: readRankUsers(value.fans),
+    week_starts_at: typeof value["week_starts_at"] === "string" ? value["week_starts_at"] : "",
+    creators: readRankUsers(value["creators"]),
+    fans: readRankUsers(value["fans"]),
   };
 }
 

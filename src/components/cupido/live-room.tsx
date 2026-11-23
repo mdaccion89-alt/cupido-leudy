@@ -141,6 +141,7 @@ export function LiveRoom({
     },
     refetchInterval: 15_000,
   });
+  const topFanRows = topFans.data ?? [];
   const pkState = useQuery({
     queryKey: ["cupido-live-pk-state", roomId],
     enabled: Boolean(roomId),
@@ -1152,8 +1153,8 @@ export function LiveRoom({
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
-          {topFans.data?.length > 0 && <div className="flex max-w-[70vw] items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
-            {topFans.data.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
+          {topFanRows.length > 0 && <div className="flex max-w-[70vw] items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
+            {topFanRows.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
           </div>}
         </DialogHeader>
         {role === "host" && !pkIsActive && (

@@ -56,7 +56,7 @@ export function canSendGift(gift: { credits: number; id?: string }, account: Spe
   return account.balance >= gift.credits;
 }
 
-export function canStartCall(mode: CallMode, account: SpendingAccount, minutePrice = CALL_COSTS[mode]): boolean {
+export function canStartCall(mode: CallMode, account: SpendingAccount, minutePrice: number = CALL_COSTS[mode]): boolean {
   if (account.isInfiniteCreditsAdmin === true) return true;
   if (!account.hasPurchased) return false;
   return account.balance >= minutePrice;
