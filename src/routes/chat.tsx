@@ -100,6 +100,15 @@ type ChatMessage = {
   read_at: string | null;
 };
 
+type MessageHideQuery = {
+  select: (columns: "message_id") => {
+    eq: (column: "user_id", value: string) => PromiseLike<{
+      data: Array<{ message_id: string }> | null;
+      error: { message: string } | null;
+    }>;
+  };
+};
+
 type ConversationPreview = Pick<ChatMessage, "sender_id" | "body" | "audio_path" | "media_path" | "created_at" | "deleted_for_all_at"> & {
   conversation_id: string;
 };
@@ -491,10 +500,15 @@ function ChatPage() {
     queryKey: ["cupido-hidden-messages", viewerId, activeId],
     enabled: Boolean(viewerId && activeId),
     queryFn: async () => {
-      const { data, error } = await (supabase as unknown as { from: (table: string) => any })
-        .from("cupido_message_hides").select("message_id").eq("user_id", viewerId!);
+      const hiddenMessageDb = supabase as unknown as {
+        from: (table: "cupido_message_hides") => MessageHideQuery;
+      };
+      const { data, error } = await hiddenMessageDb
+        .from("cupido_message_hides")
+        .select("message_id")
+        .eq("user_id", viewerId!);
       if (error) throw error;
-      return new Set<string>((data ?? []).map((row: { message_id: string }) => row.message_id));
+      return new Set((data ?? []).map((row) => row.message_id));
     },
   });
 
@@ -507,7 +521,7 @@ function ChatPage() {
     if (!activeId || !viewerId || !messages.data?.length) return;
     const hasUnread = messages.data.some((message) => message.sender_id !== viewerId && !message.read_at);
     if (!hasUnread) return;
-    void (supabase as unknown as { from: (table: string) => any }).from("cupido_messages")
+    void supabase.from("cupido_messages")
       .update({ read_at: new Date().toISOString() })
       .eq("conversation_id", activeId).neq("sender_id", viewerId).is("read_at", null)
       .then(({ error }: { error: { message: string } | null }) => {
@@ -628,7 +642,7 @@ function ChatPage() {
   const sendMessage = useMutation({
     mutationFn: async (body: string) => {
       if (!activeId || !viewerId) throw new Error("Abre una conversación.");
-      const { error } = await (supabase as unknown as { from: (table: string) => any })
+      const { error } = await supabase
         .from("cupido_messages")
         .insert({ conversation_id: activeId, sender_id: viewerId, body, reply_to_id: replyTarget?.id ?? null });
       if (error) throw error;
@@ -735,12 +749,12 @@ function ChatPage() {
       });
       if (uploadError) { toast.error("No se pudo copiar el contenido al otro chat."); return; }
     }
-    const { error } = await (supabase as unknown as { from: (table: string) => any }).from("cupido_messages").insert({
+    const { error } = await supabase.from("cupido_messages").insert({
       conversation_id: conversationId,
       sender_id: viewerId,
       body: forwardTarget.body ? `↪ Reenviado\n${forwardTarget.body}` : "",
-      audio_path: bucket === "cupido-voice" ? copiedPath : "",
-      media_path: bucket === "cupido-chat-media" ? copiedPath : "",
+      audio_path: bucket === "cupido-voice" ? copiedPath ?? "" : "",
+      media_path: bucket === "cupido-chat-media" ? copiedPath ?? "" : "",
     });
     if (error) {
       if (copiedPath && bucket) void supabase.storage.from(bucket).remove([copiedPath]);
@@ -876,7 +890,7 @@ function ChatPage() {
       return;
     }
     void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
-    photoInputRef.current && (photoInputRef.current.value = "");
+    if (photoInputRef.current) photoInputRef.current.value = "";
   };
 
   const startCall = useMutation({
@@ -1312,7 +1326,10 @@ function ChatPage() {
                         onKeyDown={(event) => {
                           if (event.key === "Enter" && !event.shiftKey) {
                             event.preventDefault();
-                            if (text.trim()) editingMessage ? void editMessage() : sendMessage.mutate(text.trim());
+                            if (text.trim()) {
+                              if (editingMessage) void editMessage();
+                              else sendMessage.mutate(text.trim());
+                            }
                           }
                         }}
                         placeholder="Escribe un mensaje…"
@@ -1338,7 +1355,11 @@ function ChatPage() {
                         size="icon"
                         className="h-11 w-11 min-w-[44px] shrink-0"
                         aria-label="Enviar mensaje"
-                        onClick={() => text.trim() && (editingMessage ? void editMessage() : sendMessage.mutate(text.trim()))}
+                        onClick={() => {
+                          if (!text.trim()) return;
+                          if (editingMessage) void editMessage();
+                          else sendMessage.mutate(text.trim());
+                        }}
                         disabled={sendMessage.isPending || !text.trim()}
                       >
                         {sendMessage.isPending ? <Loader2 className="animate-spin" /> : <Send />}
