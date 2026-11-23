@@ -266,7 +266,7 @@ function ChatPage() {
       const map = new Map(
         (profiles.data ?? []).map((profile) => [
           profile.id,
-          { ...profile, avatar_url: profile.is_official || profile.is_super_admin ? "/cupi-support-avatar.svg" : profile.avatar_url, email: profile.is_official || profile.is_super_admin ? SUPREME_ADMIN_EMAIL : null } as ChatProfile,
+          { ...profile, avatar_url: profile.is_official || profile.is_super_admin ? "/cupi-support-avatar.svg" : profile.avatar_url, email: profile.is_super_admin ? SUPREME_ADMIN_EMAIL : null } as ChatProfile,
         ]),
       );
       return (data ?? []).map<ConversationRow>((row) => {
@@ -412,7 +412,7 @@ function ChatPage() {
             ? ({
                 ...person,
                 avatar_url: person.is_official || person.is_super_admin ? "/cupi-support-avatar.svg" : person.avatar_url,
-                email: person.is_official || person.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
+                email: person.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
               } as ChatProfile)
             : null,
         };

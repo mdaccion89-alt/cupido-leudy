@@ -1134,8 +1134,8 @@ export function LiveRoom({
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
       <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
-        <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-w-[72vw] rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
-          <DialogTitle className="flex items-center gap-2">
+        <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
+          <DialogTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
             <Radio className="size-5 animate-pulse text-pink-400" />
             {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
@@ -1153,12 +1153,12 @@ export function LiveRoom({
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
-          {topFanRows.length > 0 && <div className="flex max-w-[70vw] items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
+          {topFanRows.length > 0 && <div className="flex max-w-full items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
             {topFanRows.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
           </div>}
         </DialogHeader>
         {role === "host" && !pkIsActive && (
-          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
+          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+9rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
             Precio privado/min
             <select
               aria-label="Precio por minuto de llamada privada"
@@ -1172,7 +1172,7 @@ export function LiveRoom({
           </label>
         )}
         {activePkName && (
-          <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
+          <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+9rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
               <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {Number(pkState.data?.host_coins ?? 0).toLocaleString("es")}</span>
               <Swords className="size-4 shrink-0 text-amber-300" />
@@ -1186,25 +1186,25 @@ export function LiveRoom({
           </section>
         )}
         {role === "host" && !pkIsActive && (
-          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+11.4rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+12rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
             <span className="shrink-0">Meta</span><Input aria-label="Meta de monedas del Live" inputMode="numeric" value={goalInput} onChange={(event) => setGoalInput(event.target.value)} placeholder={coinGoal.data ? `${coinGoal.data}` : "500"} className="h-7 min-w-0 bg-black/60 px-2 text-xs" />
             <Button size="sm" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal()}>Guardar</Button>
             <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal(0)}>Quitar</Button>
           </div>
         )}
         {Number(coinGoal.data ?? 0) > 0 && !pkIsActive && (
-          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+14.2rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2.5 py-2 text-[10px] text-amber-100 backdrop-blur">
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+14.8rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2.5 py-2 text-[10px] text-amber-100 backdrop-blur">
             <div className="mb-1 flex justify-between gap-2"><span>Meta del anfitrión</span><span>{Math.min(100, Math.round(((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100))}%</span></div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-gradient-to-r from-amber-400 to-yellow-200 transition-all" style={{ width: `${Math.min(100, ((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100)}%` }} /></div>
             <div className="mt-1 text-right">{(liveGiftTotal.data ?? 0).toLocaleString("es")} / {Number(coinGoal.data).toLocaleString("es")} monedas</div>
           </div>
         )}
-        <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+17rem)] z-20 flex gap-2">
+        <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+17.8rem)] z-20 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => setRankingOpen(true)}><Trophy className="mr-1 size-3.5" /> Ranking semanal</Button>
           {(role === "host" || pkProfile.data?.is_verified_blue || pkProfile.data?.is_gran_liga || pkProfile.data?.is_premium) && !treasure.data && <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => void dropTreasure()}>🎁 Cofre</Button>}
         </div>
         {treasure.data && treasureSeconds > 0 && !giftAnimation && !entryNotice && !highValueGift && (
-          <button type="button" onClick={() => void claimTreasure()} disabled={treasureBusy} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+20rem)] z-30 -translate-x-1/2 rounded-2xl border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-center text-sm font-bold text-amber-100 shadow-lg shadow-amber-500/20 backdrop-blur">
+          <button type="button" onClick={() => void claimTreasure()} disabled={treasureBusy} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+20.5rem)] z-30 -translate-x-1/2 rounded-2xl border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-center text-sm font-bold text-amber-100 shadow-lg shadow-amber-500/20 backdrop-blur">
             <span className="mr-2 text-xl">🎁</span>{treasureBusy ? "Abriendo…" : `¡Cofre! ${treasureSeconds}s · 5 monedas`}
           </button>
         )}

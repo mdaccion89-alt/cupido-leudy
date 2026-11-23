@@ -51,7 +51,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const people = useQuery({
     queryKey: ["cupido-people", viewerId, search, country, looking, verifiedOnly, sortMode],
     queryFn: async () => {
-      const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
+      const officialProfile = await supabase.from("cupido_public_profiles").select("id").eq("is_super_admin", true).limit(1).maybeSingle();
       if (officialProfile.error) console.error("[comunidad] No se pudo localizar la cuenta oficial.", officialProfile.error);
 
       const loadPage = async (from: number) => {

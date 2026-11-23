@@ -70,7 +70,7 @@ function StorePage() {
         .maybeSingle();
       if (error) throw error;
       return data
-        ? { ...data, email: data.is_official || data.is_super_admin ? SUPREME_ADMIN_EMAIL : null }
+        ? { ...data, email: data.is_super_admin ? SUPREME_ADMIN_EMAIL : null }
         : data;
     },
   });

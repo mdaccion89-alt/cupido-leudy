@@ -144,7 +144,7 @@ function CallsPage() {
           host_avatar: profile?.avatar_url ?? "",
           is_verified_blue: profile?.is_verified_blue ?? false,
           is_gran_liga: profile?.is_gran_liga ?? false,
-          email: profile?.is_official || profile?.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
+          email: profile?.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
         };
       });
     },

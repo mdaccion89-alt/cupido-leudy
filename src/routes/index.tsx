@@ -45,7 +45,7 @@ function CupidoHome() {
   const profilesQuery = useQuery({
     queryKey: ["cupido-profiles", userId],
     queryFn: async () => {
-      const officialProfile = await supabase.from("cupido_public_profiles").select("id").or("is_super_admin.eq.true,is_official.eq.true").limit(1).maybeSingle();
+      const officialProfile = await supabase.from("cupido_public_profiles").select("id").eq("is_super_admin", true).limit(1).maybeSingle();
       if (officialProfile.error) console.error("[inicio] No se pudo localizar la cuenta oficial.", officialProfile.error);
       const loadPage = async (from: number) => {
         const { data, error } = await supabase
@@ -88,7 +88,7 @@ function CupidoHome() {
       }
       const people = rows.map((row) => ({
         ...row,
-        email: row.id === officialId || row.is_official || row.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
+        email: row.is_super_admin ? SUPREME_ADMIN_EMAIL : null,
         display_name: row.display_name?.trim() || (row.id === officialId || row.is_official || row.is_super_admin ? "Cupido Leudy Cuenta Oficial" : "Miembro"),
         is_cupido_active: Boolean(row.is_cupido_active) || row.id === officialId || Boolean(row.is_official || row.is_super_admin),
         follower_count: (followerMap.get(row.id) ?? Number(row.follower_count)) || 0,
