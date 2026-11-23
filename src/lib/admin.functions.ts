@@ -292,39 +292,3 @@ export const adminSetPlan = createServerFn({ method: "POST" })
     if (error) throw error;
     return { ok: true };
   });
-
-export const adminSetUserVerified = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((input: { userId: string; verified: boolean }) => {
-    if (!/^[0-9a-f-]{36}$/i.test(input?.userId ?? "")) throw new Error("Usuario no válido.");
-    return { userId: input.userId, verified: Boolean(input.verified) };
-  })
-  .handler(async ({ data, context }) => {
-    assertSupremeAdmin(context);
-    const admin = getSupabaseServiceClient() as unknown as {
-      from: (table: string) => { update: (value: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> } };
-    };
-    const { error } = await admin.from("creator_profiles").update({
-      is_verified_blue: data.verified,
-      verification_status: data.verified ? "approved" : "none",
-    }).eq("id", data.userId);
-    if (error) throw error;
-    return { ok: true };
-  });
-
-export const adminDeleteUser = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((input: { userId: string }) => {
-    if (!/^[0-9a-f-]{36}$/i.test(input?.userId ?? "")) throw new Error("Usuario no válido.");
-    return { userId: input.userId };
-  })
-  .handler(async ({ data, context }) => {
-    assertSupremeAdmin(context);
-    if (data.userId === context.userId) throw new Error("No puedes eliminar la cuenta con la que estás usando el panel.");
-    const admin = getSupabaseServiceClient() as unknown as {
-      auth: { admin: { deleteUser: (userId: string) => Promise<{ error: { message: string } | null }> } };
-    };
-    const { error } = await admin.auth.admin.deleteUser(data.userId);
-    if (error) throw error;
-    return { ok: true };
-  });

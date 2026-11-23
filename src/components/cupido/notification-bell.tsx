@@ -176,9 +176,9 @@ export function NotificationBell() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 border-white/10 bg-[#160b12] p-2 text-white shadow-2xl">
+      <PopoverContent align="end" className="w-80 border-border bg-popover p-2 text-popover-foreground shadow-2xl">
         <div className="flex items-center justify-between px-2 py-2">
-          <p className="font-display text-sm text-white">Notificaciones</p>
+          <p className="font-display text-sm text-foreground">Notificaciones</p>
           <span className="text-[11px] text-muted-foreground">{unread} sin leer</span>
         </div>
         <div className="max-h-80 space-y-1 overflow-y-auto">
@@ -190,7 +190,7 @@ export function NotificationBell() {
               key={row.id}
               type="button"
               onClick={() => openNotification(row)}
-              className={`flex w-full gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.06] ${row.read ? "" : "bg-pink-500/10"}`}
+              className={`flex w-full gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-accent ${row.read ? "" : "bg-pink-500/10"}`}
             >
               <span className="relative shrink-0">
                 <Avatar className="size-10 border border-pink-400/30">
@@ -200,7 +200,7 @@ export function NotificationBell() {
                 <span className="absolute -bottom-1 -right-1 rounded-full bg-slate-950 px-0.5 text-xs">{notificationIcon(row.kind)}</span>
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-white">{row.title}</span>
+                <span className="block truncate text-sm font-medium text-foreground">{row.title}</span>
                 {row.actor && <span className="block truncate text-xs font-medium text-pink-200">{row.actor.display_name}</span>}
                 <span className="block text-xs text-muted-foreground">{row.body}</span>
                 <span className="mt-1 block text-[10px] text-muted-foreground">

@@ -1340,6 +1340,14 @@ export type Database = {
         Args: { _days: number; _plan: string; _user_id: string };
         Returns: undefined;
       };
+      cupido_admin_set_user_verified: {
+        Args: { _user_id: string; _verified: boolean };
+        Returns: boolean;
+      };
+      cupido_admin_delete_user: {
+        Args: { _user_id: string };
+        Returns: boolean;
+      };
       apply_daily_refill: { Args: { _uid: string }; Returns: undefined };
       consume_credits: {
         Args: { _amount: number; _reason: string };

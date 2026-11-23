@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Coins, Gift, Loader2, LockKeyhole, Play, Sparkles } from "lucide-react";
+import { Check, Coins, Gift, Loader2, LockKeyhole, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -19,7 +19,6 @@ export function DailyReward() {
   const queryClient = useQueryClient();
   const [now, setNow] = useState(() => Date.now());
   const [claiming, setClaiming] = useState(false);
-  const [adOpen, setAdOpen] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -91,11 +90,12 @@ export function DailyReward() {
           {claiming ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           {claiming ? "Reclamando…" : locked ? `Vuelve en ${formatCountdown(waitingMs)}` : claimLabel}
         </Button>
-        <Button variant="outline" className="w-full gap-2 border-amber-200/25" onClick={() => setAdOpen(true)}>
-          <Play className="size-4 fill-current" /> Ver Anuncio y Ganar +25 Monedas
+        <Button asChild variant="outline" className="w-full gap-2 border-amber-200/25">
+          <Link to="/chat" search={{}}>
+            Gana monedas gratis en Mensajes
+          </Link>
         </Button>
       </div>
-      <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
     </section>
   );
 }

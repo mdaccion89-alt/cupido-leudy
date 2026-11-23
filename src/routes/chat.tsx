@@ -12,6 +12,7 @@ import {
   Gift,
   Flag,
   FlipHorizontal,
+  Search,
   History,
   ImagePlus,
   Loader2,
@@ -41,11 +42,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NotificationBell } from "@/components/cupido/notification-bell";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { CREDIT_PACKAGES } from "@/lib/credits";
-import { recordRouletteSkip } from "@/lib/admob";
+import { hideFeedBanner, isNativeAds, showFeedBanner } from "@/lib/admob";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
@@ -97,6 +99,10 @@ type ChatMessage = {
   read_at: string | null;
 };
 
+type ConversationPreview = Pick<ChatMessage, "sender_id" | "body" | "audio_path" | "media_path" | "created_at" | "deleted_for_all_at"> & {
+  conversation_id: string;
+};
+
 type CupidoCall = {
   id: string;
   caller_id: string;
@@ -139,6 +145,21 @@ function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) 
   return CREDIT_PACKAGES.find((pack) => pack.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
 }
 
+function formatConversationTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString("es", { day: "2-digit", month: "short" });
+}
+
+function conversationPreviewText(message: ConversationPreview | undefined, viewerId: string): string {
+  if (!message) return "Empieza una conversación";
+  if (message.deleted_for_all_at) return "Mensaje eliminado";
+  const content = message.body?.trim() || (message.audio_path ? "Nota de voz" : message.media_path ? "Foto" : "Nuevo mensaje");
+  return message.sender_id === viewerId ? `Tú: ${content}` : content;
+}
+
 function ChatPage() {
   const { session, loading: authLoading, onlineUserIds } = useAuth();
   const account = useAccount();
@@ -151,6 +172,7 @@ function ChatPage() {
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const mobileBannerSuppressed = useRef(false);
   const [text, setText] = useState("");
   const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null);
@@ -158,6 +180,8 @@ function ChatPage() {
   const [recording, setRecording] = useState(false);
   const [openingConversation, setOpeningConversation] = useState(false);
   const [chatFilter, setChatFilter] = useState<"all" | "online" | "unread" | "following">("all");
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState("");
   const [otherTyping, setOtherTyping] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [incoming, setIncoming] = useState<{ call: CupidoCall; profile: ChatProfile | null } | null>(null);
@@ -169,6 +193,17 @@ function ChatPage() {
   const startVideoAttemptRef = useRef<string | null>(null);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isNativeAds()) return;
+    if (mobileShowChat) {
+      mobileBannerSuppressed.current = true;
+      void hideFeedBanner();
+    } else if (mobileBannerSuppressed.current) {
+      mobileBannerSuppressed.current = false;
+      void showFeedBanner("messages");
+    }
+  }, [mobileShowChat]);
 
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
@@ -232,11 +267,34 @@ function ChatPage() {
     },
   });
 
+  const latestMessages = useQuery({
+    queryKey: ["cupido-chat-latest", viewerId, conversationIdsKey],
+    enabled: Boolean(viewerId && conversationIdsKey),
+    queryFn: async () => {
+      const ids = conversationIdsKey.split(",").filter(Boolean);
+      const { data, error } = await supabase.from("cupido_messages")
+        .select("conversation_id,sender_id,body,audio_path,media_path,created_at,deleted_for_all_at")
+        .in("conversation_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      return (data ?? []) as ConversationPreview[];
+    },
+  });
+  const latestMessageByConversation = useMemo(() => {
+    const latest = new Map<string, ConversationPreview>();
+    for (const message of latestMessages.data ?? []) {
+      if (!latest.has(message.conversation_id)) latest.set(message.conversation_id, message);
+    }
+    return latest;
+  }, [latestMessages.data]);
+
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase.channel(`cupido-chat-unread-live-${viewerId}-${crypto.randomUUID()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_messages" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-chat-unread", viewerId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-chat-latest", viewerId] });
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -272,6 +330,24 @@ function ChatPage() {
     if (chatFilter === "following") return Boolean(conversation.other && followedContacts.data?.has(conversation.other.id));
     return true;
   }), [chatFilter, conversations.data, followedContacts.data, onlineUserIds, unreadByConversation.data]);
+
+  const unreadConversationCount = Object.values(unreadByConversation.data ?? {}).filter((count) => count > 0).length;
+  const followedConversationCount = (conversations.data ?? []).filter((conversation) =>
+    Boolean(conversation.other && followedContacts.data?.has(conversation.other.id)),
+  ).length;
+  const searchedConversations = useMemo(() => {
+    const term = chatSearch.trim().toLocaleLowerCase();
+    const matches = !term ? filteredConversations : filteredConversations.filter((conversation) => {
+      const name = conversation.other?.display_name.toLocaleLowerCase() ?? "";
+      const preview = conversationPreviewText(latestMessageByConversation.get(conversation.id), viewerId ?? "").toLocaleLowerCase();
+      return name.includes(term) || preview.includes(term);
+    });
+    return matches.sort((left, right) => {
+      const leftTime = latestMessageByConversation.get(left.id)?.created_at ?? left.created_at;
+      const rightTime = latestMessageByConversation.get(right.id)?.created_at ?? right.created_at;
+      return Date.parse(rightTime) - Date.parse(leftTime);
+    });
+  }, [chatSearch, filteredConversations, latestMessageByConversation, viewerId]);
 
   useEffect(() => {
     if (!viewerId || !searchUserId || openedRef.current === searchUserId) return;
@@ -770,7 +846,6 @@ function ChatPage() {
     }
     const next = candidates[Math.floor(Math.random() * candidates.length)];
     if (!next) return;
-    await recordRouletteSkip();
     void navigate({ to: "/chat", search: { userId: next.id, startVideo: true, roulette: true } });
   };
 
@@ -878,35 +953,80 @@ function ChatPage() {
   }
 
   return (
-    <main className="mx-auto flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden px-3 py-2 sm:px-5">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display text-2xl text-white sm:text-3xl">Chat</h1>
-          <p className="text-sm text-muted-foreground">Conversaciones privadas, notas de voz y llamadas Café o Hot.</p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button asChild variant="outline" className="max-w-full gap-1 px-2 text-xs sm:px-3"><Link to="/llamadas"><History className="size-4" /> Historial de llamadas</Link></Button>
-          <Button type="button" variant="outline" onClick={() => {
-            if (!viewerId) { toast.info("Inicia sesión para ganar monedas viendo anuncios."); void navigate({ to: "/auth", search: { ref: "" } }); return; }
-            setAdOpen(true);
-          }} className="max-w-full gap-1 px-2 text-xs sm:px-3"><Play className="size-4 fill-current" /> Gana monedas gratis ▶ Ver Videos</Button>
-          <Button type="button" variant="outline" onClick={() => void openSupportChat()} className="max-w-full gap-1 px-2 text-xs sm:px-3"><MessageCircle className="size-4" /> Cupi Support</Button>
-          <Button asChild variant="outline" className="max-w-full px-2 text-xs sm:px-3"><Link to="/comunidad">Descubrir personas</Link></Button>
-        </div>
-      </div>
-
-      <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
-        <aside className={`${mobileShowChat ? "hidden" : "block"} h-full min-h-0 overflow-y-auto border-b border-white/10 md:block lg:border-b-0 lg:border-r`}>
-          <div className="border-b border-white/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Conversaciones
-          </div>
-          <nav aria-label="Filtros de chat" className="flex gap-1 overflow-x-auto border-b border-white/10 p-2">
-            {([["all", "Todos"], ["online", "En línea"], ["unread", "Sin leer"], ["following", "Seguidos"]] as const).map(([value, label]) => (
-              <button key={value} type="button" onClick={() => setChatFilter(value)} className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-medium ${chatFilter === value ? "bg-pink-500/20 text-pink-100" : "text-muted-foreground hover:bg-white/5"}`}>
+    <main className="mx-auto flex h-full min-h-[100dvh] w-full max-w-none flex-col overflow-hidden bg-background px-3 pb-2 pt-10 sm:px-5">
+      <div className={mobileShowChat && activeConversation ? "hidden md:block" : ""}>
+          <header className="mb-3 flex shrink-0 items-center justify-between gap-3">
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground">Mensajes</h1>
+            <div className="flex shrink-0 items-center gap-2">
+              {chatSearchOpen && (
+                <Input
+                  autoFocus
+                  value={chatSearch}
+                  onChange={(event) => setChatSearch(event.target.value)}
+                  placeholder="Buscar"
+                  aria-label="Buscar conversaciones"
+                  className="h-10 w-[min(42vw,180px)] rounded-full bg-card px-3"
+                />
+              )}
+              <NotificationBell />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-10 rounded-full"
+                aria-label={chatSearchOpen ? "Cerrar búsqueda de chats" : "Buscar chat"}
+                aria-pressed={chatSearchOpen}
+                onClick={() => {
+                  setChatSearchOpen(!chatSearchOpen);
+                  if (chatSearchOpen) setChatSearch("");
+                }}
+              >
+                <Search className="size-4" />
+              </Button>
+            </div>
+          </header>
+          <nav aria-label="Filtros de chat" className="mb-3 flex shrink-0 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {([
+              ["all", "Todos", conversations.data?.length ?? 0],
+              ["online", "En línea", (conversations.data ?? []).filter((row) => row.other && onlineUserIds.includes(row.other.id)).length],
+              ["unread", "Sin leer", unreadConversationCount],
+              ["following", "Seguidos", followedConversationCount],
+            ] as const).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setChatFilter(value)}
+                aria-pressed={chatFilter === value}
+                data-active={chatFilter === value}
+                className="flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-4 text-xs font-semibold text-muted-foreground transition data-[active=true]:border-primary/30 data-[active=true]:bg-primary/10 data-[active=true]:text-foreground"
+              >
                 {label}
+                {(value === "unread" || value === "following") && (
+                  <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground">{count}</span>
+                )}
               </button>
             ))}
           </nav>
+          {isNativeAds() && <div aria-label="Anuncio de AdMob" className="h-[52px] w-full shrink-0" />}
+          <Button
+            type="button"
+            onClick={() => {
+              if (!viewerId) {
+                toast.info("Inicia sesión para ganar monedas viendo anuncios.");
+                void navigate({ to: "/auth", search: { ref: "" } });
+                return;
+              }
+              setAdOpen(true);
+            }}
+            className="mb-3 h-11 w-full shrink-0 justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-400 text-xs font-extrabold tracking-wide text-amber-950 shadow-md shadow-amber-500/15 hover:from-amber-200 hover:to-yellow-300"
+          >
+            <CoinIcon className="size-5" /> GANA MONEDAS GRATIS ▶ Ver Videos
+          </Button>
+      </div>
+
+      <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-3xl border border-border bg-card lg:grid-cols-[320px_1fr]">
+        <aside className={`${mobileShowChat ? "hidden" : "flex"} h-full min-h-0 min-w-0 flex-col overflow-y-auto border-b border-border md:flex lg:border-b-0 lg:border-r`}>
+
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
           {conversations.isError && (
             <div className="space-y-2 p-4 text-sm text-red-200">
@@ -918,34 +1038,48 @@ function ChatPage() {
             <p className="p-4 text-sm text-muted-foreground">Aún no tienes conversaciones. Busca personas en Comunidad.</p>
           )}
           {openingConversation && <p className="p-4 text-sm text-muted-foreground">Abriendo conversación…</p>}
-          {!conversations.isLoading && !conversations.isError && conversations.data?.length && !filteredConversations.length && <p className="p-4 text-sm text-muted-foreground">No hay chats que coincidan con este filtro.</p>}
-          {filteredConversations.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => { setActiveId(row.id); setMobileShowChat(true); }}
-              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/[0.06] ${
-                row.id === activeId ? "bg-pink-500/10" : ""
-              }`}
-            >
-              <div className="relative shrink-0"><GranLigaStar active={row.other?.is_gran_liga} /><Avatar className="h-11 w-11 border border-white/10">
-                <AvatarImage src={row.other?.avatar_url ?? ""} alt={row.other?.display_name ?? "Chat"} />
-                <AvatarFallback className="bg-pink-500/20 text-sm text-pink-100">
-                  {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar></div>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1 truncate text-sm font-medium text-white">
-                  {row.other?.display_name ?? "Miembro"}
-                  <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} granLiga={row.other?.is_gran_liga} className="h-4 w-4" />
+          {!conversations.isLoading && !conversations.isError && conversations.data?.length && !searchedConversations.length && <p className="p-4 text-sm text-muted-foreground">No hay chats que coincidan con esta búsqueda o filtro.</p>}
+          {searchedConversations.map((row) => {
+            const latest = latestMessageByConversation.get(row.id);
+            const unreadCount = unreadByConversation.data?.[row.id] ?? 0;
+            const isOnline = Boolean(row.other && onlineUserIds.includes(row.other.id));
+            return (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => { setActiveId(row.id); setMobileShowChat(true); }}
+                className="flex w-full min-w-0 items-center gap-3 border-b border-border/70 px-4 py-3 text-left transition hover:bg-secondary/60"
+              >
+                <div className="relative shrink-0">
+                  <GranLigaStar active={row.other?.is_gran_liga} />
+                  <Avatar className="size-14 border border-border">
+                    <AvatarImage src={row.other?.avatar_url ?? ""} alt={row.other?.display_name ?? "Chat"} />
+                    <AvatarFallback className="bg-primary/10 text-sm text-primary">
+                      {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  {isOnline && <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-emerald-500" />}
+                </div>
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-foreground">{row.other?.display_name ?? "Miembro"}</span>
+                      <VerifiedBadge email={row.other?.email} verified={row.other?.is_verified_blue} granLiga={row.other?.is_gran_liga} className="size-4 shrink-0" />
+                    </span>
+                    <time className="shrink-0 text-[11px] text-muted-foreground" dateTime={latest?.created_at ?? row.created_at}>
+                      {formatConversationTime(latest?.created_at ?? row.created_at)}
+                    </time>
+                  </span>
+                  <span className="mt-1 flex min-w-0 items-center justify-between gap-3">
+                    <span className="truncate text-xs text-muted-foreground">
+                      {conversationPreviewText(latest, viewerId ?? "")}
+                    </span>
+                    {unreadCount > 0 && <span className="size-2.5 shrink-0 rounded-full bg-rose-500 ring-4 ring-rose-500/10" aria-label="Mensajes sin leer" />}
+                  </span>
                 </span>
-                <span className="flex items-center gap-2">
-                  <span className="block truncate text-xs text-muted-foreground">{onlineUserIds.includes(row.other?.id ?? "") ? "Disponible" : "Toca para abrir la conversación"}</span>
-                  {(unreadByConversation.data?.[row.id] ?? 0) > 0 && <span className="grid size-5 shrink-0 place-items-center rounded-full bg-pink-500 text-[10px] font-bold text-white">{unreadByConversation.data?.[row.id]}</span>}
-                </span>
-              </span>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </aside>
 
         <section className={`${mobileShowChat ? "flex" : "hidden md:flex"} h-full min-h-0 min-w-0 flex-col`}>

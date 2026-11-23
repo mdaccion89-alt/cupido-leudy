@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Compass, MessageCircle, Plus, Radio, UserRound, Video } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { showInterstitialAd } from "@/lib/admob";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -92,20 +91,6 @@ export function BottomNav() {
       return data ?? 0;
     },
   });
-  const previousPath = useRef(pathname);
-  const tabChanges = useRef(0);
-
-  useEffect(() => {
-    if (previousPath.current === pathname) return;
-    previousPath.current = pathname;
-    if (/^\/(?:directo|admin|tienda|perfil)(?:\/|$)/.test(pathname)) return;
-    if (![matchesVideos, matchesDiscover, matchesMessages, matchesProfile].some((match) => match(pathname))) return;
-    tabChanges.current += 1;
-    if (tabChanges.current < 4) return;
-    tabChanges.current = 0;
-    void showInterstitialAd();
-  }, [pathname]);
-
   useEffect(() => {
     if (!viewerId) return;
     const channel = supabase.channel((`cupido-unread-badge-${viewerId}`) + "-" + crypto.randomUUID())

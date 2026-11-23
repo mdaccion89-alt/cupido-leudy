@@ -2,20 +2,21 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { AdMob, BannerAdPosition, RewardAdPluginEvents } from "@capacitor-community/admob";
 
 export const BANNER_ID = "ca-app-pub-9590752647129001/7954788199";
-export const INTERSTITIAL_ID = "ca-app-pub-9590752647129001/6833278215";
 export const REWARDED_ID = "ca-app-pub-9590752647129001/6042940724";
 
-const INTERSTITIAL_COOLDOWN_MS = 3 * 60 * 1000;
-const ROULETTE_SKIPS_PER_INTERSTITIAL = 5;
-const BANNER_BOTTOM_MARGIN = 96;
+const BANNER_BOTTOM_MARGIN = 168;
+const MESSAGES_BANNER_TOP_MARGIN = 144;
 
 let initialization: Promise<void> | null = null;
 let bannerShown = false;
-let interstitialLoad: Promise<boolean> | null = null;
-let interstitialReady = false;
-let interstitialShowing = false;
-let lastInterstitialAt = 0;
-let rouletteSkipsSinceInterstitial = 0;
+let bannerPlacement: "messages" | "discover" | null = null;
+let bannerQueue: Promise<void> = Promise.resolve();
+
+function enqueueBannerOperation(operation: () => Promise<void>): Promise<void> {
+  const next = bannerQueue.then(operation, operation);
+  bannerQueue = next.catch(() => undefined);
+  return bannerQueue;
+}
 
 export function isNativeAds(): boolean {
   return typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -33,78 +34,39 @@ export function initializeAdMob(): Promise<void> {
   return initialization;
 }
 
-export async function showFeedBanner(): Promise<void> {
-  if (!isNativeAds() || bannerShown) return;
-  await initializeAdMob();
-  try {
-    await AdMob.showBanner({
-      adId: BANNER_ID,
-      position: BannerAdPosition.BOTTOM_CENTER,
-      margin: BANNER_BOTTOM_MARGIN,
-    });
-    bannerShown = true;
-  } catch {
-    bannerShown = false;
-  }
-}
-
-export async function hideFeedBanner(): Promise<void> {
-  if (!isNativeAds() || !bannerShown) return;
-  try {
-    await AdMob.removeBanner();
-    bannerShown = false;
-  } catch {
-    bannerShown = false;
-  }
-}
-
-function loadInterstitial(): Promise<boolean> {
-  if (!isNativeAds()) return Promise.resolve(false);
-  if (interstitialReady) return Promise.resolve(true);
-  if (!interstitialLoad) {
-    interstitialLoad = initializeAdMob()
-      .then(() => AdMob.prepareInterstitial({ adId: INTERSTITIAL_ID }))
-      .then(() => {
-        interstitialReady = true;
-        return true;
-      })
-      .catch(() => false)
-      .finally(() => {
-        interstitialLoad = null;
+export function showFeedBanner(placement: "messages" | "discover"): Promise<void> {
+  if (!isNativeAds()) return Promise.resolve();
+  return enqueueBannerOperation(async () => {
+    if (bannerShown && bannerPlacement === placement) return;
+    await initializeAdMob();
+    try {
+      if (bannerShown) await AdMob.removeBanner();
+      await AdMob.showBanner({
+        adId: BANNER_ID,
+        position: placement === "messages" ? BannerAdPosition.TOP_CENTER : BannerAdPosition.BOTTOM_CENTER,
+        margin: placement === "messages" ? MESSAGES_BANNER_TOP_MARGIN : BANNER_BOTTOM_MARGIN,
       });
-  }
-  return interstitialLoad;
+      bannerShown = true;
+      bannerPlacement = placement;
+    } catch {
+      bannerShown = false;
+      bannerPlacement = null;
+    }
+  });
 }
 
-export async function showInterstitialAd(): Promise<boolean> {
-  if (!isNativeAds()) return false;
-  if (/^\/(?:directo|admin|tienda|perfil)(?:\/|$)/.test(window.location.pathname)) return false;
-  if (interstitialShowing) return false;
-  const now = Date.now();
-  if (now - lastInterstitialAt < INTERSTITIAL_COOLDOWN_MS) return false;
-  interstitialShowing = true;
-  try {
-    const ready = await loadInterstitial();
-    if (!ready) return false;
-    await AdMob.showInterstitial();
-    lastInterstitialAt = Date.now();
-    interstitialReady = false;
-    void loadInterstitial();
-    return true;
-  } catch {
-    interstitialReady = false;
-    return false;
-  } finally {
-    interstitialShowing = false;
-  }
-}
-
-export async function recordRouletteSkip(): Promise<boolean> {
-  if (!isNativeAds()) return false;
-  rouletteSkipsSinceInterstitial += 1;
-  if (rouletteSkipsSinceInterstitial < ROULETTE_SKIPS_PER_INTERSTITIAL) return false;
-  rouletteSkipsSinceInterstitial = 0;
-  return showInterstitialAd();
+export function hideFeedBanner(): Promise<void> {
+  if (!isNativeAds()) return Promise.resolve();
+  return enqueueBannerOperation(async () => {
+    if (!bannerShown) return;
+    try {
+      await AdMob.removeBanner();
+    } catch {
+      // Reset local state so later route transitions can retry cleanly.
+    }
+    bannerShown = false;
+    bannerPlacement = null;
+  });
 }
 
 export type RewardedAdResult = "rewarded" | "dismissed" | "unavailable";

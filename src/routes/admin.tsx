@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
@@ -16,7 +15,6 @@ import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
-import { adminDeleteUser, adminSetUserVerified } from "@/lib/admin.functions";
 
 const moderationDb = supabase as unknown as {
   from: (table: string) => any;
@@ -182,12 +180,14 @@ function AdminDashboard() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: fetchAdminSnapshot });
-  const setUserVerified = useServerFn(adminSetUserVerified);
-  const deleteUser = useServerFn(adminDeleteUser);
   const updateVerification = useMutation({
     mutationFn: async ({ userId, verified }: { userId: string; verified: boolean }) => {
-      const result = await setUserVerified({ data: { userId, verified } });
-      if (!result.ok) throw new Error("No se pudo actualizar la insignia.");
+      const { data, error } = await moderationDb.rpc("cupido_admin_set_user_verified", {
+        _user_id: userId,
+        _verified: verified,
+      });
+      if (error) throw error;
+      if (data !== true) throw new Error("No se pudo actualizar la insignia.");
     },
     onSuccess: (_result, variables) => {
       toast.success(variables.verified ? "Insignia azul activada." : "Insignia azul retirada.");
@@ -197,8 +197,9 @@ function AdminDashboard() {
   });
   const deleteAccount = useMutation({
     mutationFn: async (userId: string) => {
-      const result = await deleteUser({ data: { userId } });
-      if (!result.ok) throw new Error("No se pudo eliminar la cuenta.");
+      const { data, error } = await moderationDb.rpc("cupido_admin_delete_user", { _user_id: userId });
+      if (error) throw error;
+      if (data !== true) throw new Error("No se pudo eliminar la cuenta.");
     },
     onSuccess: () => {
       toast.success("Cuenta eliminada completamente.");
@@ -554,8 +555,74 @@ function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="usuarios" className="mt-6">
-          <section className="panel grain overflow-x-auto p-6">
+          <section className="panel grain min-w-0 p-4 sm:p-6">
             <h2 className="mb-4 font-semibold">Usuarios ({users.length})</h2>
+            <div className="mb-4 space-y-3 md:hidden">
+              {users.map((user) => (
+                <article key={user.id} className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4">
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold text-foreground">{user.display_name || user.email || "Artista"}</p>
+                    <p className="break-all text-xs text-muted-foreground">{user.email || "Sin correo"}</p>
+                    <p className="mt-1 break-words text-[10px] text-muted-foreground">IP: {user.lastIp || "—"} · {user.countryCode || "País no detectado"} · {user.languageCode || "idioma no detectado"}</p>
+                    {user.isOfficial && <Badge className="mt-2">Oficial</Badge>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="rounded-full bg-secondary px-2.5 py-1">{user.balance.toLocaleString("es")} monedas</span>
+                    <span className="rounded-full bg-secondary px-2.5 py-1">Plan {user.plan}</span>
+                    {user.roles.map((role) => <Badge key={role} variant="secondary">{role}</Badge>)}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Button className="w-full" variant={user.isVerified ? "destructive" : "outline"} disabled={updateVerification.isPending} onClick={() => updateVerification.mutate({ userId: user.id, verified: !user.isVerified })}>
+                      {user.isVerified ? "Quitar insignia azul" : "Dar insignia azul"}
+                    </Button>
+                    <Button className="w-full" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => deleteAccount.mutate(user.id)}>
+                      <Trash2 className="size-4" /> Eliminar cuenta
+                    </Button>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                    <Input
+                      type="number"
+                      aria-label={`Monedas para ${user.display_name || user.email || "usuario"}`}
+                      className="h-10 min-w-0 flex-1"
+                      value={creditDrafts[user.id] ?? 1}
+                      onChange={(event) => setCreditDrafts({ ...creditDrafts, [user.id]: Number(event.target.value) })}
+                    />
+                    <Button className="w-full sm:w-auto" variant="glass" onClick={() => void mutate(
+                      moderationDb.rpc("admin_adjust_credits", {
+                        _user_id: user.id,
+                        _delta: creditDrafts[user.id] ?? 1,
+                      }).then(({ error }) => { if (error) throw error; }),
+                      "Créditos ajustados.",
+                    )}>
+                      Ajustar monedas
+                    </Button>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                    <select
+                      aria-label={`Plan para ${user.display_name || user.email || "usuario"}`}
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-surface px-3 text-sm"
+                      value={planDrafts[user.id] ?? user.plan}
+                      onChange={(event) => setPlanDrafts({ ...planDrafts, [user.id]: event.target.value as "free" | "pro" | "premium" })}
+                    >
+                      <option value="free">free</option>
+                      <option value="pro">pro</option>
+                      <option value="premium">premium</option>
+                    </select>
+                    <Button className="w-full sm:w-auto" variant="glass" onClick={() => void mutate(
+                      moderationDb.rpc("admin_set_plan", {
+                        _user_id: user.id,
+                        _plan: planDrafts[user.id] ?? user.plan,
+                        _days: 30,
+                      }).then(({ error }) => { if (error) throw error; }),
+                      "Plan actualizado.",
+                    )}>
+                      Actualizar plan
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[760px] text-sm">
               <thead className="text-left text-muted-foreground">
                 <tr>
@@ -653,6 +720,7 @@ function AdminDashboard() {
                 ))}
               </tbody>
             </table>
+            </div>
             <p className="mt-4 text-xs text-muted-foreground">
               El rol de Admin Supremo y la insignia oficial se sincronizan desde Supabase para
               leudyfeliz81@gmail.com.

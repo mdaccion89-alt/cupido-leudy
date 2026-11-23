@@ -202,11 +202,12 @@ function AdController() {
   }, []);
 
   useEffect(() => {
-    const inFeed =
-      pathname.startsWith("/muro") || pathname.startsWith("/comunidad") || pathname.startsWith("/descubrir") ||
-      pathname.startsWith("/siguiendo") || pathname.startsWith("/chat") || pathname.startsWith("/mensajes");
-    const hidden = pathname.startsWith("/llamadas");
-    if (inFeed && !hidden) void showFeedBanner();
+    const placement = pathname.startsWith("/chat") || pathname.startsWith("/mensajes")
+      ? "messages"
+      : pathname.startsWith("/descubrir")
+        ? "discover"
+        : null;
+    if (placement) void showFeedBanner(placement);
     else void hideFeedBanner();
   }, [pathname]);
 
@@ -226,6 +227,7 @@ function RootComponent() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const immersiveVideos = pathname.startsWith("/videos");
   const immersiveMessages = pathname === "/chat";
+  const discoverWithBanner = pathname.startsWith("/descubrir");
   const immersive = immersiveVideos || immersiveMessages;
 
   return (
@@ -244,6 +246,7 @@ function RootComponent() {
           <div
             translate="no"
             className={`min-h-0 flex-1 overflow-x-hidden ${immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
+            style={discoverWithBanner ? { paddingBottom: "calc(14rem + env(safe-area-inset-bottom))" } : undefined}
           >
             <AccountScopedOutlet />
           </div>
