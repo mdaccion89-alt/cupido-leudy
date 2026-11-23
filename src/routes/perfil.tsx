@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Save, ShieldCheck, Upload, UserPlus } from "lucide-react";
+import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Plus, Save, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +14,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InviteButton } from "@/components/cupido/invite-button";
-import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
+import { FaceSelfieVerification } from "@/components/cupido/live-face-verification";
+import { ImageCropDialog } from "@/components/cupido/image-crop-dialog";
 import { LegalLinks } from "@/components/cupido/legal-links";
 import { ProfileSettings } from "@/components/cupido/profile-settings";
 import { CupidoGroupInvites, GranLigaGroups } from "@/components/cupido/gran-liga-groups";
 import { CupidoStudioPanel } from "@/components/cupido/cupido-studio-panel";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { WallFeed } from "@/components/cupido/wall-feed";
+import { StoryFeed } from "@/components/cupido/story-feed";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { displayedFollowerCount, useAccount, isSupremeAdminEmail } from "@/lib/account";
@@ -118,6 +120,7 @@ function ProfilePage() {
   const [followersOpen, setFollowersOpen] = useState(false);
   const [friendsOpen, setFriendsOpen] = useState(false);
   const [verificationOpen, setVerificationOpen] = useState(false);
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [profileTab, setProfileTab] = useState<"posts" | "saved" | "favorites">("posts");
 
   const profile = useQuery({
@@ -329,23 +332,26 @@ function ProfilePage() {
   });
 
   const liveVerification = useMutation({
-    mutationFn: async (video: Blob) => {
+    mutationFn: async (selfie: Blob) => {
       if (!viewerId) throw new Error("Inicia sesión.");
-      if (video.size < 1 || video.size > 20 * 1024 * 1024) throw new Error("El video debe pesar menos de 20 MB.");
-      const extension = video.type.includes("mp4") ? "mp4" : "webm";
-      const path = `${viewerId}/verification/${Date.now()}.${extension}`;
-      const { error: uploadError } = await supabase.storage.from("cupido-private").upload(path, video, {
-        contentType: video.type || "video/webm",
+      if (selfie.size < 1 || selfie.size > 10 * 1024 * 1024) throw new Error("La selfie debe pesar menos de 10 MB.");
+      const path = `${viewerId}/verification/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage.from("cupido-private").upload(path, selfie, {
+        contentType: "image/jpeg",
         upsert: false,
       });
       if (uploadError) throw uploadError;
-      const { error: rpcError } = await supabase.rpc("cupido_submit_face_verification_video", { _video_path: path });
-      if (rpcError) throw rpcError;
+      const { error: rpcError } = await (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> })
+        .rpc("cupido_submit_face_verification_selfie", { _selfie_path: path });
+      if (rpcError) {
+        void supabase.storage.from("cupido-private").remove([path]);
+        throw rpcError;
+      }
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile"] });
       setVerificationOpen(false);
-      toast.success("Video enviado al Administrador Oficial para revisión.");
+      toast.success("Selfie enviada. Tu solicitud está en aprobación.");
     },
     onError: (error) => toast.error(errorMessage(error, "No se pudo enviar la verificación.")),
   });
@@ -455,12 +461,16 @@ function ProfilePage() {
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();
   const verificationProfile = privateProfile;
-  const verificationEligible = Boolean(
-    own && !officialProfile && verificationProfile?.avatar_url && verificationProfile?.full_name?.trim()
-    && verificationProfile?.birth_date && verificationProfile?.country_code?.trim()
-    && verificationProfile?.phone?.trim() && verificationProfile?.bio?.trim()
-    && verificationProfile?.survey_completed === true,
-  );
+  const verificationFieldsComplete = [
+    Boolean(verificationProfile?.avatar_url?.trim()),
+    Boolean(verificationProfile?.full_name?.trim()),
+    Boolean(verificationProfile?.birth_date && ageFromBirthDate(verificationProfile.birth_date) !== null && ageFromBirthDate(verificationProfile.birth_date)! >= 18),
+    Boolean(verificationProfile?.country_code?.trim()),
+    Boolean(verificationProfile?.phone?.trim()),
+    Boolean(verificationProfile?.bio?.trim()),
+    verificationProfile?.survey_completed === true,
+  ].filter(Boolean).length;
+  const verificationEligible = own && !officialProfile && verificationFieldsComplete >= 6;
   const publicAge = safeText(extraField(creator, "age"), safeText(privateProfile?.age)) || "—";
   const publicGender = safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)) || "—";
 
@@ -478,13 +488,14 @@ function ProfilePage() {
         <div className="px-6 pb-8">
           <div className="-mt-12 flex items-end gap-4">
             <div className="relative shrink-0">
-              <div className={`flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""}`}>
+              <button type="button" onClick={() => own && avatarInput.current?.click()} disabled={!own || avatarUpload.isPending} aria-label={own ? "Cambiar y encuadrar foto de perfil" : "Foto de perfil"} className={`relative flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""} ${own ? "cursor-pointer" : "cursor-default"}`}>
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
                 ) : (
                   (displayName || "C").slice(0, 1).toUpperCase()
                 )}
-              </div>
+                {own && <span className="absolute bottom-0 right-0 grid size-7 place-items-center rounded-tl-xl bg-pink-500 text-white shadow-lg"><Plus className="size-4" /></span>}
+              </button>
               {creator?.is_gran_liga && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl drop-shadow-[0_0_9px_rgba(251,191,36,0.95)] animate-bounce" aria-label="Estrella de Gran Liga">⭐</span>}
             </div>
             <div className="pb-1">
@@ -728,17 +739,17 @@ function ProfilePage() {
           {own && !isAdmin && (
             <div className="mt-6">
               {creator?.verification_status === "pending" ? (
-                <p className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Tu solicitud está en revisión.</p>
+                <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-100">Solicitud de insignia: En aprobación.</p>
               ) : !verified ? (
                 <>
-                  {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa tu foto, nombre, fecha de nacimiento, país, teléfono, biografía y encuesta para solicitar la insignia azul.</p>}
+                  {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa al menos 6 de estos 7 datos: foto, nombre completo, fecha de nacimiento (18+), país, teléfono, biografía y encuesta. La biografía puede quedar vacía.</p>}
                   <Button type="button" onClick={() => setVerificationOpen(true)} disabled={!verificationEligible}>
-                    Habilitar insignia
+                    Solicitar insignia verificada
                   </Button>
                   <Dialog open={verificationOpen} onOpenChange={setVerificationOpen}>
-                    <DialogContent className="max-w-lg">
-                      <DialogHeader><DialogTitle>Habilitar insignia azul</DialogTitle></DialogHeader>
-                      <FaceVideoVerification onComplete={(video) => liveVerification.mutateAsync(video)} />
+                    <DialogContent className="max-w-sm">
+                      <DialogHeader><DialogTitle>Solicitar insignia verificada</DialogTitle></DialogHeader>
+                      <FaceSelfieVerification onComplete={(selfie) => liveVerification.mutateAsync(selfie)} />
                     </DialogContent>
                   </Dialog>
                 </>
@@ -784,6 +795,40 @@ function ProfilePage() {
           )}
         </div>
       </section>
+
+      <section className="mt-6 space-y-4 rounded-3xl border border-white/10 bg-zinc-900/70 p-4">
+        <div>
+          <h2 className="font-display text-lg text-white">Historias</h2>
+          <p className="text-xs text-zinc-400">Fotos y videos que desaparecen a las 24 horas.</p>
+        </div>
+        <StoryFeed compact onlyUserId={profileId} />
+      </section>
+
+      <section className="mt-6 space-y-4 rounded-3xl border border-white/10 bg-zinc-900/70 p-4">
+        <div>
+          <h2 className="font-display text-lg text-white">Fotos</h2>
+          <p className="text-xs text-zinc-400">Galería de fotos publicadas en este perfil.</p>
+        </div>
+        <WallFeed onlyUserId={profileId} hideUpload={!own} galleryOnly emptyText="Todavía no hay fotos en esta galería." />
+      </section>
+
+      <input
+        ref={avatarInput}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) setAvatarCropFile(file);
+          event.currentTarget.value = "";
+        }}
+      />
+      <ImageCropDialog
+        file={avatarCropFile}
+        title="Ajusta tu foto de perfil"
+        onOpenChange={(open) => { if (!open) setAvatarCropFile(null); }}
+        onApply={(file) => { setAvatarCropFile(null); avatarUpload.mutate(file); }}
+      />
 
       <section className="mt-8 space-y-8">
         {own && viewerId && (

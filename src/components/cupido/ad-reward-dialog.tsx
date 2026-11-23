@@ -57,9 +57,11 @@ export function AdRewardDialog({
     const grant = async () => {
       try {
         const result = await claimRef.current();
+        if (result.awarded !== AD_REWARD) throw new Error("Supabase no confirmó las 25 monedas del anuncio.");
+        accountRef.current.addPurchasedCredits(result.awarded);
         toast.success(`Anuncio completado: +${result.awarded} monedas 🎬`);
-        void queryClientRef.current.invalidateQueries({ queryKey: ["account"] });
-        accountRef.current.refresh();
+        await queryClientRef.current.invalidateQueries({ queryKey: ["account"] });
+        void accountRef.current.refresh();
         onRewardedRef.current?.();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "No se pudo acreditar la recompensa.");

@@ -18,6 +18,7 @@ import { compressImageFile, safeExtension } from "@/lib/storage";
 import type { MediaFilterId } from "@/lib/media-filters";
 import { mediaFilterCss } from "@/lib/media-filters";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
+import { ImageCropDialog } from "@/components/cupido/image-crop-dialog";
 
 type Story = {
   id: string;
@@ -53,7 +54,7 @@ function storyBackground(id: string) {
   return STORY_BACKGROUNDS.find((item) => item.id === id)?.className ?? STORY_BACKGROUNDS[0].className;
 }
 
-export function StoryFeed({ compact = false, initialStoryId }: { compact?: boolean; initialStoryId?: string | undefined }) {
+export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { compact?: boolean; initialStoryId?: string | undefined; onlyUserId?: string | undefined }) {
   const { session, onlineUserIds } = useAuth();
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
@@ -61,6 +62,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
   const [emojiOverlay, setEmojiOverlay] = useState<string[]>([]);
   const [backgroundGradient, setBackgroundGradient] = useState<string>(STORY_BACKGROUNDS[0].id);
   const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
@@ -71,13 +73,15 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
   const viewedStories = useRef(new Set<string>());
 
   const stories = useQuery({
-    queryKey: ["cupido-stories", viewerId],
+    queryKey: ["cupido-stories", viewerId, onlyUserId],
     queryFn: async () => {
-      const { data, error } = await storyDb.from("cupido_stories")
+      let storyQuery = storyDb.from("cupido_stories")
         .select("id,user_id,media_url,media_type,caption,filter_name,emoji_overlay,background_gradient,created_at,expires_at")
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(100);
+      if (onlyUserId) storyQuery = storyQuery.eq("user_id", onlyUserId);
+      const { data, error } = await storyQuery;
       if (error) throw error;
       const rows = (data ?? []) as Omit<Story, "display_name" | "avatar_url">[];
       const hiddenResult = viewerId
@@ -334,7 +338,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
       <section className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><Clock3 className="size-4 text-pink-300" /> Historias · 24 h</div>
         <div translate="no" className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Link to="/historia" search={{ story: undefined }} aria-label="Tu historia: subir foto o video" className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
+          {(!onlyUserId || onlyUserId === viewerId) && <Link to="/historia" search={{ story: undefined }} aria-label="Tu historia: subir foto o video" className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
             <span className={`relative grid size-16 place-items-center rounded-full p-[3px] ${ownStory ? "bg-[linear-gradient(135deg,#ec4899,#f59e0b)]" : "bg-white/15"}`}>
               <Avatar className="size-full border-2 border-background bg-zinc-900">
                 <AvatarImage src={ownStory?.avatar_url ?? ""} alt="" />
@@ -343,7 +347,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
               <span className="absolute -bottom-0.5 -right-0.5 grid size-6 place-items-center rounded-full border-2 border-background bg-pink-500 text-white"><Plus className="size-3.5" /></span>
             </span>
             <span className="w-full truncate text-[10px] font-medium leading-tight text-white">Tu historia</span>
-          </Link>
+          </Link>}
           {stories.isLoading && <span className="py-5 text-xs text-white/60">Cargando historias…</span>}
           {latestStories.filter((story) => story.user_id !== viewerId).map((story) => {
             const isOnline = onlineUserIds.includes(story.user_id);
@@ -377,7 +381,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
           <p className="text-xs font-semibold text-white">Fondo para historia de texto</p>
           <div className="flex flex-wrap gap-2">{STORY_BACKGROUNDS.map((background) => <button key={background.id} type="button" aria-label={`Fondo ${background.label}`} aria-pressed={backgroundGradient === background.id} disabled={uploading} onClick={() => setBackgroundGradient(background.id)} className={`h-9 w-14 rounded-lg border bg-gradient-to-br ${background.className} ${backgroundGradient === background.id ? "border-white ring-2 ring-pink-300" : "border-white/20"}`} />)}</div>
         </div>
-        <MediaComposer disabled={uploading || !viewerId} onFile={(file, filter) => setDraft({ file, filter })} galleryLabel="Agregar foto o video" />
+        <MediaComposer disabled={uploading || !viewerId} onFile={(file, filter) => { setDraft({ file, filter }); setCropFile(file.type.startsWith("image/") ? file : null); }} galleryLabel="Agregar foto o video" />
         {draft && previewUrl && (
           <div className="mt-3 space-y-3 rounded-xl border border-pink-300/20 bg-black/20 p-3">
             <p className="text-xs font-semibold text-white">Vista previa</p>
@@ -472,6 +476,12 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
       <Dialog open={Boolean(viewersStory)} onOpenChange={(open) => !open && setViewersStory(null)}>
         <DialogContent><DialogHeader><DialogTitle>Vieron tu historia</DialogTitle><DialogDescription>{viewers.data?.length ?? 0} personas</DialogDescription></DialogHeader><div className="max-h-72 space-y-2 overflow-y-auto">{viewers.data?.map((row) => <Link key={row.viewer_id} to="/perfil" search={{ userId: row.viewer_id }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-white/5"><Avatar className="size-9"><AvatarImage src={row.profile?.avatar_url ?? ""} /><AvatarFallback>{row.profile?.display_name?.slice(0, 1) ?? "?"}</AvatarFallback></Avatar><span className="text-sm text-white">{row.profile?.display_name ?? "Miembro de Cupido"}</span><span className="ml-auto text-[10px] text-muted-foreground">{new Date(row.viewed_at).toLocaleString("es", { hour: "2-digit", minute: "2-digit" })}</span></Link>)}</div></DialogContent>
       </Dialog>
+      <ImageCropDialog
+        file={cropFile}
+        title="Ajusta tu historia"
+        onOpenChange={(open) => { if (!open) setCropFile(null); }}
+        onApply={(file) => { setDraft((current) => current ? { ...current, file } : current); setCropFile(null); }}
+      />
     </section>
   );
 }

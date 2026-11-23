@@ -152,6 +152,7 @@ async function selectPosts(
   searchTerm?: string,
   onlyPostId?: string | null,
   likedOnly = false,
+  photoOnly = false,
 ) {
   if (onlyUserIds && onlyUserIds.length === 0) return [];
   let savedIds: string[] | null = null;
@@ -171,6 +172,7 @@ async function selectPosts(
 
   let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("is_promoted", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
   if (onlyUserId) query = query.eq("user_id", onlyUserId);
+  if (photoOnly) query = query.eq("kind", "photo");
   if (onlyPostId) query = query.eq("id", onlyPostId);
   if (onlyUserIds) query = query.in("user_id", onlyUserIds);
   if (savedIds) query = query.in("id", savedIds);
@@ -212,8 +214,9 @@ export async function fetchFeed(options: {
   searchTerm?: string | undefined;
   onlyPostId?: string | null | undefined;
   likedOnly?: boolean;
+  photoOnly?: boolean;
 }): Promise<FeedResult> {
-  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, likedOnly = false, followingOnly = false, searchTerm, onlyPostId = null } = options;
+  const { viewerId = null, limit = 24, videoOnly = false, onlyUserId = null, savedOnly = false, likedOnly = false, photoOnly = false, followingOnly = false, searchTerm, onlyPostId = null } = options;
   if (followingOnly && !viewerId) {
     return { posts: [], liked: new Set(), disliked: new Set(), saved: new Set() };
   }
@@ -224,7 +227,7 @@ export async function fetchFeed(options: {
     followedIds = ((data ?? []) as AnyRow[]).map((row) => String(row.following_id));
   }
   const blockedIds = await fetchBlockedUserIds(viewerId);
-  const rows = await selectPosts(Math.min(limit + blockedIds.length + 24, 200), onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId, likedOnly);
+  const rows = await selectPosts(Math.min(limit + blockedIds.length + 24, 200), onlyUserId, savedOnly, viewerId, followedIds, searchTerm, onlyPostId, likedOnly, photoOnly);
   const filtered = (videoOnly ? rows.filter((row) => row.kind === "video") : rows)
     .filter((row) => !blockedIds.includes(String(row.user_id)))
     .slice(0, limit);

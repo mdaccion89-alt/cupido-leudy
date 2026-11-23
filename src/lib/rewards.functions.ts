@@ -1,126 +1,51 @@
 import { createServerFn } from "@tanstack/react-start";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Database } from "@/integrations/supabase/types";
 import { getAdminClient } from "@/lib/server-helpers";
-import {
-  AD_LIMIT,
-  AD_REWARD,
-  DAILY_REWARDS,
-  DAY_MS,
-  nextDailyDay,
-} from "@/lib/rewards";
+import { AD_LIMIT, AD_REWARD, DAILY_REWARDS } from "@/lib/rewards";
 
-type Db = SupabaseClient<Database>;
-
-function dayKey(offsetDays = 0): string {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() + offsetDays);
-  return date.toISOString().slice(0, 10);
-}
-
-async function recordClaim(admin: Db, userId: string, rewardType: string, key: string): Promise<void> {
-  const { error } = await admin.from("cupido_reward_claims").insert({ user_id: userId, reward_type: rewardType, claim_key: key });
-  if (error) throw error;
-}
-
-async function readRewardProfile(admin: Db, userId: string) {
-  const { data } = await admin
-    .from("profiles")
-    .select("daily_streak,last_daily_claim")
-    .eq("id", userId)
-    .maybeSingle();
-  return {
-    streak: Math.max(0, data?.daily_streak ?? 0),
-    lastDaily: data?.last_daily_claim ? Date.parse(data.last_daily_claim) : 0,
-  };
-}
-
-async function syncProfileCredits(admin: Db, userId: string, balance: number): Promise<void> {
-  const { error } = await admin
-    .from("profiles")
-    .update({ credits: balance, credits_balance: balance, updated_at: new Date().toISOString() })
-    .eq("id", userId);
-  if (error) throw error;
-}
-
-async function creditCoins(admin: Db, userId: string, amount: number, reason: string): Promise<void> {
-  if (amount <= 0) return;
-  const [{ data: existing }, { data: profile }] = await Promise.all([
-    admin.from("user_credits").select("balance").eq("user_id", userId).maybeSingle(),
-    admin.from("profiles").select("credits,credits_balance").eq("id", userId).maybeSingle(),
-  ]);
-  const current = existing?.balance ?? profile?.credits_balance ?? profile?.credits ?? 0;
-  const balance = current === -1 ? -1 : current + amount;
-  const now = new Date().toISOString();
-
-  if (existing) {
-    const { error } = await admin
-      .from("user_credits")
-      .update({ balance, updated_at: now })
-      .eq("user_id", userId);
-    if (error) throw error;
-  } else {
-    const { error } = await admin
-      .from("user_credits")
-      .insert({ user_id: userId, balance: amount, daily_reset_at: now, updated_at: now });
-    if (error) throw error;
+function readRewardResult(value: unknown): { awarded: number; day: number; streak: number; balance: number } {
+  if (!value || typeof value !== "object") throw new Error("Supabase no confirmó la recompensa.");
+  const result = value as Record<string, unknown>;
+  const awarded = Number(result["awarded"]);
+  const day = Number(result["day"]);
+  const streak = Number(result["streak"]);
+  const balance = Number(result["balance"]);
+  if (![awarded, day, streak, balance].every(Number.isFinite)) {
+    throw new Error("Supabase no confirmó la recompensa.");
   }
-  await syncProfileCredits(admin, userId, balance);
-
-  const { error: transactionError } = await admin
-    .from("credit_transactions")
-    .insert({ user_id: userId, delta: amount, reason });
-  if (transactionError) throw transactionError;
+  return { awarded, day, streak, balance };
 }
 
 export const claimDailyReward = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { day: number }) => ({ day: Math.min(5, Math.max(1, Math.trunc(input?.day ?? 0))) }))
-  .handler(async ({ data, context }) => {
-    const admin = await getAdminClient();
-    const profile = await readRewardProfile(admin, context.userId);
-    const now = Date.now();
-
-    if (profile.lastDaily && now - profile.lastDaily < DAY_MS) {
-      throw new Error("Ya reclamaste hoy. Vuelve en 24 horas ❤️");
+  .handler(async ({ context }) => {
+    const { data, error } = await context.supabase.rpc("cupido_claim_daily_reward");
+    if (error) {
+      if (error.message.includes("DAILY_REWARD_ALREADY_CLAIMED")) {
+        throw new Error("Ya reclamaste tu premio. Vuelve en 24 horas ❤️");
+      }
+      throw new Error(error.message || "No se pudo reclamar el premio diario.");
     }
-
-    const day = nextDailyDay(profile.streak, profile.lastDaily, now);
-    if (day !== data.day) throw new Error(`Tu premio disponible es el día ${day}.`);
-
-    const amount = DAILY_REWARDS[day - 1] ?? 0;
-    const { error: profileError } = await admin
-      .from("profiles")
-      .update({ daily_streak: day, last_daily_claim: new Date(now).toISOString() })
-      .eq("id", context.userId);
-    if (profileError) throw profileError;
-
-    await recordClaim(admin, context.userId, `daily-${day}`, dayKey());
-    await creditCoins(admin, context.userId, amount, `Premio diario Cupido Leudy · día ${day}`);
-    return { awarded: amount, day, streak: day };
+    return readRewardResult(data);
   });
 
 export const claimAdReward = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const admin = await getAdminClient();
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const { count, error: countError } = await admin
-      .from("cupido_reward_claims")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", context.userId)
-      .eq("reward_type", "ad")
-      .gte("created_at", startOfDay.toISOString());
-    if (countError) throw countError;
-
-    const watched = count ?? 0;
-    if (watched >= AD_LIMIT) throw new Error("Ya viste los 5 anuncios de hoy. Vuelve mañana ❤️");
-
-    await recordClaim(admin, context.userId, "ad", `${dayKey()}-${Date.now()}`);
-    await creditCoins(admin, context.userId, AD_REWARD, "Recompensa por anuncio · Cupido Leudy");
-    return { awarded: AD_REWARD, remaining: AD_LIMIT - watched - 1 };
+    const { data, error } = await admin.rpc("cupido_claim_ad_reward", { _user_id: context.userId });
+    if (error) {
+      if (error.message.includes("AD_REWARD_DAILY_LIMIT")) {
+        throw new Error("Ya viste los 5 anuncios de hoy. Vuelve mañana ❤️");
+      }
+      throw new Error(error.message || "No se pudo acreditar la recompensa del anuncio.");
+    }
+    const result = readRewardResult(data);
+    if (result.awarded !== AD_REWARD) throw new Error("El premio del anuncio no coincide con las monedas anunciadas.");
+    const claimed = data && typeof data === "object" && "claimed" in data
+      ? Number((data as { claimed: unknown }).claimed)
+      : AD_LIMIT;
+    return { awarded: AD_REWARD, remaining: Math.max(0, AD_LIMIT - claimed) };
   });
 
 export const cupidoRewards = { DAILY_REWARDS, AD_REWARD };

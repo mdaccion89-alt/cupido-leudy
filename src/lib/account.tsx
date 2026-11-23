@@ -10,7 +10,7 @@ export function isSupremeAdminEmail(email?: string | null): boolean {
   return email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
 }
 
-export const OFFICIAL_FOLLOWER_BONUS = 0;
+export const OFFICIAL_FOLLOWER_BONUS = 40_000;
 
 export function displayedFollowerCount(
   realCount?: number | null,

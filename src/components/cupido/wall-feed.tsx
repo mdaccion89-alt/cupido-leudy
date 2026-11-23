@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Globe2, Hash, Play, Upload, Users } from "lucide-react";
+import { Globe2, Hash, Play, Plus, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { MediaCard } from "@/components/cupido/media-card";
 import { MediaComposer } from "@/components/cupido/media-composer";
@@ -41,6 +41,7 @@ function errorMessage(value: unknown, fallback: string): string {
 
 type WallFeedProps = {
   videoOnly?: boolean;
+  galleryOnly?: boolean;
   onlyUserId?: string | null;
   savedOnly?: boolean;
   likedOnly?: boolean;
@@ -56,6 +57,7 @@ type WallFeedProps = {
 
 export function WallFeed({
   videoOnly = false,
+  galleryOnly = false,
   onlyUserId = null,
   savedOnly = false,
   likedOnly = false,
@@ -86,11 +88,11 @@ export function WallFeed({
 
   const feed = useQuery({
     enabled: !composerOnly,
-    queryKey: ["cupido-media", viewerId, videoOnly, onlyUserId, savedOnly, likedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
+    queryKey: ["cupido-media", viewerId, videoOnly, galleryOnly, onlyUserId, savedOnly, likedOnly, followingOnly, feedLimit, searchTerm, selectedHashtag, highlightPostId],
     queryFn: async () => {
       setLoadingPosts(true);
       try {
-        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, onlyUserId, savedOnly, likedOnly, followingOnly, searchTerm: selectedHashtag || searchTerm, onlyPostId: highlightPostId });
+        return await fetchFeed({ viewerId, limit: feedLimit, videoOnly, photoOnly: galleryOnly, onlyUserId, savedOnly, likedOnly, followingOnly, searchTerm: selectedHashtag || searchTerm, onlyPostId: highlightPostId });
       } finally {
         setLoadingPosts(false);
       }
@@ -302,6 +304,10 @@ export function WallFeed({
     const extension = safeExtension(file.name, mimeExtension).toLowerCase();
     const isVideo = videoMime || VIDEO_EXTENSIONS.includes(extension);
     const isImage = file.type.startsWith("image/");
+    if (galleryOnly && !isImage) {
+      toast.error("En la galería del perfil solo se publican fotos.");
+      return;
+    }
     if (videoOnly && !isVideo) {
       toast.error("En Historia solo se publican videos cortos.");
       return;
@@ -384,7 +390,14 @@ export function WallFeed({
 
   return (
     <div className="space-y-5 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-0">
-      {!hideUpload && (
+      {!hideUpload && galleryOnly && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+          <p className="text-sm text-zinc-300">Agrega una foto a tu galería</p>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => void handlePick(event.target.files?.[0] ?? null)} />
+          <Button type="button" onClick={() => fileRef.current?.click()} disabled={uploading || !viewerId} className="gap-2 rounded-xl"><Plus className="size-4" /> Agregar foto</Button>
+        </div>
+      )}
+      {!hideUpload && !galleryOnly && (
         <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:flex-row sm:items-center">
           <div className="flex-1">
             <p className="flex items-center gap-2 text-sm font-semibold text-white">
@@ -490,9 +503,14 @@ export function WallFeed({
       {feed.isLoading || loadingPosts ? (
         <p className="text-sm text-muted-foreground">Cargando publicaciones reales…</p>
       ) : posts.length ? (
-        <div translate="no" className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div translate="no" className={galleryOnly ? "grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3" : "grid gap-5 sm:grid-cols-2 lg:grid-cols-3"}>
           {posts.map((post) => (
-            <MediaCard
+            galleryOnly ? (
+              <a key={post.id} href={post.media_url} target="_blank" rel="noreferrer" aria-label={post.caption || `Foto de ${post.display_name}`} className="group relative aspect-square overflow-hidden rounded-xl border border-white/10 bg-black">
+                <img src={post.media_url} alt={post.caption || "Foto de la galería"} loading="lazy" className="size-full object-cover transition duration-300 group-hover:scale-105" />
+                {post.caption && <span className="absolute inset-x-0 bottom-0 line-clamp-2 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-5 text-[10px] text-white">{post.caption}</span>}
+              </a>
+            ) : <MediaCard
               key={post.id}
               media={post}
               liked={likedIds.has(post.id) ?? false}

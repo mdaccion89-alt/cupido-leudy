@@ -422,6 +422,28 @@ function ChatPage() {
     [conversations.data, activeId],
   );
 
+  const privateCallPrice = useQuery({
+    queryKey: ["cupido-private-call-price", activeConversation?.other?.id],
+    enabled: Boolean(activeConversation?.other?.id),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles").select("call_minute_price").eq("id", activeConversation!.other!.id).maybeSingle();
+      if (error) throw error;
+      return Number(data?.call_minute_price ?? CALL_COSTS.cafe);
+    },
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    const calleeId = activeConversation?.other?.id;
+    if (!calleeId) return;
+    const channel = supabase.channel(`cupido-private-call-price-${calleeId}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "price-updated" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-private-call-price", calleeId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [activeConversation?.other?.id, queryClient]);
+
   const messages = useQuery({
     queryKey: ["cupido-messages", activeId],
     enabled: Boolean(activeId),
@@ -797,7 +819,7 @@ function ChatPage() {
   const startCall = useMutation({
     mutationFn: async ({ mode, video = false }: { mode: "hot" | "cafe"; video?: boolean }) => {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
-      if (!canStartCall(mode, account))
+      if (!canStartCall(mode, account, privateCallPrice.data ?? CALL_COSTS[mode]))
         throw new Error(
           account.hasPurchased || account.isInfiniteCreditsAdmin
             ? "No tienes monedas brillantes suficientes."
@@ -1122,26 +1144,26 @@ function ChatPage() {
                   variant="outline"
                   onClick={() => startCall.mutate({ mode: "cafe" })}
                   disabled={startCall.isPending}
-                  title={`${CALL_COSTS.cafe} monedas brillantes`}
+                  title={`${privateCallPrice.data ?? CALL_COSTS.cafe} monedas brillantes por minuto`}
                 >
-                  <Coffee /> Café
+                  <Coffee /> Café · {privateCallPrice.data ?? CALL_COSTS.cafe}/min
                 </Button>
                 <Button
                   size="sm"
                   onClick={() => startCall.mutate({ mode: "hot" })}
                   disabled={startCall.isPending}
-                  title={`${CALL_COSTS.hot} monedas brillantes`}
+                  title={`${privateCallPrice.data ?? CALL_COSTS.hot} monedas brillantes por minuto`}
                 >
-                  <Flame /> Hot
+                  <Flame /> Hot · {privateCallPrice.data ?? CALL_COSTS.hot}/min
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => startCall.mutate({ mode: "cafe", video: true })}
                   disabled={startCall.isPending}
-                  title={`${CALL_COSTS.cafe} monedas brillantes`}
+                  title={`${privateCallPrice.data ?? CALL_COSTS.cafe} monedas brillantes por minuto`}
                 >
-                  <Video /> Video
+                  <Video /> Video · {privateCallPrice.data ?? CALL_COSTS.cafe}/min
                 </Button>
               </header>
 
@@ -1211,6 +1233,7 @@ function ChatPage() {
                     <ImagePlus />
                   </Button>
                   <Input
+                    data-message-composer="true"
                     value={text}
                     onChange={(event) => { setText(event.target.value); broadcastTyping(event.target.value); }}
                     onKeyDown={(event) => {

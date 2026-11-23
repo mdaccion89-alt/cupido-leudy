@@ -142,6 +142,7 @@ export type Database = {
           bio: string;
           country_code: string;
           created_at: string;
+          call_minute_price: number;
           display_name: string;
           drinks: boolean;
           follower_count: number;
@@ -174,6 +175,7 @@ export type Database = {
           bio?: string;
           country_code?: string;
           created_at?: string;
+          call_minute_price?: number;
           display_name?: string;
           drinks?: boolean;
           follower_count?: number;
@@ -206,6 +208,7 @@ export type Database = {
           bio?: string;
           country_code?: string;
           created_at?: string;
+          call_minute_price?: number;
           display_name?: string;
           drinks?: boolean;
           follower_count?: number;
@@ -818,6 +821,7 @@ export type Database = {
       Row: {
         callee_id: string;
         caller_id: string;
+        minute_price: number;
         created_at: string;
         credits_spent: number;
         id: string;
@@ -828,6 +832,7 @@ export type Database = {
       Insert: {
         callee_id: string;
         caller_id: string;
+        minute_price?: number;
         created_at?: string;
         credits_spent?: number;
         id?: string;
@@ -838,6 +843,7 @@ export type Database = {
       Update: {
         callee_id?: string;
         caller_id?: string;
+        minute_price?: number;
         created_at?: string;
         credits_spent?: number;
         id?: string;
@@ -1290,6 +1296,7 @@ export type Database = {
           bio: string;
           country_code: string;
           created_at: string;
+          call_minute_price: number;
           display_name: string;
           drinks: boolean;
           friend_count: number;
@@ -1319,6 +1326,10 @@ export type Database = {
       cupido_end_stale_lives: { Args: never; Returns: number };
       cupido_live_heartbeat: { Args: { _room: string }; Returns: boolean };
       cupido_claim_daily_reward: { Args: never; Returns: Json };
+      cupido_claim_ad_reward: { Args: { _user_id: string }; Returns: Json };
+      cupido_get_my_gift_balance: { Args: never; Returns: number };
+      cupido_set_live_call_minute_price: { Args: { _price: number; _room: string }; Returns: number };
+      cupido_submit_face_verification_selfie: { Args: { _selfie_path: string }; Returns: undefined };
       cupido_public_paypal_client_id: { Args: never; Returns: string };
       cupido_count_followers_batch: {
         Args: { _following: string[] };

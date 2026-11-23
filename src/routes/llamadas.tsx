@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import { BRAND, CALL_COSTS } from "@/lib/cupido";
+import { BRAND } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
@@ -364,14 +364,14 @@ function CallsPage() {
           <Flame className="size-6 text-orange-300" />
           <h2 className="mt-3 font-display text-xl text-white">Sala Hot</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {CALL_COSTS.hot} monedas brillantes por llamada. Conversación apasionada y directa con consentimiento.
+            El anfitrión fija el precio por minuto en su Live. Conversación directa con consentimiento.
           </p>
         </div>
         <div className="rounded-2xl border border-sky-400/25 bg-sky-500/10 p-5">
           <Coffee className="size-6 text-sky-300" />
           <h2 className="mt-3 font-display text-xl text-white">Sala Café</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {CALL_COSTS.cafe} monedas brillantes por llamada. Para conocerse tranquilo y tomar un café virtual.
+            El precio por minuto se muestra antes de llamar y queda definido por el anfitrión.
           </p>
         </div>
       </section>

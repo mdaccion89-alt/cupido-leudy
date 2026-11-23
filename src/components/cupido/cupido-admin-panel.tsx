@@ -406,7 +406,7 @@ export function CupidoAdminPanel() {
           <div>
             <h2 className="font-display text-lg text-white">Selfies pendientes / Revisiones</h2>
             <p className="text-xs text-muted-foreground">
-              Revisa las 3 capturas en vivo de cada usuario y decide quién recibe la insignia azul.
+              Revisa la selfie o capturas faciales de cada usuario y decide quién recibe la insignia azul.
             </p>
           </div>
         </div>

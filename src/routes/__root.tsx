@@ -225,10 +225,52 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const [messageKeyboardOpen, setMessageKeyboardOpen] = useState(false);
+  const isMessageRoute = pathname === "/chat" || pathname === "/mensajes";
   const immersiveVideos = pathname.startsWith("/videos");
   const immersiveMessages = pathname === "/chat";
   const discoverWithBanner = pathname.startsWith("/descubrir");
   const immersive = immersiveVideos || immersiveMessages;
+
+  useEffect(() => {
+    if (!isMessageRoute) {
+      setMessageKeyboardOpen(false);
+      return;
+    }
+
+    const viewport = window.visualViewport;
+    let editorFocused = false;
+    const isComposerFocused = () => document.activeElement instanceof HTMLElement
+      && document.activeElement.matches("[data-message-composer]");
+    const updateKeyboardState = (fromViewportEvent = false) => {
+      editorFocused = editorFocused && isComposerFocused();
+      const viewportDelta = viewport
+        ? Math.max(window.innerHeight - viewport.height, viewport.offsetTop)
+        : 1;
+      const keyboardVisible = !viewport || viewportDelta > 100;
+      setMessageKeyboardOpen(editorFocused && (fromViewportEvent ? keyboardVisible : true));
+    };
+    const handleFocusIn = (event: FocusEvent) => {
+      if (!(event.target instanceof HTMLElement) || !event.target.matches("[data-message-composer]")) return;
+      editorFocused = true;
+      updateKeyboardState();
+    };
+    const handleFocusOut = () => window.requestAnimationFrame(() => updateKeyboardState(true));
+    const handleViewportChange = () => updateKeyboardState(true);
+
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+    viewport?.addEventListener("resize", handleViewportChange);
+    viewport?.addEventListener("scroll", handleViewportChange);
+    window.addEventListener("resize", handleViewportChange);
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+      viewport?.removeEventListener("resize", handleViewportChange);
+      viewport?.removeEventListener("scroll", handleViewportChange);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [isMessageRoute]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -250,7 +292,7 @@ function RootComponent() {
           >
             <AccountScopedOutlet />
           </div>
-          {!immersive && <BottomNav />}
+          {!immersive && !messageKeyboardOpen && <BottomNav />}
         </div>
         <EscudoWidget />
         <TermsModal />

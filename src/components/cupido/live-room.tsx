@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -88,6 +88,54 @@ export function LiveRoom({
   premiumEndsAt,
 }: LiveRoomProps) {
   const account = useAccount();
+  const queryClient = useQueryClient();
+  const privateCallPriceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const privateCallPrice = useQuery({
+    queryKey: ["cupido-private-call-price", hostId],
+    enabled: Boolean(hostId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_public_profiles").select("call_minute_price").eq("id", hostId).maybeSingle();
+      if (error) throw error;
+      return Number(data?.call_minute_price ?? 50);
+    },
+  });
+  const liveEarnings = useQuery({
+    queryKey: ["cupido-live-earnings", hostId],
+    enabled: role === "host",
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cupido_get_my_gift_balance");
+      if (error) throw error;
+      return Number(data ?? 0);
+    },
+  });
+  const updatePrivateCallPrice = useMutation({
+    mutationFn: async (price: number) => {
+      const { data, error } = await supabase.rpc("cupido_set_live_call_minute_price", { _room: roomId, _price: price });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (price) => {
+      queryClient.setQueryData(["cupido-private-call-price", hostId], price);
+      void privateCallPriceChannelRef.current?.send({ type: "broadcast", event: "price-updated", payload: { price } });
+      toast.success(`Tarifa privada actualizada: ${price} monedas por minuto.`);
+    },
+    onError: (error) => {
+      void queryClient.invalidateQueries({ queryKey: ["cupido-private-call-price", hostId] });
+      toast.error(error instanceof Error ? error.message : "No se pudo guardar el precio por minuto.");
+    },
+  });
+  useEffect(() => {
+    const channel = supabase.channel(`cupido-private-call-price-${hostId}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "price-updated" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-private-call-price", hostId] });
+      });
+    privateCallPriceChannelRef.current = channel;
+    void channel.subscribe();
+    return () => {
+      privateCallPriceChannelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [hostId, queryClient]);
   const pkProfile = useQuery({
     queryKey: ["cupido-pk-profile", viewerId],
     enabled: role === "viewer",
@@ -149,6 +197,7 @@ export function LiveRoom({
     },
     staleTime: 30_000,
   });
+  const liveCheckoutPackage = CREDIT_PACKAGES.find((pack) => pack.id === liveCheckoutPackageId);
 
   useEffect(() => {
     if (role !== "host" || !premiumEndsAt) return;
@@ -315,6 +364,7 @@ export function LiveRoom({
       .channel(`cupido-live-gifts-${roomId}`, { config: { broadcast: { self: false } } })
       .on("broadcast", { event: "gift" }, ({ payload }) => {
         const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown; points?: unknown; side?: unknown };
+        if (role === "host" && gift.side === "host") void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", hostId] });
         const next: GiftAnimation = {
           id: Date.now(),
           emoji: typeof gift.emoji === "string" ? gift.emoji : "🎁",
@@ -459,7 +509,7 @@ export function LiveRoom({
       if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
       if (liveHeartTimerRef.current !== null) window.clearTimeout(liveHeartTimerRef.current);
     };
-  }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, sendSignal]);
+  }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, queryClient, sendSignal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -674,6 +724,8 @@ export function LiveRoom({
     }
     await account.refresh();
     setPendingGiftPurchase(null);
+    setGiftPanelOpen(false);
+    setGiftCheckoutOpen(false);
     setGiftAnimation({ id: Date.now(), emoji: gift.emoji, name: gift.name, sender: "Un espectador" });
     if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
     giftAnimationTimerRef.current = window.setTimeout(() => setGiftAnimation(null), 2800);
@@ -704,6 +756,7 @@ export function LiveRoom({
       const shortage = Math.max(gift.credits - account.balance, account.hasPurchased ? 0 : 1);
       const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
       setLiveCheckoutPackageId(pack?.id ?? null);
+      setGiftPanelOpen(true);
       setGiftCheckoutOpen(true);
       return;
     }
@@ -806,7 +859,7 @@ export function LiveRoom({
 
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
-      <DialogContent className="!fixed !inset-0 !left-0 !top-0 !z-[80] !h-[100dvh] !w-screen !max-w-none !translate-x-0 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white sm:!max-w-none">
+      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white sm:!max-w-md">
         <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-w-[72vw] rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
           <DialogTitle className="flex items-center gap-2">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
@@ -818,10 +871,26 @@ export function LiveRoom({
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
             {role === "viewer" && <span className={`flex items-center gap-1 ${hostOnline ? "text-emerald-300" : "text-white/65"}`}><span className={`size-1.5 rounded-full ${hostOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />{hostOnline ? "En línea" : "Desconectado"}</span>}
             <span className="flex items-center gap-1"><CoinIcon className="size-3.5" /> Monedas brillantes activas</span>
+            {role === "host" && <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-amber-100">Regalos recibidos: US${(liveEarnings.data ?? 0).toFixed(2)}</span>}
+            {role === "viewer" && <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-amber-100">Privada: {privateCallPrice.data ?? 50} monedas/min</span>}
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
         </DialogHeader>
+        {role === "host" && !activePkName && (
+          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+5.5rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
+            Precio privado/min
+            <select
+              aria-label="Precio por minuto de llamada privada"
+              value={privateCallPrice.data ?? 50}
+              disabled={privateCallPrice.isLoading || updatePrivateCallPrice.isPending}
+              onChange={(event) => updatePrivateCallPrice.mutate(Number(event.target.value))}
+              className="h-8 rounded-lg border border-white/15 bg-zinc-900 px-2 text-xs text-white outline-none focus:ring-2 focus:ring-amber-300"
+            >
+              {[25, 50, 75, 100, 150, 200].map((price) => <option key={price} value={price}>{price} monedas</option>)}
+            </select>
+          </label>
+        )}
         {activePkName && (
           <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+5.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
@@ -962,95 +1031,105 @@ export function LiveRoom({
             </Button>
           </div>
         </section>
-        {role === "viewer" && <Button type="button" size="icon" onClick={() => setGiftPanelOpen((open) => !open)} aria-label="Abrir regalos" className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 size-12 rounded-full bg-pink-600 text-white shadow-lg shadow-pink-900/40"><Gift className="size-5" /></Button>}
-        {role === "viewer" && giftPanelOpen && (
-          <div className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 max-h-[68dvh] w-[min(88vw,24rem)] overflow-y-auto rounded-2xl border border-pink-400/30 bg-[#160b12]/95 p-3 shadow-2xl backdrop-blur-xl">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="flex items-center gap-2 font-display text-base text-white">
-                <Gift className="size-4 text-pink-300" /> Regalos virtuales para {hostName}
-              </p>
-              <div className="flex items-center gap-2"><p className="flex items-center gap-1 text-xs text-amber-200"><CoinIcon className="size-3.5" />{account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}</p><Button type="button" size="icon" variant="ghost" className="size-7" onClick={() => setGiftPanelOpen(false)} aria-label="Cerrar regalos"><X className="size-4" /></Button></div>
-            </div>
-            <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />
-            {pendingGiftPurchase && (() => {
-              const shortage = Math.max(pendingGiftPurchase.credits - account.balance, account.hasPurchased ? 0 : 1);
-              const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
-              const readyToSend = canSendGift(pendingGiftPurchase, account);
-              return (
-                <section className="mt-3 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
-                  <div>
-                    <p className="font-semibold text-white">{readyToSend ? `${pendingGiftPurchase.name} está listo para enviar` : `Desbloquea ${pendingGiftPurchase.name}`}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{readyToSend ? "Envíalo ahora si quieres. Las monedas restantes se quedan en tu saldo." : `Compra ${pack?.credits.toLocaleString("es")} monedas por US$${pack?.price}. Tú decides si envías el regalo; el saldo no gastado permanece disponible.`}</p>
+        {role === "viewer" && <Button type="button" size="icon" onClick={() => {
+          if (giftPanelOpen) {
+            setGiftPanelOpen(false);
+            setGiftCheckoutOpen(false);
+          } else {
+            setGiftPanelOpen(true);
+          }
+        }} aria-label="Abrir regalos" className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 size-12 rounded-full bg-pink-600 text-white shadow-lg shadow-pink-900/40"><Gift className="size-5" /></Button>}
+        {role === "viewer" && (
+          <Sheet open={giftPanelOpen} onOpenChange={(open) => {
+            setGiftPanelOpen(open);
+            if (!open) setGiftCheckoutOpen(false);
+          }}>
+            <SheetContent side="bottom" className="z-[90] max-h-[75dvh] w-full flex flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-[#160b12] p-0 text-white shadow-2xl">
+              <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
+                <div className="flex items-start gap-2">
+                  {giftCheckoutOpen && <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-white" onClick={() => setGiftCheckoutOpen(false)} aria-label="Volver a los regalos"><ArrowLeft className="size-4" /></Button>}
+                  <div className="min-w-0 flex-1">
+                    <SheetTitle className="flex items-center gap-2 text-white"><Gift className="size-4 shrink-0 text-pink-300" />{giftCheckoutOpen ? "Pago seguro" : `Regalos para ${hostName}`}</SheetTitle>
+                    <SheetDescription className="mt-1 flex items-center gap-1 text-xs">
+                      {giftCheckoutOpen ? "PayPal o tarjeta · recarga confirmada antes de enviar" : <><CoinIcon className="size-3.5" /> Saldo: {account.loading ? "…" : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}</>}
+                    </SheetDescription>
                   </div>
-                  {readyToSend ? (
-                    <Button type="button" className="w-full" disabled={sendingGift} onClick={() => void sendGift(pendingGiftPurchase)}>
-                      {sendingGift ? <Loader2 className="size-4 animate-spin" /> : <Gift className="size-4" />} Enviar {pendingGiftPurchase.name}
-                    </Button>
-                  ) : (
-                    <Button type="button" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={paypalConfig.isLoading || !paypalConfig.data?.configured} onClick={() => {
-                      setLiveCheckoutPackageId(pack?.id ?? null);
-                      setGiftCheckoutOpen(true);
-                    }}>
-                      {paypalConfig.isLoading ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-                      Comprar monedas para este regalo
-                    </Button>
-                  )}
-                  {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
-                    <Button type="button" variant="outline" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={!paypalConfig.data?.configured} onClick={() => {
-                      setLiveCheckoutPackageId("gran-liga-100");
-                      setGiftCheckoutOpen(true);
-                    }}>Ver paquete Diamante Gran Liga</Button>
-                  )}
-                  <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => { setPendingGiftPurchase(null); setGiftCheckoutOpen(false); }}>Volver a los regalos</Button>
-                </section>
-              );
-            })()}
-            {!account.loading && !account.balanceUnavailable && account.balance < 10 && !account.isInfiniteCreditsAdmin && (
-              <Button asChild variant="outline" size="sm" className="mt-2 gap-1.5">
-                <Link to="/tienda"><CreditCard className="size-3.5" /> Recargar monedas con PayPal</Link>
-              </Button>
-            )}
-            {!account.hasPurchased && !account.isInfiniteCreditsAdmin && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Las 500 monedas de bienvenida se desbloquean tras una recarga real confirmada. Usa PayPal Live o tarjeta para empezar.
-              </p>
-            )}
-          </div>
+                </div>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-3 pb-10">
+                {!giftCheckoutOpen ? (
+                  <>
+                    <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />
+                    {pendingGiftPurchase && (() => {
+                      const shortage = Math.max(pendingGiftPurchase.credits - account.balance, account.hasPurchased ? 0 : 1);
+                      const recommendedPackage = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+                      const readyToSend = canSendGift(pendingGiftPurchase, account);
+                      return (
+                        <section className="mt-3 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
+                          <div>
+                            <p className="font-semibold text-white">{readyToSend ? `${pendingGiftPurchase.name} está listo para enviar` : `Desbloquea ${pendingGiftPurchase.name}`}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{readyToSend ? "Envíalo ahora si quieres. Las monedas restantes se quedan en tu saldo." : `Paquete sugerido: ${recommendedPackage?.credits.toLocaleString("es")} monedas por US$${recommendedPackage?.price}.`}</p>
+                          </div>
+                          {readyToSend ? (
+                            <Button type="button" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={sendingGift} onClick={() => void sendGift(pendingGiftPurchase)}>
+                              {sendingGift ? <Loader2 className="size-4 animate-spin" /> : <Gift className="size-4" />} Enviar {pendingGiftPurchase.name}
+                            </Button>
+                          ) : (
+                            <>
+                              <Button type="button" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={paypalConfig.isLoading || !paypalConfig.data?.configured} onClick={() => {
+                                setLiveCheckoutPackageId(recommendedPackage?.id ?? null);
+                                setGiftCheckoutOpen(true);
+                              }}>
+                                {paypalConfig.isLoading ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                                Recargar y continuar al pago
+                              </Button>
+                              {!account.isGranLiga && recommendedPackage?.id !== "gran-liga-100" && <Button type="button" variant="outline" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={paypalConfig.isLoading || !paypalConfig.data?.configured} onClick={() => {
+                                setLiveCheckoutPackageId("gran-liga-100");
+                                setGiftCheckoutOpen(true);
+                              }}>Elegir Diamante Gran Liga</Button>}
+                              {!paypalConfig.isLoading && !paypalConfig.data?.configured && <p className="text-center text-xs text-amber-100/80">PayPal Business Live no está configurado.</p>}
+                            </>
+                          )}
+                        </section>
+                      );
+                    })()}
+                    {!account.loading && !account.balanceUnavailable && account.balance < 10 && !account.isInfiniteCreditsAdmin && <Button asChild variant="outline" size="sm" className="mt-3 w-full gap-1.5 whitespace-normal text-center"><Link to="/tienda"><CreditCard className="size-3.5" /> Recargar monedas con PayPal</Link></Button>}
+                    {!account.hasPurchased && !account.isInfiniteCreditsAdmin && <p className="mt-2 text-center text-[11px] text-muted-foreground">Las 500 monedas de bienvenida se desbloquean después de una recarga real confirmada.</p>}
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+                      <p className="text-sm font-semibold text-white">{liveCheckoutPackage?.label ?? "Paquete"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{liveCheckoutPackage?.credits.toLocaleString("es")} monedas · US${liveCheckoutPackage?.price}</p>
+                      {pendingGiftPurchase && <p className="mt-1 text-xs text-amber-100/80">Después del pago podrás enviar {pendingGiftPurchase.name}.</p>}
+                    </div>
+                    {paypalConfig.isLoading ? (
+                      <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
+                    ) : paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
+                      <PayPalCheckoutButtons
+                        key={liveCheckoutPackageId}
+                        clientId={paypalConfig.data.clientId}
+                        packageId={liveCheckoutPackageId}
+                        onSuccess={(credits) => {
+                          account.addPurchasedCredits(credits);
+                          void account.refresh().then(() => {
+                            setGiftCheckoutOpen(false);
+                            toast.success(liveCheckoutPackageId === "gran-liga-100"
+                              ? "Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+                              : `${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase?.name ?? "El regalo"} está listo cuando quieras enviarlo.`);
+                          }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
+                        }}
+                        onError={(message) => toast.error(message)}
+                      />
+                    ) : (
+                      <p className="text-center text-sm text-amber-100/80">PayPal Business Live no está configurado para completar el pago seguro.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
         )}
-        <Sheet open={giftCheckoutOpen} onOpenChange={setGiftCheckoutOpen}>
-          <SheetContent side="bottom" className="z-[90] max-h-[72vh] overflow-y-auto rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
-            <SheetHeader className="pr-8 text-left">
-              <SheetTitle className="text-white">Pago seguro del regalo</SheetTitle>
-              <SheetDescription>
-                {pendingGiftPurchase ? `Recarga para ${pendingGiftPurchase.name}. El regalo se enviará después de confirmar el pago.` : "Paga con PayPal o tarjeta."}
-              </SheetDescription>
-            </SheetHeader>
-            <div className="mt-4">
-              {paypalConfig.isLoading ? (
-                <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
-              ) : paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
-                <PayPalCheckoutButtons
-                  key={liveCheckoutPackageId}
-                  clientId={paypalConfig.data.clientId}
-                  packageId={liveCheckoutPackageId}
-                  onSuccess={(credits) => {
-                    account.addPurchasedCredits(credits);
-                    void account.refresh().then(() => {
-                      setGiftCheckoutOpen(false);
-                      toast.success(liveCheckoutPackageId === "gran-liga-100"
-                        ? "Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
-                        : `${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase?.name ?? "El regalo"} está listo cuando quieras enviarlo.`);
-                    }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
-                  }}
-                  onError={(message) => toast.error(message)}
-                />
-              ) : (
-                <p className="text-center text-sm text-amber-100/80">PayPal Business Live no está configurado para completar el pago seguro.</p>
-              )}
-            </div>
-          </SheetContent>
-        </Sheet>
       </DialogContent>
     </Dialog>
   );

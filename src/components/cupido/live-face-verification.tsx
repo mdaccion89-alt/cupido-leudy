@@ -3,6 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Camera, Check, Loader2, RotateCcw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { verifyCupidoFaceSequence, verifyCupidoLiveFace } from "@/lib/cupido.functions";
+import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 
 const VALIDATION_ERROR = "Se presentó un error en la validación facial. Inténtalo otra vez siguiendo la instrucción en pantalla";
 const LIVE_STEPS = [
@@ -302,6 +303,91 @@ export function FaceVideoVerification({ onComplete }: { onComplete: (video: Blob
         {uploading ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
         {uploading ? "Enviando video al Administrador Oficial…" : recording ? "Grabando verificación…" : "Grabar video y habilitar insignia"}
       </Button>
+    </div>
+  );
+}
+
+export function FaceSelfieVerification({ onComplete }: { onComplete: (selfie: Blob) => Promise<void> }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  const stopCamera = (updateState = true) => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    if (updateState) setCameraReady(false);
+  };
+
+  useEffect(() => () => stopCamera(false), []);
+
+  const openCamera = async () => {
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Este dispositivo no permite abrir la cámara.");
+      return;
+    }
+    try {
+      await requestNativeMediaPermissions({ camera: true, microphone: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } }, audio: false });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraReady(true);
+    } catch (cause) {
+      stopCamera();
+      setError(mediaPermissionMessage(cause, "No pudimos abrir la cámara frontal. Revisa los permisos e inténtalo otra vez."));
+    }
+  };
+
+  const takeSelfie = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+      setError("Espera a que la cámara muestre tu rostro.");
+      return;
+    }
+    setError("");
+    setSending(true);
+    canvas.width = Math.min(video.videoWidth, 900);
+    canvas.height = Math.round(video.videoHeight * (canvas.width / video.videoWidth));
+    const context = canvas.getContext("2d");
+    if (!context) { setSending(false); setError("No se pudo preparar la selfie."); return; }
+    context.translate(canvas.width, 0);
+    context.scale(-1, 1);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const selfie = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+    if (!selfie) { setSending(false); setError("No se pudo tomar la selfie. Inténtalo otra vez."); return; }
+    stopCamera();
+    try {
+      await onComplete(selfie);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo enviar la selfie.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="relative mx-auto aspect-square w-full max-w-xs overflow-hidden rounded-2xl border border-white/10 bg-black">
+        <video ref={videoRef} muted playsInline webkit-playsinline="true" className="size-full scale-x-[-1] object-cover" />
+        {!cameraReady && <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-zinc-400">Toma una selfie actual con la cámara frontal y buena iluminación.</div>}
+        {cameraReady && <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-xl bg-black/70 px-3 py-2 text-center text-xs text-white">Centra tu rostro y mira a la cámara.</div>}
+      </div>
+      <canvas ref={canvasRef} className="hidden" />
+      {error && <p role="alert" className="text-sm text-rose-300">{error}</p>}
+      {!cameraReady ? (
+        <Button type="button" onClick={() => void openCamera()} disabled={sending} className="w-full gap-2"><Camera className="size-4" /> Abrir cámara frontal</Button>
+      ) : (
+        <Button type="button" onClick={() => void takeSelfie()} disabled={sending} className="w-full gap-2"><Check className="size-4" /> {sending ? "Enviando selfie…" : "Tomar selfie y solicitar revisión"}</Button>
+      )}
+      <p className="text-center text-xs text-muted-foreground">La selfie se guarda de forma privada para que el equipo de administración revise la solicitud.</p>
     </div>
   );
 }

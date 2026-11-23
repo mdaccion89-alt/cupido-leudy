@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Coins, Gift, Loader2, LockKeyhole, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -7,16 +8,13 @@ import { Button } from "@/components/ui/button";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { DAILY_REWARDS, DAY_MS, formatCountdown, nextDailyDay } from "@/lib/rewards";
-import { supabase } from "@/integrations/supabase/client";
-
-const rewardsRpc = supabase as unknown as {
-  rpc: (name: string) => Promise<{ data: unknown; error: { message: string } | null }>;
-};
+import { claimDailyReward } from "@/lib/rewards.functions";
 
 export function DailyReward() {
   const account = useAccount();
   const { session } = useAuth();
   const queryClient = useQueryClient();
+  const claimDaily = useServerFn(claimDailyReward);
   const [now, setNow] = useState(() => Date.now());
   const [claiming, setClaiming] = useState(false);
 
@@ -32,24 +30,28 @@ export function DailyReward() {
   const claimLabel = nextDay === 1 ? "Reclamar día 1" : `Reclamar día ${nextDay}`;
 
   const claim = async () => {
-    if (!session?.user.id) {
+    const userId = session?.user.id;
+    if (!userId) {
       toast.error("Inicia sesión para reclamar tu premio diario.");
       return;
     }
     setClaiming(true);
     try {
-      const { data, error } = await rewardsRpc.rpc("cupido_claim_daily_reward");
-      if (error) throw error;
-      if (!data || typeof data !== "object" || !("awarded" in data) || !("day" in data)) {
-        throw new Error("Supabase no confirmó el premio diario.");
-      }
-      const result = data as { awarded: number; day: number };
+      const result = await claimDaily();
       toast.success(`Día ${result.day}: +${result.awarded} monedas brillantes ✨`);
-      void queryClient.invalidateQueries({ queryKey: ["account"] });
-      account.refresh();
+      await queryClient.invalidateQueries({ queryKey: ["account", userId] });
+      await account.refresh();
+      void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", userId] });
       setNow(Date.now());
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo reclamar el premio.");
+      const message = error instanceof Error ? error.message : "No se pudo reclamar el premio.";
+      if (message.includes("DAILY_REWARD_ALREADY_CLAIMED") || message.includes("Ya reclamaste")) {
+        await account.refresh().catch(() => undefined);
+        setNow(Date.now());
+        toast.info("Ya reclamaste tu premio. Vuelve en 24 horas ❤️");
+      } else {
+        toast.error(message);
+      }
     } finally {
       setClaiming(false);
     }
