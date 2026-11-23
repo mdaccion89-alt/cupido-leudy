@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Plus, Save, ShieldCheck, Upload, UserPlus } from "lucide-react";
+import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Plus, Save, ShieldCheck, Upload, UserPlus, Crown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,6 +89,68 @@ function readFileAsBase64(file: File): Promise<string> {
 
 function extensionOf(file: File, fallback: string): string {
   return file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || fallback;
+}
+
+function CreatorClubPanel({ creatorId, creatorName, viewerId, own }: { creatorId: string | null; creatorName: string; viewerId: string | null; own: boolean }) {
+  const account = useAccount();
+  const queryClient = useQueryClient();
+  const [price, setPrice] = useState(1000);
+  const club = useQuery({
+    queryKey: ["cupido-creator-club", creatorId],
+    enabled: Boolean(creatorId && viewerId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_creator_clubs").select("monthly_price,updated_at").eq("creator_id", creatorId!).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const subscription = useQuery({
+    queryKey: ["cupido-creator-club-subscription", creatorId, viewerId],
+    enabled: Boolean(creatorId && viewerId && !own),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_creator_club_subscriptions").select("expires_at").eq("creator_id", creatorId!).eq("fan_id", viewerId!).gt("expires_at", new Date().toISOString()).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  useEffect(() => {
+    if (club.data?.monthly_price) setPrice(club.data.monthly_price);
+  }, [club.data?.monthly_price]);
+  useEffect(() => {
+    if (!creatorId) return;
+    const channel = supabase.channel(`cupido-creator-club-${creatorId}-${viewerId ?? "guest"}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_creator_clubs", filter: `creator_id=eq.${creatorId}` }, () => { void queryClient.invalidateQueries({ queryKey: ["cupido-creator-club", creatorId] }); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_creator_club_subscriptions", filter: `creator_id=eq.${creatorId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-creator-club-subscription", creatorId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-creator-club-subscription", creatorId, viewerId] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [creatorId, queryClient, viewerId]);
+
+  const savePrice = async () => {
+    const { error } = await supabase.rpc("cupido_set_creator_club_price", { _monthly_price: price });
+    if (error) { toast.error(error.message); return; }
+    await queryClient.invalidateQueries({ queryKey: ["cupido-creator-club", creatorId] });
+    toast.success("Precio mensual del Club VIP actualizado.");
+  };
+  const subscribe = async () => {
+    if (!creatorId) return;
+    const { error } = await supabase.rpc("cupido_subscribe_creator_club", { _creator: creatorId });
+    if (error) { toast.error(error.message); return; }
+    await Promise.all([account.refresh(), queryClient.invalidateQueries({ queryKey: ["cupido-creator-club-subscription", creatorId, viewerId] })]);
+    toast.success(`Ya eres VIP de ${creatorName}. Tu insignia se verá en su Live.`);
+  };
+
+  if (!creatorId || (!club.data && !own)) return null;
+  return <section className="mt-5 w-full max-w-full rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-500/10 to-transparent p-4">
+    <div className="flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-400/15 text-amber-200"><Crown className="size-5" /></span><div className="min-w-0 flex-1"><h2 className="font-semibold text-amber-100">Club VIP de {creatorName}</h2><p className="mt-1 text-xs text-muted-foreground">Insignia VIP en el chat del Live y prioridad al solicitar silla.</p>
+      {own ? <div className="mt-3 flex flex-wrap items-center gap-2"><label className="sr-only" htmlFor="creator-club-price">Precio mensual en monedas</label><select id="creator-club-price" value={price} onChange={(event) => setPrice(Number(event.target.value))} className="h-10 min-w-0 flex-1 rounded-xl border border-white/15 bg-zinc-900 px-3 text-sm text-white">{[500, 1000, 2500, 5000, 10000].map((amount) => <option key={amount} value={amount}>{amount.toLocaleString("es")} monedas/mes</option>)}</select><Button size="sm" onClick={() => void savePrice()} disabled={club.isLoading}>Guardar precio</Button></div>
+        : viewerId ? <div className="mt-3 flex flex-wrap items-center gap-2"><span className="text-sm font-bold text-amber-100">{Number(club.data?.monthly_price ?? 0).toLocaleString("es")} monedas / mes</span><Button size="sm" variant={subscription.data ? "secondary" : "default"} disabled={Boolean(subscription.data) || account.loading || account.balanceUnavailable} onClick={() => void subscribe()}>{subscription.data ? "Ya eres VIP" : "Unirme al Club"}</Button></div>
+        : <p className="mt-3 text-xs text-muted-foreground">Inicia sesión para unirte al Club VIP.</p>}
+      {subscription.data?.expires_at && <p className="mt-2 text-[11px] text-amber-100/70">Activo hasta {new Date(subscription.data.expires_at).toLocaleDateString("es")}</p>}
+    </div></div>
+  </section>;
 }
 
 function ProfilePage() {
@@ -626,6 +688,8 @@ function ProfilePage() {
               </Button>
             )}
           </div>
+
+          <CreatorClubPanel creatorId={profileId} creatorName={displayLabel} viewerId={viewerId} own={own} />
 
           {own && !isAdmin && (
             <div className="mt-4">

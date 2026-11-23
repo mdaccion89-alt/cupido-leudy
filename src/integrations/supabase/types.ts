@@ -1068,6 +1068,48 @@ export type Database = {
       Update: { joined_at?: string; room_id?: string; user_id?: string };
       Relationships: [];
     };
+    cupido_live_guest_sessions: {
+      Row: { created_at: string; guest_id: string; id: string; invited_by: string | null; room_id: string; status: string; updated_at: string };
+      Insert: { created_at?: string; guest_id: string; id?: string; invited_by?: string | null; room_id: string; status: string; updated_at?: string };
+      Update: { created_at?: string; guest_id?: string; id?: string; invited_by?: string | null; room_id?: string; status?: string; updated_at?: string };
+      Relationships: [];
+    };
+    cupido_creator_clubs: {
+      Row: { creator_id: string; monthly_price: number; updated_at: string };
+      Insert: { creator_id: string; monthly_price: number; updated_at?: string };
+      Update: { creator_id?: string; monthly_price?: number; updated_at?: string };
+      Relationships: [];
+    };
+    cupido_creator_club_subscriptions: {
+      Row: { created_at: string; creator_id: string; expires_at: string; fan_id: string };
+      Insert: { created_at?: string; creator_id: string; expires_at: string; fan_id: string };
+      Update: { created_at?: string; creator_id?: string; expires_at?: string; fan_id?: string };
+      Relationships: [];
+    };
+    cupido_live_roulette_configs: {
+      Row: { enabled: boolean; host_id: string; prizes: string[]; room_id: string; trigger_gift_id: string; updated_at: string };
+      Insert: { enabled?: boolean; host_id: string; prizes: string[]; room_id: string; trigger_gift_id: string; updated_at?: string };
+      Update: { enabled?: boolean; host_id?: string; prizes?: string[]; room_id?: string; trigger_gift_id?: string; updated_at?: string };
+      Relationships: [];
+    };
+    cupido_live_roulette_spins: {
+      Row: { created_at: string; gift_send_id: string; id: string; prize: string; prize_index: number; room_id: string; spun_by: string; trigger_gift_id: string };
+      Insert: { created_at?: string; gift_send_id: string; id?: string; prize: string; prize_index: number; room_id: string; spun_by: string; trigger_gift_id: string };
+      Update: { created_at?: string; gift_send_id?: string; id?: string; prize?: string; prize_index?: number; room_id?: string; spun_by?: string; trigger_gift_id?: string };
+      Relationships: [];
+    };
+    cupido_live_room_moderators: {
+      Row: { appointed_by: string; created_at: string; moderator_id: string; room_id: string };
+      Insert: { appointed_by: string; created_at?: string; moderator_id: string; room_id: string };
+      Update: { appointed_by?: string; created_at?: string; moderator_id?: string; room_id?: string };
+      Relationships: [];
+    };
+    cupido_live_room_mutes: {
+      Row: { created_at: string; muted_by: string; muted_until: string; room_id: string; user_id: string };
+      Insert: { created_at?: string; muted_by: string; muted_until: string; room_id: string; user_id: string };
+      Update: { created_at?: string; muted_by?: string; muted_until?: string; room_id?: string; user_id?: string };
+      Relationships: [];
+    };
     cupido_face_verification_videos: {
       Row: { created_at: string; id: string; reviewed_at: string | null; reviewed_by: string | null; status: string; user_id: string; video_path: string };
       Insert: { created_at?: string; id?: string; reviewed_at?: string | null; reviewed_by?: string | null; status?: string; user_id: string; video_path: string };
@@ -1501,6 +1543,16 @@ export type Database = {
     cupido_get_live_top_fans: { Args: { _room: string }; Returns: { user_id: string; display_name: string; avatar_url: string; coins: number }[] };
     cupido_get_live_gift_total: { Args: { _room: string }; Returns: number };
     cupido_get_weekly_ranking: { Args: never; Returns: Json };
+      cupido_request_live_guest: { Args: { _room: string }; Returns: string };
+      cupido_invite_live_guest: { Args: { _guest: string; _room: string }; Returns: string };
+      cupido_respond_live_guest: { Args: { _accept: boolean; _request: string }; Returns: string };
+      cupido_end_live_guest: { Args: { _room: string }; Returns: boolean };
+      cupido_set_creator_club_price: { Args: { _monthly_price: number }; Returns: number };
+      cupido_subscribe_creator_club: { Args: { _creator: string }; Returns: string };
+      cupido_set_live_roulette: { Args: { _prizes: string[]; _room: string; _trigger_gift_id: string }; Returns: boolean };
+      cupido_set_live_moderator: { Args: { _enabled: boolean; _room: string; _user: string }; Returns: boolean };
+      cupido_moderate_live_user: { Args: { _minutes?: number; _room: string; _user: string }; Returns: boolean };
+      cupido_send_live_comment: { Args: { _body: string; _room: string }; Returns: string };
     cupido_start_live_treasure: { Args: { _room: string }; Returns: string };
     cupido_claim_live_treasure: { Args: { _treasure: string }; Returns: Json };
     cupido_get_live_pk_state: { Args: { _room: string }; Returns: { battle_id: string; challenger_id: string; challenger_name: string; started_at: string; ends_at: string; finished_at: string | null; host_coins: number; challenger_coins: number; winner_id: string | null; seconds_left: number }[] };

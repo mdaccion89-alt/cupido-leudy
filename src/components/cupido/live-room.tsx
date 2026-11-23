@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy } from "lucide-react";
+import { ArrowLeft, Ban, Check, CreditCard, Crown, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy, Dices } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -8,10 +8,11 @@ import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-butto
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
-import { canSendGift, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
+import { canSendGift, giftErrorMessage, GIFTS, type Gift as GiftType } from "@/lib/cupido";
 import { CREDIT_PACKAGES } from "@/lib/credits";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
@@ -70,10 +71,13 @@ function decodeLiveSignal(row: StoredLiveSignal): LiveSignal | null {
   return null;
 }
 
-type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string };
+type PresenceMeta = { user_id: string; role: "host" | "viewer"; display_name?: string; is_club_vip?: boolean };
 type GiftAnimation = { id: number; emoji: string; name: string; sender: string; coins: number };
-type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean };
+type LiveComment = { id: string; stream_id: string; user_id: string; body: string; created_at: string; display_name: string; is_gran_liga: boolean; is_club_vip?: boolean; vip_creator_name?: string; is_moderator?: boolean };
 type PkRequest = { id: string; room_id: string; host_id: string; requester_id: string; status: string; expires_at: string; requester_name?: string };
+type GuestSeat = { id: string; room_id: string; guest_id: string; invited_by: string | null; status: "requested" | "invited" | "accepted" | "rejected" | "ended"; created_at: string };
+type OnlineViewer = { user_id: string; display_name: string; is_club_vip: boolean };
+type RouletteSpin = { id: string; prize: string; prize_index: number; spun_by: string; created_at: string };
 
 export function LiveRoom({
   roomId,
@@ -212,10 +216,103 @@ export function LiveRoom({
       return data;
     },
   });
+  const clubSubscribers = useQuery({
+    queryKey: ["cupido-live-club-subscribers", hostId],
+    enabled: Boolean(hostId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_creator_club_subscriptions")
+        .select("fan_id,expires_at").eq("creator_id", hostId).gt("expires_at", new Date().toISOString());
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const creatorClub = useQuery({
+    queryKey: ["cupido-creator-club", hostId],
+    enabled: Boolean(hostId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_creator_clubs").select("monthly_price").eq("creator_id", hostId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const guestSeat = useQuery({
+    queryKey: ["cupido-live-guest-seat", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_guest_sessions")
+        .select("id,room_id,guest_id,invited_by,status,created_at")
+        .eq("room_id", roomId).in("status", ["invited", "accepted"]).maybeSingle();
+      if (error) throw error;
+      return data as GuestSeat | null;
+    },
+  });
+  const myGuestRequest = useQuery({
+    queryKey: ["cupido-live-my-guest-request", roomId, viewerId],
+    enabled: role === "viewer",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_guest_sessions")
+        .select("id,room_id,guest_id,invited_by,status,created_at")
+        .eq("room_id", roomId).eq("guest_id", viewerId).eq("status", "requested")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      return data as GuestSeat | null;
+    },
+  });
+  const guestRequests = useQuery({
+    queryKey: ["cupido-live-guest-requests", roomId],
+    enabled: role === "host",
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_guest_sessions")
+        .select("id,room_id,guest_id,invited_by,status,created_at")
+        .eq("room_id", roomId).eq("status", "requested").order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as GuestSeat[];
+    },
+  });
+  const rouletteConfig = useQuery({
+    queryKey: ["cupido-live-roulette-config", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_roulette_configs")
+        .select("trigger_gift_id,prizes,enabled").eq("room_id", roomId).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const roomModerators = useQuery({
+    queryKey: ["cupido-live-moderators", roomId],
+    enabled: Boolean(roomId),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cupido_live_room_moderators")
+        .select("moderator_id").eq("room_id", roomId);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const moderatorIds = new Set((roomModerators.data ?? []).map((row) => row.moderator_id));
+  const isRoomModerator = role === "host" || moderatorIds.has(viewerId);
+  const isClubVip = (clubSubscribers.data ?? []).some((row) => row.fan_id === viewerId);
+  const activeGuestId = guestSeat.data?.status === "accepted" ? guestSeat.data.guest_id : null;
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftType | null>(null);
   const [giftCheckoutOpen, setGiftCheckoutOpen] = useState(false);
   const [liveCheckoutPackageId, setLiveCheckoutPackageId] = useState<string | null>(null);
   const [giftPanelOpen, setGiftPanelOpen] = useState(false);
+  const [guestToolsOpen, setGuestToolsOpen] = useState(false);
+  const [rouletteOpen, setRouletteOpen] = useState(false);
+  const [moderationOpen, setModerationOpen] = useState(false);
+  const [clubOpen, setClubOpen] = useState(false);
+  const [rouletteDraft, setRouletteDraft] = useState("");
+  const [rouletteGiftId, setRouletteGiftId] = useState("");
+  const [rouletteSpin, setRouletteSpin] = useState<RouletteSpin | null>(null);
+  const [rouletteRotation, setRouletteRotation] = useState(0);
+  const [seatBusy, setSeatBusy] = useState(false);
+  const [moderationBusyId, setModerationBusyId] = useState<string | null>(null);
+  const [onlineViewers, setOnlineViewers] = useState<OnlineViewer[]>([]);
+  const guestLocalVideoRef = useRef<HTMLVideoElement>(null);
+  const guestRemoteVideoRef = useRef<HTMLVideoElement>(null);
+  const guestStreamIdRef = useRef<string | null>(null);
+  const activeGuestIdRef = useRef<string | null>(null);
+  const guestCameraStreamRef = useRef<MediaStream | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pkRemoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -281,6 +378,59 @@ export function LiveRoom({
     staleTime: 30_000,
   });
   const liveCheckoutPackage = CREDIT_PACKAGES.find((pack) => pack.id === liveCheckoutPackageId);
+
+  useEffect(() => {
+    activeGuestIdRef.current = activeGuestId;
+    if (!activeGuestId) guestStreamIdRef.current = null;
+  }, [activeGuestId]);
+
+  useEffect(() => {
+    if (role === "viewer" && guestSeat.data?.guest_id === viewerId && guestSeat.data.status === "invited") {
+      setGuestToolsOpen(true);
+    }
+  }, [guestSeat.data, role, viewerId]);
+
+  useEffect(() => {
+    if (!rouletteConfig.data) return;
+    setRouletteGiftId(rouletteConfig.data.trigger_gift_id);
+    setRouletteDraft((rouletteConfig.data.prizes ?? []).join("\n"));
+  }, [rouletteConfig.data]);
+
+  const guestRequestProfiles = useQuery({
+    queryKey: ["cupido-live-guest-request-profiles", roomId, guestRequests.data?.map((request) => request.guest_id).join(",")],
+    enabled: role === "host" && Boolean(guestRequests.data?.length),
+    queryFn: async () => {
+      const ids = [...new Set((guestRequests.data ?? []).map((request) => request.guest_id))];
+      if (!ids.length) return [];
+      const { data, error } = await supabase.from("cupido_public_profiles").select("id,display_name,avatar_url").in("id", ids);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  useEffect(() => {
+    const refreshRoomState = () => {
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-guest-seat", roomId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-my-guest-request", roomId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-guest-requests", roomId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-roulette-config", roomId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-moderators", roomId] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-live-club-subscribers", hostId] });
+    };
+    const channel = supabase.channel(`cupido-live-tools-${roomId}-${viewerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_guest_sessions", filter: `room_id=eq.${roomId}` }, refreshRoomState)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_roulette_configs", filter: `room_id=eq.${roomId}` }, refreshRoomState)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "cupido_live_roulette_spins", filter: `room_id=eq.${roomId}` }, (payload) => {
+        const spin = payload.new as RouletteSpin;
+        setRouletteSpin(spin);
+        setRouletteRotation((value) => value + 360 * 5 + (360 - spin.prize_index * 60));
+        window.setTimeout(() => setRouletteSpin((current) => current?.id === spin.id ? null : current), 5000);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_room_moderators", filter: `room_id=eq.${roomId}` }, refreshRoomState)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_creator_club_subscriptions", filter: `creator_id=eq.${hostId}` }, refreshRoomState)
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [hostId, queryClient, roomId, viewerId]);
 
   useEffect(() => {
     if (role !== "host" || !premiumEndsAt) return;
@@ -365,18 +515,32 @@ export function LiveRoom({
           }
           return;
         }
-        if (event.track.kind !== "video" || peerId !== activePkChallengerIdRef.current) return;
-        if (pkRemoteVideoRef.current) {
+        const isGuestVideo = event.track.kind === "video" && peerId === activeGuestIdRef.current;
+        const isPkVideo = event.track.kind === "video" && peerId === activePkChallengerIdRef.current;
+        if (!isGuestVideo && !isPkVideo) return;
+        if (isGuestVideo) {
+          guestStreamIdRef.current = stream.id;
+          if (guestRemoteVideoRef.current) {
+            guestRemoteVideoRef.current.srcObject = stream;
+            void guestRemoteVideoRef.current.play().catch(() => undefined);
+          }
+        } else if (pkRemoteVideoRef.current) {
           pkRemoteVideoRef.current.srcObject = stream;
           void pkRemoteVideoRef.current.play().catch(() => undefined);
         }
         const gifts = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
-        if (gifts) void gifts.send({ type: "broadcast", event: "pk-stream-id", payload: { stream_id: stream.id } });
+        if (gifts) void gifts.send({ type: "broadcast", event: isGuestVideo ? "guest-stream-id" : "pk-stream-id", payload: { stream_id: stream.id } });
         for (const [viewerPeerId, viewerPeer] of peersRef.current) {
           if (viewerPeerId === peerId || viewerPeer.signalingState !== "stable") continue;
           try {
-            viewerPeer.addTrack(event.track, stream);
-            void viewerPeer.createOffer().then(async (offer) => {
+            const tracks = isGuestVideo ? stream.getTracks() : [event.track];
+            let changed = false;
+            for (const track of tracks) {
+              if (viewerPeer.getSenders().some((sender) => sender.track === track)) continue;
+              viewerPeer.addTrack(track, stream);
+              changed = true;
+            }
+            if (changed) void viewerPeer.createOffer().then(async (offer) => {
               await viewerPeer.setLocalDescription(offer);
               await sendSignal({ kind: "offer", sender: viewerId, receiver: viewerPeerId, sdp: offer });
             });
@@ -430,7 +594,9 @@ export function LiveRoom({
           peersRef.current.set(hostId, offerPeer);
           offerPeer.ontrack = (event) => {
             const stream = event.streams[0] ?? new MediaStream([event.track]);
-            const target = stream.id === pkStreamIdRef.current ? pkRemoteVideoRef.current : remoteVideoRef.current;
+            const target = stream.id === guestStreamIdRef.current
+              ? guestRemoteVideoRef.current
+              : stream.id === pkStreamIdRef.current ? pkRemoteVideoRef.current : remoteVideoRef.current;
             if (!target) return;
             target.srcObject = stream;
             void target.play().catch(() => undefined);
@@ -516,6 +682,10 @@ export function LiveRoom({
           pkStreamIdRef.current = value.stream_id;
         }
       })
+      .on("broadcast", { event: "guest-stream-id" }, ({ payload }) => {
+        const value = payload as { stream_id?: unknown };
+        if (typeof value.stream_id === "string") guestStreamIdRef.current = value.stream_id;
+      })
       .subscribe();
 
     void (async () => {
@@ -543,14 +713,19 @@ export function LiveRoom({
         .on("presence", { event: "sync" }, () => {
           const state = channel.presenceState<PresenceMeta>();
           const ids = new Set<string>();
+          const viewersNow: OnlineViewer[] = [];
           let hostIsPresent = false;
           Object.values(state)
             .flat()
             .forEach((meta) => {
               if (meta.role === "host" && meta.user_id === hostId) hostIsPresent = true;
-              if (meta.role !== "host" && meta.user_id) ids.add(meta.user_id);
+              if (meta.role !== "host" && meta.user_id) {
+                ids.add(meta.user_id);
+                viewersNow.push({ user_id: meta.user_id, display_name: meta.display_name?.trim() || "@Usuario", is_club_vip: Boolean(meta.is_club_vip) });
+              }
             });
           setViewers(ids.size);
+          setOnlineViewers(viewersNow.filter((person) => person.user_id !== viewerId));
           setHostOnline(hostIsPresent);
         })
         .subscribe(async (status) => {
@@ -659,6 +834,82 @@ export function LiveRoom({
   }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, queryClient, sendSignal]);
 
   useEffect(() => {
+    if (role !== "viewer" || activeGuestId !== viewerId || guestSeat.data?.status !== "accepted" || !ready) return;
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let videoSender: RTCRtpSender | undefined;
+    let audioSender: RTCRtpSender | undefined;
+    let previousAudioTrack: MediaStreamTrack | null = null;
+    let audioSenderCreated = false;
+    void (async () => {
+      try {
+        await requestNativeMediaPermissions({ camera: true, microphone: true });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "user" } }, audio: true });
+        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
+        guestCameraStreamRef.current = stream;
+        if (guestLocalVideoRef.current) guestLocalVideoRef.current.srcObject = stream;
+        let peer: RTCPeerConnection | undefined;
+        for (let attempt = 0; attempt < 40 && !cancelled; attempt += 1) {
+          peer = peersRef.current.get(hostId);
+          if (peer?.signalingState === "stable") break;
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+        if (!peer || cancelled) throw new Error("LIVE_HOST_CONNECTION_NOT_READY");
+        videoSender = peer.getSenders().find((item) => item.track?.kind === "video");
+        const videoTrack = stream.getVideoTracks()[0];
+        if (!videoTrack) throw new Error("GUEST_CAMERA_TRACK_MISSING");
+        if (videoSender) await videoSender.replaceTrack(videoTrack);
+        else videoSender = peer.addTrack(videoTrack, stream);
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioSender = peer.getSenders().find((item) => item.track?.kind === "audio");
+          if (audioSender) {
+            previousAudioTrack = audioSender.track;
+            await audioSender.replaceTrack(audioTrack);
+          } else {
+            audioSender = peer.addTrack(audioTrack, stream);
+            audioSenderCreated = true;
+          }
+        }
+        if (peer.signalingState !== "stable") throw new Error("LIVE_CONNECTION_NEGOTIATING");
+        const offer = await peer.createOffer();
+        if (cancelled) return;
+        await peer.setLocalDescription(offer);
+        await sendSignal({ kind: "offer", sender: viewerId, receiver: hostId, sdp: offer });
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(mediaPermissionMessage(error) ?? "No se pudo activar la silla de invitado.");
+          void supabase.rpc("cupido_end_live_guest", { _room: roomId });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (guestLocalVideoRef.current) guestLocalVideoRef.current.srcObject = null;
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+      guestCameraStreamRef.current = null;
+      const peer = peersRef.current.get(hostId);
+      if (peer && videoSender) {
+        try {
+          void videoSender.replaceTrack(null);
+          peer.removeTrack(videoSender);
+          if (audioSender) {
+            if (audioSenderCreated) peer.removeTrack(audioSender);
+            else void audioSender.replaceTrack(previousAudioTrack);
+          }
+          if (peer.signalingState === "stable") {
+            void peer.createOffer().then(async (offer) => {
+              await peer.setLocalDescription(offer);
+              await sendSignal({ kind: "offer", sender: viewerId, receiver: hostId, sdp: offer });
+            });
+          }
+        } catch { /* the Live connection may already be closing */ }
+      }
+      if (activeGuestId === viewerId) void supabase.rpc("cupido_end_live_guest", { _room: roomId });
+    };
+  }, [activeGuestId, guestSeat.data?.status, hostId, ready, role, roomId, sendSignal, viewerId]);
+
+  useEffect(() => {
     let cancelled = false;
     const loadComments = async () => {
       const { data, error } = await supabase
@@ -673,7 +924,15 @@ export function LiveRoom({
         ? await supabase.from("cupido_public_profiles").select("id,display_name,is_gran_liga").in("id", ids)
         : { data: [], error: null };
       if (profiles.error) throw profiles.error;
+      const [clubs, moderators] = await Promise.all([
+        supabase.from("cupido_creator_club_subscriptions").select("fan_id").eq("creator_id", hostId).gt("expires_at", new Date().toISOString()),
+        supabase.from("cupido_live_room_moderators").select("moderator_id").eq("room_id", roomId),
+      ]);
+      if (clubs.error) throw clubs.error;
+      if (moderators.error) throw moderators.error;
       const names = new Map((profiles.data ?? []).map((profile) => [profile.id, profile]));
+      const clubIds = new Set((clubs.data ?? []).map((row) => row.fan_id));
+      const moderatorIds = new Set((moderators.data ?? []).map((row) => row.moderator_id));
       if (!cancelled) {
         setComments((current) => {
           const currentById = new Map(current.map((comment) => [comment.id, comment]));
@@ -682,6 +941,9 @@ export function LiveRoom({
               ...row,
               display_name: names.get(row.user_id)?.display_name?.trim() || "@Usuario",
               is_gran_liga: Boolean(names.get(row.user_id)?.is_gran_liga),
+              is_club_vip: clubIds.has(row.user_id),
+              vip_creator_name: hostName,
+              is_moderator: moderatorIds.has(row.user_id),
             });
           }
           return [...currentById.values()].sort((left, right) => left.created_at.localeCompare(right.created_at)).slice(-100);
@@ -696,16 +958,15 @@ export function LiveRoom({
       .channel((`cupido-live-comments-${roomId}-${viewerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_comments", filter: `stream_id=eq.${roomId}` }, (payload) => {
         const row = payload.new as { id: string; stream_id: string; user_id: string; body: string; created_at: string };
-        void supabase
-          .from("cupido_public_profiles")
-          .select("display_name,is_gran_liga")
-          .eq("id", row.user_id)
-          .maybeSingle()
-          .then(({ data: profile }) => {
+        void Promise.all([
+          supabase.from("cupido_public_profiles").select("display_name,is_gran_liga").eq("id", row.user_id).maybeSingle(),
+          supabase.from("cupido_creator_club_subscriptions").select("fan_id").eq("creator_id", hostId).eq("fan_id", row.user_id).gt("expires_at", new Date().toISOString()).maybeSingle(),
+          supabase.from("cupido_live_room_moderators").select("moderator_id").eq("room_id", roomId).eq("moderator_id", row.user_id).maybeSingle(),
+        ]).then(([{ data: profile }, { data: club }, { data: moderator }]) => {
             if (cancelled) return;
             setComments((current) => current.some((comment) => comment.id === row.id)
               ? current
-              : [...current, { ...row, display_name: profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga) }].slice(-100));
+              : [...current, { ...row, display_name: profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga), is_club_vip: Boolean(club), vip_creator_name: hostName, is_moderator: Boolean(moderator) }].slice(-100));
           });
       })
       .subscribe();
@@ -713,30 +974,34 @@ export function LiveRoom({
       cancelled = true;
       void supabase.removeChannel(channel);
     };
-  }, [roomId, viewerId]);
+  }, [hostId, hostName, roomId, viewerId]);
 
   const sendLiveComment = async () => {
     const body = commentText.trim().slice(0, 500);
     if (!body || sendingComment) return;
     setSendingComment(true);
     try {
-      const [{ data, error }, { data: profile }] = await Promise.all([
-        supabase
-          .from("live_comments")
-          .insert({ stream_id: roomId, user_id: viewerId, body })
-          .select("id,stream_id,user_id,body,created_at")
-          .single(),
+      const { data: commentId, error } = await supabase.rpc("cupido_send_live_comment", { _room: roomId, _body: body });
+      if (error) throw error;
+      const [{ data }, { data: profile }] = await Promise.all([
+        supabase.from("live_comments").select("id,stream_id,user_id,body,created_at").eq("id", commentId).maybeSingle(),
         supabase.from("cupido_public_profiles").select("display_name,is_gran_liga").eq("id", viewerId).maybeSingle(),
       ]);
-      if (error) throw error;
       if (data) {
         setComments((current) => current.some((comment) => comment.id === data.id)
           ? current
-          : [...current, { ...data, display_name: role === "host" ? hostName : profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga) }].slice(-100));
+          : [...current, { ...data, display_name: role === "host" ? hostName : profile?.display_name?.trim() || "@Usuario", is_gran_liga: Boolean(profile?.is_gran_liga), is_club_vip: isClubVip, vip_creator_name: hostName, is_moderator: moderatorIds.has(viewerId) }].slice(-100));
       }
       setCommentText("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo enviar el comentario.");
+      const message = error && typeof error === "object" && "message" in error ? String(error.message) : error instanceof Error ? error.message : "";
+      toast.error(message.includes("LIVE_LINK_BLOCKED")
+        ? "Los enlaces y dominios externos están bloqueados en el chat del Live."
+        : message.includes("LIVE_OFFENSIVE_WORD_BLOCKED")
+          ? "El chat bloqueó una palabra ofensiva."
+          : message.includes("LIVE_CHAT_MUTED")
+            ? "Un moderador silenció el chat de tu cuenta en esta sala."
+            : message || "No se pudo enviar el comentario.");
     } finally {
       setSendingComment(false);
     }
@@ -744,6 +1009,7 @@ export function LiveRoom({
 
   const answerPk = async (accept: boolean, requestId = pendingPk?.id) => {
     if (!requestId) return;
+    if (accept && activeGuestId) { toast.error("Finaliza la silla de invitado antes de iniciar una Batalla PK."); return; }
     const { data, error } = await supabase.rpc("cupido_respond_pk", { _request: requestId, _accept: accept });
     if (error) { toast.error(error.message); return; }
     if (data === "expired") toast.info("La solicitud PK venció y fue rechazada.");
@@ -756,6 +1022,7 @@ export function LiveRoom({
   };
 
   const requestPk = async () => {
+    if (activeGuestId) { toast.error("La Batalla PK no está disponible mientras hay una silla de invitado activa."); return; }
     if (!pkProfile.data?.is_verified_blue && !pkProfile.data?.is_gran_liga) {
       toast.error("Para solicitar una Batalla PK necesitas Insignia Azul o Gran Liga.");
       return;
@@ -960,6 +1227,95 @@ export function LiveRoom({
     if (channel) void channel.send({ type: "broadcast", event: "heart", payload: { id, right, user_id: viewerId } });
   };
 
+  const updateSeat = async (operation: () => Promise<{ error: { message: string } | null }>, success: string) => {
+    if (seatBusy) return;
+    setSeatBusy(true);
+    try {
+      const { error } = await operation();
+      if (error) throw error;
+      await Promise.all([
+        guestSeat.refetch(), myGuestRequest.refetch(), guestRequests.refetch(),
+      ]);
+      toast.success(success);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar la silla de invitado.");
+    } finally {
+      setSeatBusy(false);
+    }
+  };
+
+  const requestGuestSeat = () => updateSeat(
+    async () => {
+      const { error } = await supabase.rpc("cupido_request_live_guest", { _room: roomId });
+      return { error };
+    },
+    isClubVip ? "Solicitud VIP enviada con prioridad al anfitrión." : "Solicitud enviada al anfitrión.",
+  );
+
+  const inviteGuest = (guestId: string) => updateSeat(
+    async () => {
+      const { error } = await supabase.rpc("cupido_invite_live_guest", { _room: roomId, _guest: guestId });
+      return { error };
+    },
+    "Invitación enviada. Esperando que acepte.",
+  );
+
+  const respondGuest = (requestId: string, accept: boolean) => updateSeat(
+    async () => {
+      const { error } = await supabase.rpc("cupido_respond_live_guest", { _request: requestId, _accept: accept });
+      return { error };
+    },
+    accept ? "Silla de invitado aceptada." : "Solicitud de silla rechazada.",
+  );
+
+  const endGuest = () => updateSeat(
+    async () => {
+      const { error } = await supabase.rpc("cupido_end_live_guest", { _room: roomId });
+      return { error };
+    },
+    "Invitación de invitado finalizada.",
+  );
+
+  const saveRoulette = async () => {
+    const prizes = rouletteDraft.split("\n").map((prize) => prize.trim()).filter(Boolean).slice(0, 6);
+    if (prizes.length < 2 || !rouletteGiftId) {
+      toast.error("Configura de 2 a 6 premios y elige el regalo que activa la ruleta.");
+      return;
+    }
+    const { error } = await supabase.rpc("cupido_set_live_roulette", { _room: roomId, _trigger_gift_id: rouletteGiftId, _prizes: prizes });
+    if (error) { toast.error(error.message); return; }
+    await rouletteConfig.refetch();
+    setRouletteOpen(false);
+    toast.success("Ruleta sincronizada para toda la sala.");
+  };
+
+  const moderateUser = async (userId: string, minutes: number) => {
+    setModerationBusyId(userId);
+    const { error } = await supabase.rpc("cupido_moderate_live_user", { _room: roomId, _user: userId, _minutes: minutes });
+    setModerationBusyId(null);
+    if (error) toast.error(error.message);
+    else toast.success(minutes === 0 ? "Silencio retirado." : "Usuario silenciado en esta sala.");
+  };
+
+  const setModerator = async (userId: string, enabled: boolean) => {
+    setModerationBusyId(userId);
+    const { error } = await supabase.rpc("cupido_set_live_moderator", { _room: roomId, _user: userId, _enabled: enabled });
+    setModerationBusyId(null);
+    if (error) toast.error(error.message);
+    else {
+      await roomModerators.refetch();
+      toast.success(enabled ? "Moderador agregado a la sala." : "Moderador retirado.");
+    }
+  };
+
+  const subscribeToLiveClub = async () => {
+    const { error } = await supabase.rpc("cupido_subscribe_creator_club", { _creator: hostId });
+    if (error) { toast.error(error.message); return; }
+    await Promise.all([account.refresh(), clubSubscribers.refetch()]);
+    setClubOpen(false);
+    toast.success(`Ya eres VIP de ${hostName}. La insignia aparecerá en el chat.`);
+  };
+
   const setLiveGoal = async (goalValue = Number(goalInput)) => {
     const goal = goalValue;
     if (!Number.isInteger(goal) || goal < 0) { toast.error("Escribe una meta válida de monedas."); return; }
@@ -1033,6 +1389,9 @@ export function LiveRoom({
   };
 
   const exitLive = () => {
+    if (role === "viewer" && guestSeat.data && guestSeat.data.guest_id === viewerId && ["invited", "accepted"].includes(guestSeat.data.status)) {
+      void supabase.rpc("cupido_end_live_guest", { _room: roomId });
+    }
     onClose();
   };
 
@@ -1130,6 +1489,10 @@ export function LiveRoom({
   }, [coinGoal.data, liveGiftTotal.data, liveGiftTotal.isLoading]);
 
   const pkIsActive = Boolean(activePkName && pkState.data && !pkState.data.finished_at && pkRemaining > 0);
+  const guestIsActive = Boolean(activeGuestId && !pkIsActive);
+  const activeGuestName = onlineViewers.find((person) => person.user_id === activeGuestId)?.display_name
+    ?? guestRequestProfiles.data?.find((person) => person.id === activeGuestId)?.display_name
+    ?? "Invitado";
 
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
@@ -1199,10 +1562,6 @@ export function LiveRoom({
             <div className="mt-1 text-right">{(liveGiftTotal.data ?? 0).toLocaleString("es")} / {Number(coinGoal.data).toLocaleString("es")} monedas</div>
           </div>
         )}
-        <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+17.8rem)] z-20 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => setRankingOpen(true)}><Trophy className="mr-1 size-3.5" /> Ranking semanal</Button>
-          {(role === "host" || pkProfile.data?.is_verified_blue || pkProfile.data?.is_gran_liga || pkProfile.data?.is_premium) && !treasure.data && <Button size="sm" variant="outline" className="h-8 rounded-full border-amber-300/40 bg-black/70 px-3 text-amber-100" onClick={() => void dropTreasure()}>🎁 Cofre</Button>}
-        </div>
         {treasure.data && treasureSeconds > 0 && !giftAnimation && !entryNotice && !highValueGift && (
           <button type="button" onClick={() => void claimTreasure()} disabled={treasureBusy} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+20.5rem)] z-30 -translate-x-1/2 rounded-2xl border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-center text-sm font-bold text-amber-100 shadow-lg shadow-amber-500/20 backdrop-blur">
             <span className="mr-2 text-xl">🎁</span>{treasureBusy ? "Abriendo…" : `¡Cofre! ${treasureSeconds}s · 5 monedas`}
@@ -1218,11 +1577,13 @@ export function LiveRoom({
             webkit-playsinline="true"
             muted={role === "host" || liveMuted}
             onClick={sendLiveHeart}
-            className={`${pkIsActive ? "absolute inset-x-0 top-0 h-1/2" : "h-full w-full"} cursor-pointer object-cover`}
+            className={`${pkIsActive || guestIsActive ? "absolute inset-x-0 top-0 h-1/2" : "h-full w-full"} cursor-pointer object-cover`}
             style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
           />
           {pkIsActive && <video ref={role === "host" ? pkRemoteVideoRef : pkState.data?.challenger_id === viewerId ? pkLocalVideoRef : pkRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role !== "host" || liveMuted} className="absolute inset-x-0 bottom-0 h-1/2 w-full object-cover" />}
+          {guestIsActive && <video ref={role === "host" ? guestRemoteVideoRef : activeGuestId === viewerId ? guestLocalVideoRef : guestRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role === "host" || activeGuestId === viewerId || liveMuted} className="absolute inset-x-0 bottom-0 h-1/2 w-full object-cover" />}
           {pkIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">🔴 {hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-amber-100">✨ {activePkName}</span></>}
+          {guestIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">{hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-sky-100">Invitado · {activeGuestName}</span></>}
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
           {floatingHearts.map((heart) => <div key={heart.id} className="pointer-events-none absolute bottom-1/4 z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-4xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" style={{ right: `${heart.right}%`, animationDuration: "1.8s" }} aria-hidden="true">💖</div>)}
           <Button
@@ -1255,6 +1616,7 @@ export function LiveRoom({
           <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"} className="rounded-full border-white/30 bg-black/55 text-white">
             {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </Button>
+          <Button type="button" variant="outline" size="icon" onClick={() => setGuestToolsOpen(true)} aria-label="Herramientas del Live" title="Silla, ruleta y opciones" className="rounded-full border-sky-300/40 bg-black/70 text-sky-100"><Users className="size-4" /></Button>
           {role === "viewer" ? (
             <>
               <Button variant="outline" size="icon" onClick={() => void reportHost()} aria-label="Reportar anfitrión" className="rounded-full border-white/30 bg-black/55 text-white"><Flag className="size-4" /></Button>
@@ -1301,9 +1663,10 @@ export function LiveRoom({
               </p>
             ))}
             {comments.map((comment) => (
-              <p key={comment.id} className="break-words text-[11px] leading-snug text-slate-200">
-                <Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> <VerifiedBadge granLiga={comment.is_gran_liga} className="inline size-3 align-text-bottom" /> {comment.body}
-              </p>
+              <div key={comment.id} className="flex items-start gap-1 break-words text-[11px] leading-snug text-slate-200">
+                <p className="min-w-0 flex-1"><Link to="/perfil" search={{ userId: comment.user_id }} className="font-semibold text-pink-200 hover:underline">{comment.display_name}</Link> <VerifiedBadge granLiga={comment.is_gran_liga} className="inline size-3 align-text-bottom" /> {comment.is_club_vip && <span className="rounded bg-amber-400/15 px-1 text-[9px] font-bold text-amber-200"><Crown className="mr-0.5 inline size-2.5" /> VIP · {comment.vip_creator_name}</span>} {comment.is_moderator && <Shield className="ml-0.5 inline size-3 text-sky-300" />} {comment.body}</p>
+                {isRoomModerator && comment.user_id !== hostId && comment.user_id !== viewerId && <button type="button" aria-label={`Silenciar a ${comment.display_name}`} title="Silenciar 10 minutos" disabled={moderationBusyId === comment.user_id} onClick={() => void moderateUser(comment.user_id, 10)} className="grid size-6 shrink-0 place-items-center rounded-full text-sky-200 hover:bg-white/10 disabled:opacity-50"><Shield className="size-3.5" /></button>}
+              </div>
             ))}
             {!comments.length && !joinMessages.length && (
               <p className="py-4 text-center text-xs text-muted-foreground">Saluda para iniciar la conversación.</p>
@@ -1427,6 +1790,67 @@ export function LiveRoom({
             </SheetContent>
           </Sheet>
         )}
+        <Sheet open={guestToolsOpen} onOpenChange={setGuestToolsOpen}>
+          <SheetContent side="bottom" className="z-[96] max-h-[72dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-sky-300/25 bg-zinc-950 pb-8 text-white">
+            <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-sky-100"><Users className="size-5" /> Herramientas en vivo</SheetTitle><SheetDescription>Acciones de la sala y una silla de invitado en pantalla dividida. Las solicitudes VIP aparecen primero.</SheetDescription></SheetHeader>
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <Button size="sm" variant="outline" onClick={() => { setGuestToolsOpen(false); window.setTimeout(() => setRouletteOpen(true), 80); }}><Dices className="mr-1 size-4" /> Ruleta</Button>
+                <Button size="sm" variant="outline" onClick={() => { setGuestToolsOpen(false); window.setTimeout(() => setRankingOpen(true), 80); }}><Trophy className="mr-1 size-4" /> Ranking semanal</Button>
+                {role === "viewer" && <Button size="sm" variant="outline" onClick={() => { setGuestToolsOpen(false); window.setTimeout(() => setClubOpen(true), 80); }}><Crown className="mr-1 size-4" /> Club VIP</Button>}
+                {role === "host" && <Button size="sm" variant="outline" onClick={() => { setGuestToolsOpen(false); window.setTimeout(() => setModerationOpen(true), 80); }}><Shield className="mr-1 size-4" /> Moderadores</Button>}
+                {(role === "host" || pkProfile.data?.is_verified_blue || pkProfile.data?.is_gran_liga || pkProfile.data?.is_premium) && !treasure.data && <Button size="sm" variant="outline" onClick={() => { setGuestToolsOpen(false); void dropTreasure(); }}>🎁 Cofre</Button>}
+              </div>
+              <h3 className="text-sm font-bold text-sky-100">Silla de invitado</h3>
+              {guestSeat.data?.status === "accepted" && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3"><p className="text-sm">En pantalla: <strong>{activeGuestName}</strong></p><Button size="sm" variant="destructive" disabled={seatBusy} onClick={() => void endGuest()}>Terminar silla</Button></div>}
+              {role === "host" && guestSeat.data?.status === "invited" && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-300/30 bg-sky-400/10 p-3"><p className="text-sm">Esperando respuesta de <strong>{onlineViewers.find((person) => person.user_id === guestSeat.data?.guest_id)?.display_name ?? "espectador"}</strong>.</p><Button size="sm" variant="outline" disabled={seatBusy} onClick={() => void endGuest()}>Cancelar invitación</Button></div>}
+              {role === "viewer" && guestSeat.data?.guest_id === viewerId && guestSeat.data.status === "invited" && <div className="rounded-xl border border-sky-300/25 bg-sky-400/10 p-3"><p className="text-sm font-semibold">El anfitrión te invitó a subir en pantalla.</p><div className="mt-3 flex gap-2"><Button size="sm" disabled={seatBusy || pkIsActive} onClick={() => void respondGuest(guestSeat.data!.id, true)}><Check className="mr-1 size-4" />Aceptar</Button><Button size="sm" variant="outline" disabled={seatBusy} onClick={() => void respondGuest(guestSeat.data!.id, false)}>Ahora no</Button></div></div>}
+              {role === "viewer" && activeGuestId === viewerId && <div className="flex items-center justify-between rounded-xl border border-sky-300/25 p-3"><p className="text-sm">Tu cámara está en la silla.</p><Button size="sm" variant="outline" disabled={seatBusy} onClick={() => void endGuest()}>Bajar</Button></div>}
+              {role === "viewer" && myGuestRequest.data && <div className="flex items-center justify-between rounded-xl border border-white/10 p-3"><p className="text-sm">Solicitud enviada; esperando al anfitrión.</p><Button size="sm" variant="outline" disabled={seatBusy} onClick={() => void endGuest()}>Cancelar</Button></div>}
+              {role === "viewer" && !activeGuestId && !myGuestRequest.data && guestSeat.data?.guest_id !== viewerId && <Button className="w-full" disabled={seatBusy || Boolean(guestSeat.data) || pkIsActive} onClick={() => void requestGuestSeat()}><UserPlus className="mr-2 size-4" />{isClubVip ? "Pedir silla VIP prioritaria" : "Solicitar silla"}</Button>}
+              {role === "host" && <>
+                <section className="space-y-2"><h3 className="text-sm font-bold">Solicitudes de espectadores</h3>
+                  {[...(guestRequests.data ?? [])].sort((a, b) => Number((clubSubscribers.data ?? []).some((club) => club.fan_id === b.guest_id)) - Number((clubSubscribers.data ?? []).some((club) => club.fan_id === a.guest_id))).map((request) => {
+                    const person = guestRequestProfiles.data?.find((row) => row.id === request.guest_id);
+                    const vip = (clubSubscribers.data ?? []).some((club) => club.fan_id === request.guest_id);
+                    return <div key={request.id} className="flex items-center gap-2 rounded-xl border border-white/10 p-2"><Avatar className="size-9"><AvatarImage src={person?.avatar_url ?? ""} /><AvatarFallback>{person?.display_name?.slice(0, 1) ?? "U"}</AvatarFallback></Avatar><span className="min-w-0 flex-1 truncate text-sm">{person?.display_name ?? "Espectador"}{vip && <span className="ml-1 text-[10px] font-bold text-amber-200">VIP</span>}</span><Button size="sm" disabled={seatBusy || Boolean(guestSeat.data) || pkIsActive} onClick={() => void respondGuest(request.id, true)}>Aceptar</Button><Button size="icon" variant="ghost" aria-label="Rechazar solicitud" disabled={seatBusy} onClick={() => void respondGuest(request.id, false)}><X className="size-4" /></Button></div>;
+                  })}
+                  {!guestRequests.data?.length && <p className="text-xs text-muted-foreground">Todavía no hay solicitudes.</p>}
+                </section>
+                <section className="space-y-2"><h3 className="text-sm font-bold">Espectadores conectados</h3>
+                  {[...onlineViewers].sort((a, b) => Number(b.is_club_vip || (clubSubscribers.data ?? []).some((club) => club.fan_id === b.user_id)) - Number(a.is_club_vip || (clubSubscribers.data ?? []).some((club) => club.fan_id === a.user_id))).map((person) => {
+                    const vip = person.is_club_vip || (clubSubscribers.data ?? []).some((club) => club.fan_id === person.user_id);
+                    return <div key={person.user_id} className="flex items-center gap-2 rounded-xl border border-white/10 p-2"><span className="size-2 rounded-full bg-emerald-400" /><span className="min-w-0 flex-1 truncate text-sm">{person.display_name}{vip && <span className="ml-1 text-[10px] font-bold text-amber-200">VIP</span>}</span><Button size="sm" variant="outline" disabled={seatBusy || Boolean(guestSeat.data) || pkIsActive} onClick={() => void inviteGuest(person.user_id)}>Invitar</Button></div>;
+                  })}
+                  {!onlineViewers.length && <p className="text-xs text-muted-foreground">Los espectadores en línea aparecerán aquí.</p>}
+                </section>
+              </>}
+            </div>
+          </SheetContent>
+        </Sheet>
+        <Sheet open={rouletteOpen} onOpenChange={setRouletteOpen}>
+          <SheetContent side="bottom" className="z-[96] max-h-[72dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-violet-300/25 bg-zinc-950 pb-8 text-white">
+            <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-violet-100"><Dices className="size-5" /> Ruleta de la sala</SheetTitle><SheetDescription>Al enviar el regalo disparador, Supabase elige y publica el premio para todos.</SheetDescription></SheetHeader>
+            {rouletteConfig.data?.enabled ? <div className="mt-4 rounded-2xl border border-violet-300/25 bg-violet-400/5 p-3"><p className="text-xs text-muted-foreground">Regalo disparador: <span className="font-semibold text-white">{GIFTS.find((gift) => gift.id === rouletteConfig.data?.trigger_gift_id)?.name ?? "Regalo"}</span></p><ol className="mt-2 grid grid-cols-2 gap-2">{rouletteConfig.data.prizes.map((prize, index) => <li key={`${index}-${prize}`} className="rounded-lg border border-white/10 px-2 py-1.5 text-xs">{index + 1}. {prize}</li>)}</ol></div> : <p className="mt-4 rounded-xl border border-white/10 p-3 text-sm text-muted-foreground">El anfitrión todavía no configuró la ruleta.</p>}
+            {role === "host" && <div className="mt-4 space-y-3 border-t border-white/10 pt-4"><label className="block space-y-1 text-xs font-semibold">Regalo que activa la ruleta<select value={rouletteGiftId || GIFTS[0]?.id || ""} onChange={(event) => setRouletteGiftId(event.target.value)} className="h-10 w-full rounded-xl border border-white/15 bg-zinc-900 px-3 text-sm text-white">{GIFTS.map((gift) => <option key={gift.id} value={gift.id}>{gift.emoji} {gift.name} · {gift.credits} monedas</option>)}</select></label><label className="block space-y-1 text-xs font-semibold">Premios o retos (uno por línea, hasta 6)<Textarea value={rouletteDraft} maxLength={500} onChange={(event) => setRouletteDraft(event.target.value)} placeholder={'Canta el coro de una canción\nSaludo especial\nBaile de 10 segundos\n'} className="min-h-28 resize-y bg-zinc-900 text-sm" /></label><Button className="w-full" onClick={() => void saveRoulette()}>Guardar ruleta en tiempo real</Button></div>}
+          </SheetContent>
+        </Sheet>
+        {role === "host" && <Sheet open={moderationOpen} onOpenChange={setModerationOpen}>
+          <SheetContent side="bottom" className="z-[96] max-h-[72dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-emerald-300/25 bg-zinc-950 pb-8 text-white">
+            <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-emerald-100"><Shield className="size-5" /> Moderadores de sala</SheetTitle><SheetDescription>Los moderadores pueden silenciar a usuarios. El filtro del servidor bloquea enlaces y lenguaje ofensivo.</SheetDescription></SheetHeader>
+            <div className="mt-4 space-y-2">{onlineViewers.map((person) => {
+              const moderator = moderatorIds.has(person.user_id);
+              return <div key={person.user_id} className="flex items-center gap-2 rounded-xl border border-white/10 p-2"><Avatar className="size-9"><AvatarFallback>{person.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="min-w-0 flex-1 truncate text-sm">{person.display_name}</span><Button size="sm" variant={moderator ? "destructive" : "outline"} disabled={moderationBusyId === person.user_id} onClick={() => void setModerator(person.user_id, !moderator)}>{moderator ? "Quitar" : "Nombrar"}</Button></div>;
+            })}{!onlineViewers.length && <p className="py-5 text-center text-sm text-muted-foreground">No hay espectadores para moderar.</p>}</div>
+          </SheetContent>
+        </Sheet>}
+        {rouletteSpin && <div className="pointer-events-none absolute inset-x-4 top-[38%] z-[75] flex justify-center" aria-live="polite"><div className="rounded-3xl border border-amber-300/50 bg-zinc-950/95 p-4 text-center shadow-2xl shadow-violet-500/30"><div className="mx-auto grid size-28 place-items-center rounded-full border-4 border-amber-300 bg-gradient-to-br from-violet-600 to-fuchsia-700 text-3xl transition-transform duration-[4500ms] ease-out" style={{ transform: `rotate(${rouletteRotation}deg)` }}><Dices className="size-12 text-white" /></div><p className="mt-2 text-xs text-violet-100">La ruleta cayó en</p><p className="max-w-[min(75vw,20rem)] break-words text-lg font-bold text-amber-100">{rouletteSpin.prize}</p></div></div>}
+        {role === "viewer" && <Sheet open={clubOpen} onOpenChange={setClubOpen}>
+          <SheetContent side="bottom" className="z-[96] max-h-[72dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-amber-300/25 bg-zinc-950 pb-8 text-white">
+            <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-amber-100"><Crown className="size-5" /> Club VIP de {hostName}</SheetTitle><SheetDescription>Tu insignia VIP aparece junto a tus mensajes y tus solicitudes de silla tienen prioridad.</SheetDescription></SheetHeader>
+            {isClubVip ? <p className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 p-3 text-sm text-amber-100">Tu suscripción está activa. Gracias por apoyar a {hostName}.</p> : creatorClub.data ? <div className="mt-4 space-y-3"><p className="text-sm">Precio mensual: <strong className="text-amber-100">{creatorClub.data.monthly_price.toLocaleString("es")} monedas</strong></p><p className="text-xs text-muted-foreground">La suscripción dura un mes; después puedes renovarla desde el perfil o el Live. El cobro se valida en Supabase.</p><Button className="w-full" disabled={account.loading || account.balanceUnavailable} onClick={() => void subscribeToLiveClub()}>Unirme al Club VIP</Button></div> : <p className="mt-4 text-sm text-muted-foreground">El anfitrión aún no configuró un Club VIP.</p>}
+          </SheetContent>
+        </Sheet>}
         <Sheet open={rankingOpen} onOpenChange={setRankingOpen}>
           <SheetContent side="bottom" className="z-[95] max-h-[72dvh] overflow-y-auto rounded-t-3xl border-amber-300/30 bg-zinc-950 pb-8 text-white">
             <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-amber-100"><Trophy className="size-5" /> Ranking semanal</SheetTitle><SheetDescription>Creadores y fans con más actividad esta semana. Se actualiza con nuevos regalos y llamadas.</SheetDescription></SheetHeader>
