@@ -1154,12 +1154,10 @@ export function LiveRoom({
     const activeBattle = pkState.data && !pkState.data.finished_at && pkState.data.seconds_left > 0 ? pkState.data : null;
     const side = activeBattle ? pkSide : "host";
     const receiverId = side === "challenger" ? activeBattle?.challenger_id ?? hostId : hostId;
-    const { error } = await supabase.rpc("cupido_send_live_gift", {
+    const { error } = await supabase.rpc("cupido_transfer_gift", {
       _room: roomId,
       _receiver: receiverId,
       _gift_id: gift.id,
-      _credits: gift.credits,
-      _cash_value: gift.cash,
     });
     setSendingGift(false);
     if (error) {
@@ -1578,10 +1576,10 @@ export function LiveRoom({
             muted={role === "host" || liveMuted}
             onClick={sendLiveHeart}
             className={`${pkIsActive || guestIsActive ? "absolute inset-x-0 top-0 h-1/2" : "h-full w-full"} cursor-pointer object-cover`}
-            style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+            style={{ transform: role === "host" && facingMode === "user" ? "scaleX(-1)" : "none" }}
           />
-          {pkIsActive && <video ref={role === "host" ? pkRemoteVideoRef : pkState.data?.challenger_id === viewerId ? pkLocalVideoRef : pkRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role !== "host" || liveMuted} className="absolute inset-x-0 bottom-0 h-1/2 w-full object-cover" />}
-          {guestIsActive && <video ref={role === "host" ? guestRemoteVideoRef : activeGuestId === viewerId ? guestLocalVideoRef : guestRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role === "host" || activeGuestId === viewerId || liveMuted} className="absolute inset-x-0 bottom-0 h-1/2 w-full object-cover" />}
+          {pkIsActive && <video ref={role === "host" ? pkRemoteVideoRef : pkState.data?.challenger_id === viewerId ? pkLocalVideoRef : pkRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role !== "host" || liveMuted} className={`absolute inset-x-0 bottom-0 h-1/2 w-full object-cover ${role === "viewer" && pkState.data?.challenger_id === viewerId && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} />}
+          {guestIsActive && <video ref={role === "host" ? guestRemoteVideoRef : activeGuestId === viewerId ? guestLocalVideoRef : guestRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role === "host" || activeGuestId === viewerId || liveMuted} className={`absolute inset-x-0 bottom-0 h-1/2 w-full object-cover ${role === "viewer" && activeGuestId === viewerId && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} />}
           {pkIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">🔴 {hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-amber-100">✨ {activePkName}</span></>}
           {guestIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">{hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-sky-100">Invitado · {activeGuestName}</span></>}
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}

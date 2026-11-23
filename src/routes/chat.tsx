@@ -195,6 +195,7 @@ function ChatPage() {
   const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; body: string } | null>(null);
   const [forwardTarget, setForwardTarget] = useState<ChatMessage | null>(null);
+  const [photoViewerUrl, setPhotoViewerUrl] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceBlob, setVoiceBlob] = useState<Blob | null>(null);
@@ -679,16 +680,19 @@ function ChatPage() {
     if (!activeId || !viewerId) throw new Error("Abre una conversación antes de enviar la nota.");
     const conversationId = activeId;
     const recipientId = activeConversation?.other?.id;
-    const extension = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+    const mimeType = blob.type.toLowerCase().split(";")[0] || "audio/webm";
+    const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
     const path = `${conversationId}/${viewerId}/${Date.now()}.${extension}`;
     const { error } = await supabase.storage.from("cupido-voice").upload(path, blob, {
-      contentType: blob.type || "audio/webm",
+      contentType: mimeType,
+      upsert: false,
     });
     if (error) throw error;
+    const publicUrl = supabase.storage.from("cupido-voice").getPublicUrl(path).data.publicUrl;
     const { error: messageError } = await supabase.from("cupido_messages").insert({
       conversation_id: conversationId,
       sender_id: viewerId,
-      audio_path: path,
+      audio_path: publicUrl,
     });
     if (messageError) {
       void supabase.storage.from("cupido-voice").remove([path]);
@@ -740,14 +744,20 @@ function ChatPage() {
     const sourcePath = forwardTarget.audio_path || forwardTarget.media_path;
     let copiedPath: string | null = null;
     if (bucket && sourcePath) {
-      const { data: file, error: downloadError } = await supabase.storage.from(bucket).download(sourcePath);
+      const sourceIsUrl = /^https?:\/\//i.test(sourcePath);
+      const downloadResult = sourceIsUrl
+        ? await fetch(sourcePath).then(async (response) => ({ data: response.ok ? await response.blob() : null, error: response.ok ? null : new Error("No se pudo descargar el archivo.") }))
+        : await supabase.storage.from(bucket).download(sourcePath);
+      const { data: file, error: downloadError } = downloadResult;
       if (downloadError || !file) { toast.error("No se pudo acceder al contenido para reenviarlo."); return; }
-      const extension = sourcePath.split(".").pop() || (bucket === "cupido-voice" ? "webm" : "jpg");
+      const sourceName = sourceIsUrl ? new URL(sourcePath).pathname : sourcePath;
+      const extension = sourceName.split(".").pop()?.split("?")[0] || (bucket === "cupido-voice" ? "webm" : "jpg");
       copiedPath = `${conversationId}/${viewerId}/${Date.now()}.${extension}`;
       const { error: uploadError } = await supabase.storage.from(bucket).upload(copiedPath, file, {
         contentType: file.type || (bucket === "cupido-voice" ? "audio/webm" : "image/jpeg"),
       });
       if (uploadError) { toast.error("No se pudo copiar el contenido al otro chat."); return; }
+      copiedPath = supabase.storage.from(bucket).getPublicUrl(copiedPath).data.publicUrl;
     }
     const { error } = await supabase.from("cupido_messages").insert({
       conversation_id: conversationId,
@@ -808,7 +818,7 @@ function ChatPage() {
       await requestNativeMediaPermissions({ camera: false, microphone: true });
       const recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream = recordingStream;
-      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+      const mimeType = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
         .find((type) => MediaRecorder.isTypeSupported(type));
       const recorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
@@ -821,7 +831,7 @@ function ChatPage() {
       };
       recorder.onstop = () => {
         recordingStream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         if (!discardRecordingRef.current && blob.size > 0) {
           setVoiceBlob(blob);
           toast.success("Nota grabada. Puedes enviarla o descartarla.");
@@ -880,12 +890,14 @@ function ChatPage() {
       toast.error("No se pudo subir la foto.");
       return;
     }
+    const publicUrl = supabase.storage.from("cupido-chat-media").getPublicUrl(path).data.publicUrl;
     const { error } = await supabase.from("cupido_messages").insert({
       conversation_id: activeId,
       sender_id: viewerId,
-      media_path: path,
+      media_path: publicUrl,
     });
     if (error) {
+      void supabase.storage.from("cupido-chat-media").remove([path]);
       toast.error("No se pudo enviar la foto.");
       return;
     }
@@ -1264,7 +1276,7 @@ function ChatPage() {
                         {message.audio_path ? (
                           <VoiceBubble path={message.audio_path} />
                         ) : message.media_path ? (
-                          <ChatPhoto path={message.media_path} />
+                          <ChatPhoto path={message.media_path} onOpen={setPhotoViewerUrl} />
                         ) : (
                           <p className="whitespace-pre-wrap break-words">{message.body}</p>
                         )}
@@ -1495,6 +1507,13 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(photoViewerUrl)} onOpenChange={(open) => !open && setPhotoViewerUrl(null)}>
+        <DialogContent hideCloseButton className="flex h-[100dvh] w-screen max-w-none flex-col items-center justify-center overflow-hidden rounded-none border-0 bg-black/95 p-3 sm:h-[92dvh] sm:w-[92vw] sm:max-w-5xl sm:rounded-2xl">
+          <Button type="button" variant="outline" size="icon" onClick={() => setPhotoViewerUrl(null)} aria-label="Cerrar visor de foto" className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-10 rounded-full border-white/25 bg-black/65 text-white"><X className="size-5" /></Button>
+          {photoViewerUrl && <img src={photoViewerUrl} alt="Foto del chat a tamaño completo" className="max-h-full max-w-full object-contain" />}
+        </DialogContent>
+      </Dialog>
+
       {call && (
         <CallRoom
           callId={call.id}
@@ -1514,23 +1533,27 @@ function ChatPage() {
   );
 }
 
-function ChatPhoto({ path }: { path: string }) {
+function ChatPhoto({ path, onOpen }: { path: string; onOpen: (url: string) => void }) {
   const photo = useQuery({
     queryKey: ["cupido-chat-photo", path],
     queryFn: async () => {
-      const { data, error } = await supabase.storage.from("cupido-chat-media").createSignedUrl(path, 300);
+      if (/^https?:\/\//i.test(path)) return path;
+      const { data, error } = await supabase.storage.from("cupido-chat-media").createSignedUrl(path, 3600);
       if (error) throw error;
       return data.signedUrl;
     },
   });
   if (!photo.data) return <p className="text-xs text-muted-foreground">{photo.isError ? "No se pudo cargar la foto." : "Cargando foto…"}</p>;
-  return <img src={photo.data} alt="Foto privada" className="max-h-72 max-w-full rounded-xl object-contain" />;
+  return <button type="button" onClick={() => onOpen(photo.data!)} className="block max-w-full" aria-label="Abrir foto completa">
+    <img src={photo.data} alt="Foto del chat" className="max-h-72 max-w-full rounded-xl object-contain" />
+  </button>;
 }
 
 function VoiceBubble({ path }: { path: string }) {
   const { data, isError } = useQuery({
     queryKey: ["cupido-voice", path],
     queryFn: async () => {
+      if (/^https?:\/\//i.test(path)) return path;
       const { data: signed, error } = await supabase.storage.from("cupido-voice").createSignedUrl(path, 3600);
       if (error) throw error;
       return signed.signedUrl;
@@ -1538,7 +1561,7 @@ function VoiceBubble({ path }: { path: string }) {
   });
   if (isError) return <span className="text-xs">Nota de voz no disponible</span>;
   if (!data) return <span className="text-xs">Cargando nota de voz…</span>;
-  return <audio controls src={data} className="h-9 max-w-[220px]" />;
+  return <audio controls preload="metadata" src={data} className="h-10 w-full max-w-[260px]" aria-label="Reproducir nota de voz" />;
 }
 
 function CallRoom({
@@ -1775,7 +1798,7 @@ function CallRoom({
         {videoCall ? (
           <div className="relative overflow-hidden rounded-2xl bg-black">
             <video ref={remoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={false} className="aspect-video w-full object-cover" />
-            <video ref={localVideoRef} autoPlay playsInline webkit-playsinline="true" muted className="absolute bottom-3 right-3 aspect-video w-28 rounded-xl border border-white/30 object-cover sm:w-40" />
+            <video ref={localVideoRef} autoPlay playsInline webkit-playsinline="true" muted className={`absolute bottom-3 right-3 aspect-video w-28 rounded-xl border border-white/30 object-cover sm:w-40 ${facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} />
           </div>
         ) : (
           <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-pink-500/20 text-3xl">
