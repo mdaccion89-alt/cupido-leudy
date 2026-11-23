@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Capacitor } from "@capacitor/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount } from "@/lib/account";
@@ -31,10 +31,7 @@ import {
   withdrawalMethods,
   type Gift as GiftItem,
 } from "@/lib/cupido";
-import {
-  capturePaypalOrder,
-  createPaypalOrder,
-} from "@/lib/payments.functions";
+import { capturePaypalOrder } from "@/lib/payments.functions";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export const Route = createFileRoute("/tienda")({
@@ -51,11 +48,12 @@ function StorePage() {
   const queryClient = useQueryClient();
   const account = useAccount();
   const minimumWithdrawal = account.isGranLiga ? GRAN_LIGA_MIN_WITHDRAWAL : MIN_WITHDRAWAL;
-  const createOrder = useServerFn(createPaypalOrder);
   const captureOrder = useServerFn(capturePaypalOrder);
   const capturedRef = useRef<string | null>(null);
 
   const [pendingGift, setPendingGift] = useState<GiftItem | null>(null);
+  const [selectedCheckoutPackageId, setSelectedCheckoutPackageId] = useState<string | null>(null);
+  const [checkoutForGift, setCheckoutForGift] = useState(false);
   const [amount, setAmount] = useState("20");
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
@@ -152,10 +150,12 @@ function StorePage() {
     void (async () => {
       const result = await captureOrder({ data: { orderId: token } });
       if (result.ok) {
+        account.addPurchasedCredits(result.credits);
+        await account.refresh();
+        void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
         toast.success(result.isGranLiga
           ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
           : `Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
-        account.refresh();
         void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
         void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
       } else {
@@ -163,18 +163,6 @@ function StorePage() {
       }
     })();
   }, [token, viewerId, giftTo, captureOrder, account, navigate]);
-
-  const buy = useMutation({
-    mutationFn: async (packageId: string) => {
-      const origin = Capacitor.isNativePlatform() ? "https://leudyia.onrender.com" : window.location.origin;
-      const returnUrl = `${origin}/tienda${giftTo ? `?userId=${giftTo}` : ""}`;
-      const result = await createOrder({ data: { packageId, returnUrl } });
-      if (!result.ok) throw new Error(result.message);
-      return result.approveUrl;
-    },
-    onSuccess: (url) => window.location.assign(url),
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo abrir PayPal."),
-  });
 
   const sendGift = useMutation({
     mutationFn: async ({ gift, verifiedRecharge = false }: { gift: GiftItem; verifiedRecharge?: boolean }) => {
@@ -206,6 +194,24 @@ function StorePage() {
   const pendingGiftPackage = pendingGift
     ? CREDIT_PACKAGES.find((pack) => pack.credits >= Math.max(pendingGift.credits - (Number.isFinite(account.balance) ? account.balance : pendingGift.credits), account.hasPurchased ? 0 : 1))
     : undefined;
+  const selectedCheckoutPackage = CREDIT_PACKAGES.find((pack) => pack.id === selectedCheckoutPackageId);
+
+  const handleCheckoutSuccess = async (credits: number) => {
+    account.addPurchasedCredits(credits);
+    await account.refresh();
+    void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
+    void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+    setSelectedCheckoutPackageId(null);
+    if (checkoutForGift && pendingGift) {
+      setCheckoutForGift(false);
+      sendGift.mutate({ gift: pendingGift, verifiedRecharge: true });
+      return;
+    }
+    setCheckoutForGift(false);
+    toast.success(credits >= 1_000_000
+      ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+      : `Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
+  };
 
   const withdraw = useMutation({
     mutationFn: async () => {
@@ -259,7 +265,7 @@ function StorePage() {
         </div>
         <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 px-5 py-3 text-right">
           <p className="flex items-center justify-end gap-1.5 text-xs uppercase tracking-wide text-amber-200/80">
-            <CoinIcon className="size-4" /> Monedas brillantes disponibles
+            <CoinIcon className="size-4" /> Mis Monedas
           </p>
           <p className="font-display text-2xl text-white">
             {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}
@@ -306,23 +312,18 @@ function StorePage() {
                   Elige una recarga confirmada para habilitar las monedas. Al aprobarse el pago, el regalo se enviará a {target.data?.display_name ?? "la persona elegida"}.
                 </p>
               </div>
-              {paypalConfig.isLoading ? (
-                <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal Live...</p>
-              ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pendingGiftPackage ? (
-                <PayPalCheckoutButtons
-                  clientId={paypalConfig.data.clientId}
-                  packageId={pendingGiftPackage.id}
-                  disabled={sendGift.isPending}
-                  onSuccess={(credits) => {
-                    account.addPurchasedCredits(credits);
-                    void account.refresh();
-                    sendGift.mutate({ gift: pendingGift, verifiedRecharge: true });
-                  }}
-                  onError={(message) => toast.error(message)}
-                />
+              {pendingGiftPackage ? (
+                <Button type="button" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={paypalConfig.isLoading || !paypalConfig.data?.configured || sendGift.isPending} onClick={() => {
+                  setCheckoutForGift(true);
+                  setSelectedCheckoutPackageId(pendingGiftPackage.id);
+                }}>
+                  {paypalConfig.isLoading ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                  Recargar y enviar regalo
+                </Button>
               ) : (
-                <p className="text-center text-sm text-amber-100/80">Configura PayPal Business Live en /admin para completar el pago seguro con PayPal o tarjeta.</p>
+                <p className="text-center text-sm text-amber-100/80">No hay un paquete compatible con el saldo de este regalo.</p>
               )}
+              {!paypalConfig.isLoading && !paypalConfig.data?.configured && <p className="text-center text-xs text-amber-100/80">Configura PayPal Business Live en /admin para completar el pago seguro con PayPal o tarjeta.</p>}
               <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGift(null)}>Cancelar</Button>
             </div>
           )}
@@ -340,49 +341,34 @@ function StorePage() {
           <CreditCard className="h-5 w-5 text-pink-300" />
           <h2 className="font-display text-xl text-white">Paquetes de monedas brillantes</h2>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-3 gap-2.5">
           {CREDIT_PACKAGES.map((pack) => {
             const config = paypalConfig.data;
             const officialCheckout = Boolean(config?.configured && config.clientId);
             return (
               <article
                 key={pack.id}
-                className={`relative flex flex-col rounded-3xl border p-5 ${
+                className={`relative flex min-w-0 flex-col rounded-2xl border p-2.5 sm:rounded-3xl sm:p-4 ${
                   "featured" in pack && pack.featured ? "border-pink-400/60 bg-pink-500/10" : "border-white/10 bg-white/[0.04]"
                 }`}
               >
-                {"featured" in pack && pack.featured && <Badge className="absolute right-4 top-4">Popular</Badge>}
-                <p className="text-sm text-muted-foreground">{pack.label}</p>
-                <p className="mt-2 font-display text-3xl text-white">{pack.credits.toLocaleString("es")}</p>
-                <p className="text-xs text-muted-foreground">monedas brillantes</p>
-                <p className="mt-4 text-2xl font-semibold text-white">US${pack.price}</p>
-                <p className="mt-5 text-center text-xs font-semibold uppercase tracking-wide text-pink-200/80">
-                  Comprar con PayPal / Tarjeta
-                </p>
-                {officialCheckout && config?.clientId ? (
-                  <PayPalCheckoutButtons
-                    clientId={config.clientId}
-                    packageId={pack.id}
-                    disabled={buy.isPending}
-                    onSuccess={(credits) => {
-                      toast.success(pack.id === GRAN_LIGA_PACKAGE_ID
-                        ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
-                        : `Se acreditaron ${credits.toLocaleString("es")} monedas brillantes ❤️`);
-                      account.refresh();
-                      void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
-                    }}
-                    onError={(message) => toast.error(message)}
-                  />
-                ) : paypalConfig.isLoading ? (
-                  <Button className="mt-2 h-12 w-full text-base" disabled>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Comprar con PayPal / Tarjeta
-                  </Button>
-                ) : (
-                  <Button className="mt-2 h-12 w-full text-base" disabled>
-                    <CreditCard className="mr-2 h-5 w-5" /> Comprar con PayPal / Tarjeta
-                  </Button>
-                )}
-                {pack.id === GRAN_LIGA_PACKAGE_ID && !officialCheckout && !paypalConfig.isLoading && <p className="mt-2 text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga automáticamente.</p>}
+                <div className="mb-2 flex min-h-8 flex-wrap items-start gap-1">
+                  {"discountLabel" in pack && pack.discountLabel && <Badge className="px-1.5 py-0.5 text-[9px] leading-none">{pack.discountLabel}</Badge>}
+                  {"promoLabel" in pack && pack.promoLabel && <Badge variant="secondary" className="px-1.5 py-0.5 text-[8px] leading-none">{pack.promoLabel}</Badge>}
+                </div>
+                <p className="truncate text-[10px] text-muted-foreground sm:text-xs">{pack.label}</p>
+                <p className="mt-1 font-display text-base text-white sm:text-2xl">{pack.credits.toLocaleString("es")}</p>
+                <p className="text-[9px] leading-tight text-muted-foreground sm:text-xs">monedas brillantes</p>
+                {"originalPrice" in pack && pack.originalPrice && <p className="mt-2 text-[10px] text-muted-foreground line-through sm:text-xs">US${pack.originalPrice}</p>}
+                <p className="text-sm font-semibold text-white sm:text-xl">US${pack.price}</p>
+                <Button type="button" className="mt-3 h-auto min-h-9 w-full max-w-full whitespace-normal px-2 py-2 text-center text-[10px] leading-tight sm:text-sm" disabled={paypalConfig.isLoading || !officialCheckout} onClick={() => {
+                  setCheckoutForGift(false);
+                  setSelectedCheckoutPackageId(pack.id);
+                }}>
+                  {paypalConfig.isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <CreditCard className="size-3.5 shrink-0" />}
+                  Comprar
+                </Button>
+                {pack.id === GRAN_LIGA_PACKAGE_ID && !officialCheckout && !paypalConfig.isLoading && <p className="mt-2 text-[9px] leading-tight text-amber-100/80">Activa PayPal Business en /admin.</p>}
               </article>
             );
           })}
@@ -393,6 +379,39 @@ function StorePage() {
             : "El Admin Supremo debe guardar las credenciales de PayPal Business Live en /admin para habilitar pagos verificados y acreditación automática."}
         </p>
       </section>
+
+      <Sheet open={Boolean(selectedCheckoutPackageId)} onOpenChange={(open) => {
+        if (!open) {
+          setSelectedCheckoutPackageId(null);
+          setCheckoutForGift(false);
+        }
+      }}>
+        <SheetContent side="bottom" className="max-h-[72vh] overflow-y-auto rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
+          <SheetHeader className="pr-8 text-left">
+            <SheetTitle className="text-white">Pago seguro</SheetTitle>
+            <SheetDescription>
+              {selectedCheckoutPackage ? `${selectedCheckoutPackage.credits.toLocaleString("es")} monedas · US$${selectedCheckoutPackage.price}` : "Paga con PayPal o tarjeta."}
+              {checkoutForGift && pendingGift ? ` Después de confirmar, enviaremos ${pendingGift.name}.` : " Los campos de tarjeta se pueden recorrer dentro de esta ventana."}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4">
+            {selectedCheckoutPackage && paypalConfig.data?.configured && paypalConfig.data.clientId ? (
+              <PayPalCheckoutButtons
+                key={selectedCheckoutPackage.id}
+                clientId={paypalConfig.data.clientId}
+                packageId={selectedCheckoutPackage.id}
+                disabled={sendGift.isPending}
+                onSuccess={(credits) => { void handleCheckoutSuccess(credits).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo.")); }}
+                onError={(message) => toast.error(message)}
+              />
+            ) : paypalConfig.isLoading ? (
+              <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
+            ) : (
+              <p className="text-center text-sm text-amber-100/80">Configura PayPal Business Live en /admin para habilitar pagos seguros con PayPal o tarjeta.</p>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">

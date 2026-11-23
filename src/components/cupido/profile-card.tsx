@@ -68,7 +68,7 @@ export function ProfileCard({
           <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/95" />
           <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/25 bg-emerald-950/70 px-2 py-1 text-[10px] font-semibold text-emerald-100 backdrop-blur">
             <span className={`size-1.5 rounded-full ${profile.isOnline ? "animate-pulse bg-emerald-400" : "bg-slate-400"}`} />
-            {profile.isOnline ? "Disponible" : "Desconectado"}
+            {profile.isOnline ? "En línea" : "Desconectado"}
           </span>
           {profile.live_id && <span className="absolute left-2.5 top-10 inline-flex items-center gap-1 rounded-full bg-rose-600/95 px-2 py-1 text-[10px] font-bold text-white shadow"><span className="size-1.5 animate-pulse rounded-full bg-white" /> LIVE <Eye className="ml-1 size-3" /> {profile.live_viewers ?? 0}</span>}
           <span className="absolute inset-x-2.5 bottom-2.5">
@@ -118,6 +118,10 @@ export function ProfileCard({
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground" title={countryName(profile.country_code)}>
             {countryFlag(profile.country_code)} {countryName(profile.country_code)}
+          </p>
+          <p className={`mt-1 flex items-center gap-1.5 text-[11px] ${profile.isOnline ? "text-emerald-300" : "text-muted-foreground"}`}>
+            <span className={`size-1.5 rounded-full ${profile.isOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />
+            {profile.isOnline ? "En línea" : "Desconectado"}
           </p>
           <p className="mt-1 text-xs text-pink-300/80">
             {displayFollowers.toLocaleString("es")} seguidores · {profile.friend_count.toLocaleString("es")} amigos

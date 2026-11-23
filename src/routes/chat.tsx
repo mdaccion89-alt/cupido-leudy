@@ -1020,7 +1020,7 @@ function ChatPage() {
             }}
             className="mb-3 h-11 w-full shrink-0 justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-400 text-xs font-extrabold tracking-wide text-amber-950 shadow-md shadow-amber-500/15 hover:from-amber-200 hover:to-yellow-300"
           >
-            <CoinIcon className="size-5" /> GANA MONEDAS GRATIS ▶ Ver Videos
+            <CoinIcon className="size-5" /> GANA MONEDAS GRATIS
           </Button>
       </div>
 
@@ -1058,7 +1058,7 @@ function ChatPage() {
                       {(row.other?.display_name ?? "C").slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  {isOnline && <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-emerald-500" />}
+                  <span className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-card ${isOnline ? "bg-emerald-500" : "bg-zinc-500"}`} />
                 </div>
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center justify-between gap-2">
@@ -1075,6 +1075,10 @@ function ChatPage() {
                       {conversationPreviewText(latest, viewerId ?? "")}
                     </span>
                     {unreadCount > 0 && <span className="size-2.5 shrink-0 rounded-full bg-rose-500 ring-4 ring-rose-500/10" aria-label="Mensajes sin leer" />}
+                  </span>
+                  <span className={`mt-1 flex items-center gap-1 text-[10px] ${isOnline ? "text-emerald-300" : "text-muted-foreground"}`}>
+                    <span className={`size-1.5 rounded-full ${isOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                    {isOnline ? "En línea" : "Desconectado"}
                   </span>
                 </span>
               </button>
@@ -1102,7 +1106,9 @@ function ChatPage() {
                     ) : "Miembro"}
                     <VerifiedBadge email={activeConversation.other?.email} verified={activeConversation.other?.is_verified_blue} granLiga={activeConversation.other?.is_gran_liga} className="h-4 w-4" />
                   </p>
-                  <p className="text-xs text-muted-foreground">{otherTyping ? "Escribiendo…" : onlineUserIds.includes(activeConversation.other?.id ?? "") ? "En línea" : "Chat privado de Cupido Leudy"}</p>
+                  <p className={`flex items-center gap-1 text-xs ${onlineUserIds.includes(activeConversation.other?.id ?? "") ? "text-emerald-300" : "text-muted-foreground"}`}>
+                    {otherTyping ? "Escribiendo…" : <><span className={`size-1.5 rounded-full ${onlineUserIds.includes(activeConversation.other?.id ?? "") ? "bg-emerald-400" : "bg-zinc-500"}`} />{onlineUserIds.includes(activeConversation.other?.id ?? "") ? "En línea" : "Desconectado"}</>}
+                  </p>
                 </div>
                 <span className="flex items-center gap-1.5 rounded-full border border-amber-300/30 bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-100" title="Tus monedas brillantes">
                   <CoinIcon className="size-4" />

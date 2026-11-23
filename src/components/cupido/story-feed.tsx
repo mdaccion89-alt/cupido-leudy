@@ -54,7 +54,7 @@ function storyBackground(id: string) {
 }
 
 export function StoryFeed({ compact = false, initialStoryId }: { compact?: boolean; initialStoryId?: string | undefined }) {
-  const { session } = useAuth();
+  const { session, onlineUserIds } = useAuth();
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
   const [caption, setCaption] = useState("");
@@ -273,6 +273,26 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
   };
 
   const visibleStories = useMemo(() => stories.data ?? [], [stories.data]);
+  const latestStories = useMemo(() => {
+    const latestByUser = new Map<string, Story>();
+    for (const story of visibleStories) if (!latestByUser.has(story.user_id)) latestByUser.set(story.user_id, story);
+    return [...latestByUser.values()];
+  }, [visibleStories]);
+  const ownStory = latestStories.find((story) => story.user_id === viewerId);
+
+  useEffect(() => {
+    const nextExpiry = visibleStories.reduce<number | null>((soonest, story) => {
+      const expiresAt = new Date(story.expires_at).getTime();
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return soonest;
+      return soonest === null ? expiresAt : Math.min(soonest, expiresAt);
+    }, null);
+    if (nextExpiry === null) return;
+    const timer = window.setTimeout(() => {
+      void client.invalidateQueries({ queryKey: ["cupido-stories", viewerId] });
+    }, Math.max(0, nextExpiry - Date.now() + 250));
+    return () => window.clearTimeout(timer);
+  }, [client, visibleStories, viewerId]);
+
   const activeStory = visibleStories.find((story) => story.id === storyViewerId) ?? null;
   const storySequence = useMemo(
     () => activeStory ? visibleStories.filter((story) => story.user_id === activeStory.user_id) : [],
@@ -311,27 +331,36 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
 
   if (compact) {
     return (
-      <section className="rounded-xl border border-pink-300/25 bg-slate-950/85 p-2.5 shadow-lg backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-white"><Clock3 className="size-3.5 text-pink-300" /> Historias 24 h</div>
-          <Button asChild type="button" size="sm" className="h-7 gap-1 px-2 text-[11px]">
-            <Link to="/historia" search={{ story: undefined }}><Plus className="size-3.5" /> Agregar historia</Link>
-          </Button>
-        </div>
-        <div translate="no" className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {stories.isLoading && <span className="px-1 py-2 text-[11px] text-white/60">Cargando historias…</span>}
-          {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" search={{ story: undefined }} className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
-          {visibleStories.map((story) => (
-            <Link key={story.id} to="/historia" search={{ story: story.id }} aria-label={`Ver historia de ${story.display_name}`} className="relative h-[88px] w-[66px] shrink-0 overflow-hidden rounded-xl border border-pink-300/50 bg-black p-0.5 shadow-[0_0_18px_rgba(236,72,153,0.2)]">
-              {story.media_type === "text" ? <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br p-2 text-center text-[10px] font-semibold text-white ${storyBackground(story.background_gradient)}`}>{story.caption || "✨"}<GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "image" ? <img src={story.media_url ?? ""} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url ?? undefined} muted playsInline webkit-playsinline="true" preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
-              {story.media_type !== "text" && <span className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/15" />}
-              <Avatar className="absolute left-1.5 top-1.5 size-7 border-2 border-pink-300 shadow-[0_0_12px_rgba(244,114,182,0.8)]">
-                <AvatarImage src={story.avatar_url} alt="" />
-                <AvatarFallback>{story.display_name.slice(0, 1)}</AvatarFallback>
+      <section className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><Clock3 className="size-4 text-pink-300" /> Historias · 24 h</div>
+        <div translate="no" className="flex gap-4 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <Link to="/historia" search={{ story: undefined }} aria-label="Tu historia: subir foto o video" className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
+            <span className={`relative grid size-16 place-items-center rounded-full p-[3px] ${ownStory ? "bg-[linear-gradient(135deg,#ec4899,#f59e0b)]" : "bg-white/15"}`}>
+              <Avatar className="size-full border-2 border-background bg-zinc-900">
+                <AvatarImage src={ownStory?.avatar_url ?? ""} alt="" />
+                <AvatarFallback className="bg-zinc-900 text-white"><Plus className="size-6" /></AvatarFallback>
               </Avatar>
-              <span className="absolute inset-x-1 bottom-1 line-clamp-2 text-[9px] font-semibold leading-tight text-white">{story.display_name}</span>
-            </Link>
-          ))}
+              <span className="absolute -bottom-0.5 -right-0.5 grid size-6 place-items-center rounded-full border-2 border-background bg-pink-500 text-white"><Plus className="size-3.5" /></span>
+            </span>
+            <span className="w-full truncate text-[10px] font-medium leading-tight text-white">Tu historia</span>
+          </Link>
+          {stories.isLoading && <span className="py-5 text-xs text-white/60">Cargando historias…</span>}
+          {latestStories.filter((story) => story.user_id !== viewerId).map((story) => {
+            const isOnline = onlineUserIds.includes(story.user_id);
+            return (
+              <Link key={story.user_id} to="/historia" search={{ story: story.id }} aria-label={`Ver historia de ${story.display_name}`} className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center">
+                <span className="relative rounded-full bg-[linear-gradient(135deg,#ec4899,#f59e0b)] p-[3px]">
+                  <Avatar className="size-16 border-2 border-background">
+                    <AvatarImage src={story.avatar_url} alt={story.display_name} />
+                    <AvatarFallback className="bg-pink-500/20 text-pink-100">{story.display_name.slice(0, 1).toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  {isOnline && <span className="absolute bottom-0.5 right-0.5 size-3 rounded-full border-2 border-background bg-emerald-400" />}
+                </span>
+                <span className="w-full truncate text-[10px] font-medium leading-tight text-white">{story.display_name}</span>
+              </Link>
+            );
+          })}
+          {!stories.isLoading && latestStories.filter((story) => story.user_id !== viewerId).length === 0 && <span className="py-5 text-xs text-white/60">Todavía no hay historias activas.</span>}
         </div>
       </section>
     );

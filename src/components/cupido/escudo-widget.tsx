@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageCircle, Send, ShieldCheck, TicketCheck, X } from "lucide-react";
@@ -12,6 +12,16 @@ import { useAuth } from "@/lib/auth-context";
 
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string };
 type Ticket = { id: string; subject: string; message: string; status: string; admin_reply: string; created_at: string };
+type FloatingPosition = { left: number; top: number };
+type ActiveDrag = { pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number; moved: boolean; position: FloatingPosition };
+const SUPPORT_POSITION_KEY = "cupido-support-position";
+const SUPPORT_HIDDEN_KEY = "cupido-support-hidden";
+function clampFloatingPosition(left: number, top: number): FloatingPosition {
+  return {
+    left: Math.max(8, Math.min(left, window.innerWidth - 64)),
+    top: Math.max(8, Math.min(top, window.innerHeight - 64)),
+  };
+}
 const ticketDb = supabase as unknown as {
   from: (table: string) => any;
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
@@ -34,6 +44,77 @@ export function EscudoWidget() {
   const [ticketSubject, setTicketSubject] = useState("");
   const [ticketMessage, setTicketMessage] = useState("");
   const [ticketSent, setTicketSent] = useState(false);
+  const [supportHidden, setSupportHidden] = useState(false);
+  const [position, setPosition] = useState<FloatingPosition | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const shieldRef = useRef<HTMLButtonElement>(null);
+  const dismissRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<ActiveDrag | null>(null);
+  const ignoreClickRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      setSupportHidden(window.sessionStorage.getItem(SUPPORT_HIDDEN_KEY) === "true");
+      const savedPosition = window.sessionStorage.getItem(SUPPORT_POSITION_KEY);
+      if (savedPosition) {
+        const parsed = JSON.parse(savedPosition) as Partial<FloatingPosition>;
+        if (Number.isFinite(parsed.left) && Number.isFinite(parsed.top)) {
+          setPosition({ left: parsed.left!, top: parsed.top! });
+        }
+      }
+    } catch {
+      // Storage can be unavailable in an embedded WebView; the widget still works for this session.
+    }
+
+    const restoreSupport = () => {
+      try { window.sessionStorage.removeItem(SUPPORT_HIDDEN_KEY); } catch { /* Storage is optional. */ }
+      setSupportHidden(false);
+    };
+    window.addEventListener("cupido:show-support-widget", restoreSupport);
+    return () => window.removeEventListener("cupido:show-support-widget", restoreSupport);
+  }, []);
+
+  const moveShield = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = dragRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const didMove = active.moved || Math.abs(event.clientX - active.startX) > 6 || Math.abs(event.clientY - active.startY) > 6;
+    if (!didMove) return;
+    active.moved = true;
+    active.position = clampFloatingPosition(event.clientX - active.offsetX, event.clientY - active.offsetY);
+    setPosition(active.position);
+  };
+
+  const finishShieldDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = dragRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const dropTarget = dismissRef.current?.getBoundingClientRect();
+    const droppedOnDismiss = active.moved && dropTarget
+      && event.clientX >= dropTarget.left && event.clientX <= dropTarget.right
+      && event.clientY >= dropTarget.top && event.clientY <= dropTarget.bottom;
+    if (droppedOnDismiss) {
+      setSupportHidden(true);
+      setOpen(false);
+      ignoreClickRef.current = true;
+      try { window.sessionStorage.setItem(SUPPORT_HIDDEN_KEY, "true"); } catch { /* Storage is optional. */ }
+    } else if (active.moved) {
+      try { window.sessionStorage.setItem(SUPPORT_POSITION_KEY, JSON.stringify(active.position)); } catch { /* Storage is optional. */ }
+      ignoreClickRef.current = true;
+    }
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  useEffect(() => {
+    if (!position) return;
+    const keepOnScreen = () => setPosition((current) => {
+      if (!current) return null;
+      const adjusted = clampFloatingPosition(current.left, current.top);
+      try { window.sessionStorage.setItem(SUPPORT_POSITION_KEY, JSON.stringify(adjusted)); } catch { /* Storage is optional. */ }
+      return adjusted;
+    });
+    window.addEventListener("resize", keepOnScreen);
+    return () => window.removeEventListener("resize", keepOnScreen);
+  }, [position]);
 
   const tickets = useQuery({
     queryKey: ["cupido-my-support-tickets", session?.user.id],
@@ -117,15 +198,45 @@ export function EscudoWidget() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="fixed bottom-24 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-[0_10px_40px_rgba(236,72,153,0.45)] transition hover:scale-105"
-        aria-label="Abrir Cupi Support"
-      >
-        {open ? <X className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
-      </button>
-      {open && (
+      {!supportHidden && <>
+        <button
+          ref={shieldRef}
+          type="button"
+          onClick={() => {
+            if (ignoreClickRef.current) { ignoreClickRef.current = false; return; }
+            setOpen((value) => !value);
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            dragRef.current = {
+              pointerId: event.pointerId,
+              offsetX: event.clientX - bounds.left,
+              offsetY: event.clientY - bounds.top,
+              startX: event.clientX,
+              startY: event.clientY,
+              moved: false,
+              position: { left: bounds.left, top: bounds.top },
+            };
+            setDragging(true);
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={moveShield}
+          onPointerUp={finishShieldDrag}
+          onPointerCancel={finishShieldDrag}
+          style={position ? { left: position.left, top: position.top } : undefined}
+          className={`fixed z-40 flex h-14 w-14 touch-none items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-[0_10px_40px_rgba(236,72,153,0.45)] transition hover:scale-105 ${position ? "" : "bottom-24 right-4"}`}
+          aria-label="Abrir Cupi Support"
+        >
+          {open ? <X className="h-6 w-6" /> : <ShieldCheck className="h-6 w-6" />}
+        </button>
+        {dragging && <div
+          ref={dismissRef}
+          aria-label="Suelta aquí para ocultar Cupi Support"
+          className="fixed bottom-[calc(3.75rem+env(safe-area-inset-bottom))] left-1/2 z-[60] flex size-14 -translate-x-1/2 items-center justify-center rounded-full border-2 border-white/80 bg-rose-600 text-white shadow-xl"
+        ><X className="size-6" /></div>}
+      </>}
+      {!supportHidden && open && (
         <div className="fixed bottom-44 right-4 z-40 flex max-h-[70vh] w-[min(390px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-pink-500/30 bg-[#140b18] shadow-2xl">
           <div className="flex items-center gap-2 border-b border-white/10 bg-gradient-to-r from-pink-600/30 to-rose-600/20 px-4 py-3">
             <ShieldCheck className="h-5 w-5 text-pink-300" />

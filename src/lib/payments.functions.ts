@@ -396,12 +396,16 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
     if (order.status === "captured") return { ok: true, credits: order.credits, hasPurchased: true, isGranLiga: order.package_id === GRAN_LIGA_PACKAGE_ID };
     const pack = findPackage(order.package_id);
     if (!pack) return { ok: false, message: "Paquete no válido." };
-    if (order.credits !== pack.credits || usdCents(order.amount) !== usdCents(pack.price)) {
+    const allowedCatalogAmounts = [
+      pack.price,
+      ...(typeof pack === "object" && "originalPrice" in pack && pack.originalPrice ? [pack.originalPrice] : []),
+    ];
+    if (order.credits !== pack.credits || !allowedCatalogAmounts.some((amount) => usdCents(order.amount) === usdCents(amount))) {
       console.error("[PayPal] Stored package amount or credits do not match the catalog", {
         orderId: order.id,
         packageId: order.package_id,
         storedAmount: order.amount,
-        catalogAmount: pack.price,
+        acceptedCatalogAmounts: allowedCatalogAmounts,
         storedCredits: order.credits,
         catalogCredits: pack.credits,
       });
@@ -435,12 +439,12 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
         captured["status"] === "COMPLETED" &&
         capture?.status === "COMPLETED" &&
         capture.amount?.currency_code?.toUpperCase() === "USD" &&
-        usdCents(capture.amount.value) === usdCents(pack.price);
+        usdCents(capture.amount.value) === usdCents(order.amount);
       if (!paid) {
         console.error("[PayPal] Capture is incomplete or does not match its order", {
           orderId: data.orderId,
           packageId: pack.id,
-          expectedAmount: pack.price,
+          expectedAmount: order.amount,
           orderStatus: captured["status"],
           captureStatus: capture?.status,
           capturedAmount: capture?.amount?.value,

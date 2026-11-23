@@ -51,7 +51,7 @@ type ActiveDirect = {
 const PREMIUM_LIVE_TIERS = [150, 300, 500, 1000] as const;
 
 function DirectPage() {
-  const { session } = useAuth();
+  const { session, onlineUserIds } = useAuth();
   const account = useAccount();
   const viewerId = session?.user.id ?? null;
   const { liveId } = Route.useSearch();
@@ -352,9 +352,13 @@ function DirectPage() {
                   {stream.premium_coins > 0 && <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/75 px-2 py-1 text-[10px] font-bold text-amber-100"><LockKeyhole className="size-3" /> {stream.premium_coins.toLocaleString("es")} monedas · entrada única</span>}
                   <div className="absolute inset-x-0 bottom-0 p-3 pr-14">
                     <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-white">{stream.title || "Directo en vivo"} ✨</h3>
-                    <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-white/85">
+                    <p className="mt-1 flex min-w-0 items-center gap-1 truncate text-[11px] text-white/85">
                       <Link to="/perfil" search={{ userId: stream.host_id }} onClick={(event) => event.stopPropagation()} className="truncate hover:underline">{stream.host_name} ❤️</Link>
                       <VerifiedBadge verified={stream.is_verified_blue} official={stream.is_official} granLiga={stream.is_gran_liga} className="size-4" />
+                    </p>
+                    <p className={`mt-1 flex items-center gap-1 text-[10px] ${onlineUserIds.includes(stream.host_id) ? "text-emerald-300" : "text-white/60"}`}>
+                      <span className={`size-1.5 rounded-full ${onlineUserIds.includes(stream.host_id) ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                      {onlineUserIds.includes(stream.host_id) ? "En línea" : "Desconectado"}
                     </p>
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-pink-200"><Users className="size-3" /> {livePresenceCounts[stream.id] ?? stream.viewers_count} viendo</p>
                   </div>

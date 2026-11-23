@@ -401,7 +401,7 @@ function AdminDashboard() {
   const users = snapshot.data?.users ?? [];
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl overflow-x-hidden px-5 py-10 sm:px-8">
       <div className="mb-8 flex items-center gap-3">
         <span className="flex size-11 items-center justify-center rounded-xl bg-gradient-primary shadow-glow">
           <ShieldCheck className="size-5" />
@@ -555,11 +555,11 @@ function AdminDashboard() {
         </TabsContent>
 
         <TabsContent value="usuarios" className="mt-6">
-          <section className="panel grain min-w-0 p-4 sm:p-6">
+          <section className="panel grain w-full max-w-full min-w-0 overflow-x-hidden p-4 sm:p-6">
             <h2 className="mb-4 font-semibold">Usuarios ({users.length})</h2>
             <div className="mb-4 space-y-3 md:hidden">
               {users.map((user) => (
-                <article key={user.id} className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border/70 bg-card p-4">
+                <article key={user.id} className="flex w-full max-w-full min-w-0 flex-col gap-3 overflow-x-hidden rounded-2xl border border-border/70 bg-card p-4">
                   <div className="min-w-0">
                     <p className="break-words font-semibold text-foreground">{user.display_name || user.email || "Artista"}</p>
                     <p className="break-all text-xs text-muted-foreground">{user.email || "Sin correo"}</p>

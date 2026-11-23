@@ -8,11 +8,11 @@ export const DAILY_FREE_CREDITS = 5;
 export const FREE_FILE_RETENTION_DAYS = 7;
 
 export const CREDIT_PACKAGES = [
-  { id: "pack-5000", credits: 5000, price: "19.99", label: "Cupido" },
-  { id: "pack-12000", credits: 12000, price: "39.99", label: "Popular", featured: true },
-  { id: "pack-30000", credits: 30000, price: "89.99", label: "Corazón" },
-  { id: "pack-80000", credits: 80000, price: "199.99", label: "Admin Supremo" },
-  { id: "gran-liga-100", credits: 1_000_000, price: "100.00", label: "Diamante Gran Liga", featured: true },
+  { id: "pack-5000", credits: 5000, price: "17.99", originalPrice: "19.99", discountLabel: "10%", promoLabel: "OFERTA ÚNICA", label: "Cupido" },
+  { id: "pack-12000", credits: 12000, price: "31.99", originalPrice: "39.99", discountLabel: "20%", label: "Popular", featured: true },
+  { id: "pack-30000", credits: 30000, price: "62.99", originalPrice: "89.99", discountLabel: "30%", label: "Corazón" },
+  { id: "pack-80000", credits: 80000, price: "129.99", originalPrice: "199.99", discountLabel: "35%", label: "Admin Supremo" },
+  { id: "gran-liga-100", credits: 1_000_000, price: "60.00", originalPrice: "100.00", discountLabel: "40%", label: "Diamante Gran Liga", featured: true },
 ] as const;
 export type CreditPackage = (typeof CREDIT_PACKAGES)[number];
 export const GRAN_LIGA_PACKAGE_ID = "gran-liga-100";

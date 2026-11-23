@@ -4,7 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Heart, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { InviteButton } from "@/components/cupido/invite-button";
+import { PeopleSuggestions } from "@/components/cupido/people-suggestions";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
+import { StoryFeed } from "@/components/cupido/story-feed";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -298,7 +300,7 @@ function CupidoHome() {
               </Button>
             )}
             <Button asChild size="lg" variant="outline">
-              <Link to="/tienda">Comprar monedas brillantes desde 5,000</Link>
+              <Link to="/tienda" className="w-full max-w-full whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto">Comprar monedas brillantes desde 5,000</Link>
             </Button>
           </div>
         </div>
@@ -327,6 +329,10 @@ function CupidoHome() {
         </TabsList>
 
         <TabsContent value="people" className="mt-5">
+          <div className="mb-7 space-y-6">
+            <StoryFeed compact />
+            <PeopleSuggestions />
+          </div>
           <div className="mb-7">
             <WallFeed />
           </div>

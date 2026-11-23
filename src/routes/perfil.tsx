@@ -90,7 +90,7 @@ function extensionOf(file: File, fallback: string): string {
 }
 
 function ProfilePage() {
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, onlineUserIds } = useAuth();
   const account = useAccount();
   const { userId: searchId } = Route.useSearch();
   const viewerId = safeText(session?.user.id) || null;
@@ -260,17 +260,14 @@ function ProfilePage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!profileId) return;
-      const publicName = displayName.trim() || fullName.trim();
-      const personalName = fullName.trim() || publicName;
-      if (!publicName || !personalName || Array.from(publicName).length > 40 || Array.from(personalName).length > 40) {
-        throw new Error("Escribe un nombre público y un nombre completo de hasta 40 caracteres.");
+      if (!viewerId || viewerId !== profileId) throw new Error("Inicia sesión para editar tu perfil.");
+      const publicName = displayName.trim() || safeText(creator?.display_name) || safeText(privateProfile?.display_name) || "Miembro de Cupido";
+      const personalName = fullName.trim() || safeText(privateProfile?.full_name) || publicName;
+      if (Array.from(publicName).length > 40 || Array.from(personalName).length > 40) {
+        throw new Error("Los nombres deben tener hasta 40 caracteres.");
       }
       const birthdayAge = ageFromBirthDate(birthDate);
-      if (birthDate && (!birthdayAge || birthdayAge < 18 || birthdayAge > 120)) {
-        throw new Error("La fecha de nacimiento debe corresponder a una persona adulta.");
-      }
-      const parsedAge = birthdayAge ?? Number.parseInt(age, 10);
+      const parsedAge = birthdayAge && birthdayAge >= 18 && birthdayAge <= 120 ? birthdayAge : Number.parseInt(age, 10);
       await saveProfileDirect(profileId, {
         displayName: publicName,
         fullName: personalName,
@@ -447,6 +444,7 @@ function ProfilePage() {
   const own = Boolean(viewerId && viewerId === profileId);
   const isSupremeAdmin = isSupremeAdminEmail(session?.user.email);
   const isAdmin = isSupremeAdmin && own;
+  const profileIsOnline = Boolean(profileId && onlineUserIds.includes(profileId));
   const verified = Boolean(creator?.is_verified_blue);
   const profileEmail = safeText(privateProfile?.email) || undefined;
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
@@ -517,6 +515,10 @@ function ProfilePage() {
                 {publicGender} ·{" "}
                 <span className="text-white">{followers.toLocaleString("es")} seguidores</span> · <button type="button" className="text-white hover:underline" onClick={() => setFriendsOpen(true)}>{friends.toLocaleString("es")} amigos</button>
               </p>
+              <p className={`mt-1 flex items-center gap-1.5 text-xs ${profileIsOnline ? "text-emerald-300" : "text-muted-foreground"}`}>
+                <span className={`size-1.5 rounded-full ${profileIsOnline ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
+                {profileIsOnline ? "En línea" : "Desconectado"}
+              </p>
               {officialProfile ? (
                 <p className="mt-2 text-xs text-muted-foreground">La lista de seguidores de la Cuenta Oficial es privada</p>
               ) : creator?.hide_followers && !own ? (
@@ -538,8 +540,8 @@ function ProfilePage() {
                 {followersList.isLoading ? <p className="py-6 text-center text-sm text-muted-foreground">Cargando seguidores...</p> : null}
                 {followersList.data?.map((follower) => (
                   <Link key={follower.follower_id} to="/perfil" search={{ userId: follower.follower_id }} onClick={() => setFollowersOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent">
-                    <Avatar className="size-10"><AvatarImage src={follower.avatar_url ?? ""} alt={safeText(follower.display_name, "Miembro")} /><AvatarFallback>{safeText(follower.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar>
-                    <span className="text-sm font-medium">{safeText(follower.display_name, "Miembro")}</span>
+                    <span className="relative"><Avatar className="size-10"><AvatarImage src={follower.avatar_url ?? ""} alt={safeText(follower.display_name, "Miembro")} /><AvatarFallback>{safeText(follower.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar><span className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-background ${onlineUserIds.includes(follower.follower_id) ? "bg-emerald-400" : "bg-zinc-500"}`} /></span>
+                    <span className="min-w-0"><span className="block truncate text-sm font-medium">{safeText(follower.display_name, "Miembro")}</span><span className={`text-[10px] ${onlineUserIds.includes(follower.follower_id) ? "text-emerald-300" : "text-muted-foreground"}`}>{onlineUserIds.includes(follower.follower_id) ? "En línea" : "Desconectado"}</span></span>
                   </Link>
                 ))}
                 {!followersList.isLoading && !followersList.data?.length ? <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay seguidores activos.</p> : null}
@@ -551,7 +553,7 @@ function ProfilePage() {
               <DialogHeader><DialogTitle>Amigos reales</DialogTitle></DialogHeader>
               <div className="max-h-80 space-y-2 overflow-y-auto">
                 {friendsList.isLoading && <p className="py-6 text-center text-sm text-muted-foreground">Cargando amigos...</p>}
-                {(friendsList.data ?? []).map((friend) => <Link key={friend.friend_id} to="/perfil" search={{ userId: friend.friend_id }} onClick={() => setFriendsOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent"><Avatar className="size-10"><AvatarImage src={friend.avatar_url ?? ""} alt={safeText(friend.display_name, "Miembro")} /><AvatarFallback>{safeText(friend.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar><span className="text-sm font-medium">{safeText(friend.display_name, "Miembro")}</span></Link>)}
+                {(friendsList.data ?? []).map((friend) => <Link key={friend.friend_id} to="/perfil" search={{ userId: friend.friend_id }} onClick={() => setFriendsOpen(false)} className="flex items-center gap-3 rounded-xl p-2 hover:bg-accent"><span className="relative"><Avatar className="size-10"><AvatarImage src={friend.avatar_url ?? ""} alt={safeText(friend.display_name, "Miembro")} /><AvatarFallback>{safeText(friend.display_name, "M").slice(0, 1)}</AvatarFallback></Avatar><span className={`absolute bottom-0 right-0 size-3 rounded-full border-2 border-background ${onlineUserIds.includes(friend.friend_id) ? "bg-emerald-400" : "bg-zinc-500"}`} /></span><span className="min-w-0"><span className="block truncate text-sm font-medium">{safeText(friend.display_name, "Miembro")}</span><span className={`text-[10px] ${onlineUserIds.includes(friend.friend_id) ? "text-emerald-300" : "text-muted-foreground"}`}>{onlineUserIds.includes(friend.friend_id) ? "En línea" : "Desconectado"}</span></span></Link>)}
                 {!friendsList.isLoading && !friendsList.data?.length && <p className="py-6 text-center text-sm text-muted-foreground">Todavía no hay amigos activos.</p>}
               </div>
             </DialogContent>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Crown, Link2, LogOut, Moon, Sun, Trash2, Volume2 } from "lucide-react";
+import { Bell, Crown, Link2, LogOut, Moon, ShieldCheck, Sun, Trash2, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -151,6 +151,9 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => window.dispatchEvent(new Event("cupido:show-support-widget"))}>
+          <ShieldCheck className="size-4" /> Mostrar escudo de soporte
+        </Button>
         <Button asChild variant="secondary"><Link to="/tienda">Hacerme Premium</Link></Button>
         <Button variant="outline" onClick={() => { queryClient.clear(); toast.success("Caché local borrada."); }}>
           <Trash2 className="size-4" /> Borrar caché

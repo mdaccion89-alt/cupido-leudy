@@ -8,6 +8,7 @@ import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-butto
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
 import { canSendGift, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
@@ -97,6 +98,8 @@ export function LiveRoom({
     },
   });
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftType | null>(null);
+  const [giftCheckoutOpen, setGiftCheckoutOpen] = useState(false);
+  const [liveCheckoutPackageId, setLiveCheckoutPackageId] = useState<string | null>(null);
   const [giftPanelOpen, setGiftPanelOpen] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -115,6 +118,7 @@ export function LiveRoom({
   const [micMuted, setMicMuted] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [viewers, setViewers] = useState(0);
+  const [hostOnline, setHostOnline] = useState(false);
   const followed = useQuery({
     queryKey: ["cupido-live-follow", viewerId, hostId],
     enabled: role === "viewer" && viewerId !== hostId,
@@ -355,12 +359,15 @@ export function LiveRoom({
         .on("presence", { event: "sync" }, () => {
           const state = channel.presenceState<PresenceMeta>();
           const ids = new Set<string>();
+          let hostIsPresent = false;
           Object.values(state)
             .flat()
             .forEach((meta) => {
+              if (meta.role === "host" && meta.user_id === hostId) hostIsPresent = true;
               if (meta.role !== "host" && meta.user_id) ids.add(meta.user_id);
             });
           setViewers(ids.size);
+          setHostOnline(hostIsPresent);
         })
         .subscribe(async (status) => {
           if (status === "SUBSCRIBED") {
@@ -665,7 +672,7 @@ export function LiveRoom({
       toast.error(giftErrorMessage("GIFT_NOT_CONFIRMED", "El servidor no confirmó el envío. Intenta de nuevo."));
       return;
     }
-    account.refresh();
+    await account.refresh();
     setPendingGiftPurchase(null);
     setGiftAnimation({ id: Date.now(), emoji: gift.emoji, name: gift.name, sender: "Un espectador" });
     if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
@@ -694,6 +701,10 @@ export function LiveRoom({
     if (account.loading || account.balanceUnavailable) return;
     if (!canSendGift(gift, account)) {
       setPendingGiftPurchase(gift);
+      const shortage = Math.max(gift.credits - account.balance, account.hasPurchased ? 0 : 1);
+      const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+      setLiveCheckoutPackageId(pack?.id ?? null);
+      setGiftCheckoutOpen(true);
       return;
     }
     setPendingGiftPurchase(null);
@@ -803,8 +814,9 @@ export function LiveRoom({
             {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
             <VerifiedBadge granLiga={hostIsGranLiga} className="size-5" />
           </DialogTitle>
-          <DialogDescription className="flex items-center gap-3">
+          <DialogDescription className="flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
+            {role === "viewer" && <span className={`flex items-center gap-1 ${hostOnline ? "text-emerald-300" : "text-white/65"}`}><span className={`size-1.5 rounded-full ${hostOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />{hostOnline ? "En línea" : "Desconectado"}</span>}
             <span className="flex items-center gap-1"><CoinIcon className="size-3.5" /> Monedas brillantes activas</span>
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
@@ -974,30 +986,23 @@ export function LiveRoom({
                     <Button type="button" className="w-full" disabled={sendingGift} onClick={() => void sendGift(pendingGiftPurchase)}>
                       {sendingGift ? <Loader2 className="size-4 animate-spin" /> : <Gift className="size-4" />} Enviar {pendingGiftPurchase.name}
                     </Button>
-                  ) : paypalConfig.isLoading ? (
-                    <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando compra segura...</p>
-                  ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pack ? (
-                    <PayPalCheckoutButtons
-                      clientId={paypalConfig.data.clientId}
-                      packageId={pack.id}
-                      onSuccess={(credits) => {
-                        account.addPurchasedCredits(credits);
-                        void account.refresh();
-                        toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
-                      }}
-                      onError={(message) => toast.error(message)}
-                    />
                   ) : (
-                    <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
+                    <Button type="button" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={paypalConfig.isLoading || !paypalConfig.data?.configured} onClick={() => {
+                      setLiveCheckoutPackageId(pack?.id ?? null);
+                      setGiftCheckoutOpen(true);
+                    }}>
+                      {paypalConfig.isLoading ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                      Comprar monedas para este regalo
+                    </Button>
                   )}
                   {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
-                    <div className="space-y-2 rounded-xl border border-amber-300/30 bg-amber-400/[0.06] p-3">
-                      <p className="text-sm font-semibold text-amber-100">Diamante Gran Liga ? 1.000.000 monedas ? US$100</p>
-                      {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
-                    </div>
+                    <Button type="button" variant="outline" className="w-full whitespace-normal px-3 py-2.5 text-center leading-tight" disabled={!paypalConfig.data?.configured} onClick={() => {
+                      setLiveCheckoutPackageId("gran-liga-100");
+                      setGiftCheckoutOpen(true);
+                    }}>Ver paquete Diamante Gran Liga</Button>
                   )}
                   <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>
+                  <Button type="button" variant="ghost" className="w-full" onClick={() => { setPendingGiftPurchase(null); setGiftCheckoutOpen(false); }}>Volver a los regalos</Button>
                 </section>
               );
             })()}
@@ -1013,6 +1018,39 @@ export function LiveRoom({
             )}
           </div>
         )}
+        <Sheet open={giftCheckoutOpen} onOpenChange={setGiftCheckoutOpen}>
+          <SheetContent side="bottom" className="z-[90] max-h-[72vh] overflow-y-auto rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
+            <SheetHeader className="pr-8 text-left">
+              <SheetTitle className="text-white">Pago seguro del regalo</SheetTitle>
+              <SheetDescription>
+                {pendingGiftPurchase ? `Recarga para ${pendingGiftPurchase.name}. El regalo se enviará después de confirmar el pago.` : "Paga con PayPal o tarjeta."}
+              </SheetDescription>
+            </SheetHeader>
+            <div className="mt-4">
+              {paypalConfig.isLoading ? (
+                <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
+              ) : paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
+                <PayPalCheckoutButtons
+                  key={liveCheckoutPackageId}
+                  clientId={paypalConfig.data.clientId}
+                  packageId={liveCheckoutPackageId}
+                  onSuccess={(credits) => {
+                    account.addPurchasedCredits(credits);
+                    void account.refresh().then(() => {
+                      setGiftCheckoutOpen(false);
+                      toast.success(liveCheckoutPackageId === "gran-liga-100"
+                        ? "Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+                        : `${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase?.name ?? "El regalo"} está listo cuando quieras enviarlo.`);
+                    }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
+                  }}
+                  onError={(message) => toast.error(message)}
+                />
+              ) : (
+                <p className="text-center text-sm text-amber-100/80">PayPal Business Live no está configurado para completar el pago seguro.</p>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       </DialogContent>
     </Dialog>
   );

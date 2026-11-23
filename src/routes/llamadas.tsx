@@ -278,7 +278,7 @@ function CallsPage() {
               <Phone className="size-4" /> Abrir chat
             </Link>
           </Button>
-          <Button asChild variant="glass">
+          <Button asChild variant="glass" className="w-full max-w-full whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto">
             <Link to="/tienda">
               <ShoppingBag className="size-4" /> Comprar monedas brillantes
             </Link>

@@ -36,9 +36,9 @@ export function InviteButton({ userId, compact = false }: { userId: string; comp
   };
 
   return (
-    <Button variant={compact ? "outline" : "secondary"} className="gap-2" onClick={() => void copyLink()}>
+    <Button variant={compact ? "outline" : "secondary"} className="w-full max-w-full justify-center gap-2 whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto" onClick={() => void copyLink()}>
       {copied ? <Check className="size-4" /> : <UserPlus className="size-4" />}
-      {copied ? "¡Enlace copiado!" : compact ? "Invitar y ganar +200" : "Copiar / Compartir enlace de invitación"}
+      <span className="min-w-0">{copied ? "¡Enlace copiado!" : compact ? "Invitar y ganar +200" : "Copiar / Compartir enlace de invitación"}</span>
     </Button>
   );
 }
