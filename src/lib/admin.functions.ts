@@ -21,6 +21,24 @@ function assertSupremeAdmin({ claims }: AdminContext) {
   if (claims?.email?.trim().toLowerCase() !== ADMIN_EMAIL) throw new Error("Forbidden");
 }
 
+async function readAdminQuery<T>(
+  name: string,
+  query: () => PromiseLike<{ data: T | null; error: { message: string } | null }>,
+  fallback: T,
+): Promise<T> {
+  try {
+    const result = await query();
+    if (result.error) {
+      console.warn(`[admin] ${name} no disponible:`, result.error.message);
+      return fallback;
+    }
+    return result.data ?? fallback;
+  } catch (error) {
+    console.warn(`[admin] ${name} no disponible:`, error);
+    return fallback;
+  }
+}
+
 export type AdminSettings = {
   site_title: string;
   site_tagline: string;
@@ -35,38 +53,40 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await assertAdmin(context);
-    const { supabase } = context;
+    let dataClient = context.supabase;
+    try {
+      dataClient = getSupabaseServiceClient();
+    } catch (error) {
+      console.warn("[admin] Se usará la sesión autenticada para cargar el panel:", error);
+    }
     const [settings, profiles, credits, roles, creators, loginMetadata] = await Promise.all([
-      supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
-      supabase
-        .from("profiles")
+      readAdminQuery("settings", () => dataClient.from("site_settings").select("*").eq("id", 1).maybeSingle(), null),
+      readAdminQuery("profiles", () => dataClient.from("profiles")
         .select("id,email,display_name,full_name,plan,plan_expires_at,created_at,credits,credits_balance")
-        .order("created_at", { ascending: false })
-        .limit(200),
-      supabase.from("user_credits").select("user_id,balance,daily_reset_at"),
-      supabase.from("user_roles").select("user_id,role"),
-      supabase
-        .from("creator_profiles")
-        .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"),
-      (supabase as unknown as { from: (table: string) => any }).from("cupido_login_metadata")
-        .select("user_id,country_code,language_code,last_ip"),
+        .order("created_at", { ascending: false }).limit(200), []),
+      readAdminQuery("credits", () => dataClient.from("user_credits").select("user_id,balance,daily_reset_at"), []),
+      readAdminQuery("roles", () => dataClient.from("user_roles").select("user_id,role"), []),
+      readAdminQuery("creator profiles", () => dataClient.from("creator_profiles")
+        .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"), []),
+      readAdminQuery("login metadata", () => (dataClient as unknown as { from: (table: string) => any })
+        .from("cupido_login_metadata").select("user_id,country_code,language_code,last_ip"), []),
     ]);
     return {
-      settings: (settings.data ?? {}) as Partial<AdminSettings>,
-      users: (profiles.data ?? []).map((p) => ({
+      settings: (settings ?? {}) as Partial<AdminSettings>,
+      users: profiles.map((p) => ({
         ...p,
         balance:
-          credits.data?.find((c) => c.user_id === p.id)?.balance ??
+          credits.find((c) => c.user_id === p.id)?.balance ??
           p.credits_balance ??
           p.credits ??
           0,
-        roles: (roles.data ?? []).filter((r) => r.user_id === p.id).map((r) => r.role),
-        isOfficial: creators.data?.find((c) => c.id === p.id)?.is_official ?? false,
-        isVerified: creators.data?.find((c) => c.id === p.id)?.is_verified_blue ?? false,
-        followers: creators.data?.find((c) => c.id === p.id)?.follower_count ?? 0,
-        countryCode: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.country_code ?? "",
-        languageCode: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.language_code ?? "",
-        lastIp: loginMetadata.data?.find((row: { user_id: string }) => row.user_id === p.id)?.last_ip ?? null,
+        roles: roles.filter((r) => r.user_id === p.id).map((r) => r.role),
+        isOfficial: creators.find((c) => c.id === p.id)?.is_official ?? false,
+        isVerified: creators.find((c) => c.id === p.id)?.is_verified_blue ?? false,
+        followers: creators.find((c) => c.id === p.id)?.follower_count ?? 0,
+        countryCode: loginMetadata.find((row: { user_id: string }) => row.user_id === p.id)?.country_code ?? "",
+        languageCode: loginMetadata.find((row: { user_id: string }) => row.user_id === p.id)?.language_code ?? "",
+        lastIp: loginMetadata.find((row: { user_id: string }) => row.user_id === p.id)?.last_ip ?? null,
       })),
     };
   });

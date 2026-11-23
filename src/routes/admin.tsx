@@ -28,6 +28,16 @@ const moderationDb = supabase as unknown as {
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
 };
 
+const EMPTY_ADMIN_SETTINGS: AdminSettings = {
+  site_title: "Cupido Leudy",
+  site_tagline: "Personas reales, conexiones reales",
+  banner_text: "",
+  banner_image_url: "",
+  logo_url: "",
+  primary_color: "",
+  accent_color: "",
+};
+
 export const Route = createFileRoute("/admin")({
   head: () => ({ meta: [{ title: "Panel Admin Supremo — Cupido Leudy ❤️" }] }),
   component: AdminPage,
@@ -77,7 +87,7 @@ function AdminDashboard() {
     },
     onError: () => toast.error("No se pudo retirar la insignia."),
   });
-  const [settings, setSettings] = useState<AdminSettings | null>(null);
+  const [settings, setSettings] = useState<AdminSettings>(EMPTY_ADMIN_SETTINGS);
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const logoInput = useRef<HTMLInputElement>(null);
   const bannerInput = useRef<HTMLInputElement>(null);
@@ -88,13 +98,18 @@ function AdminDashboard() {
   const reports = useQuery({
     queryKey: ["cupido-admin", "reports"],
     queryFn: async () => {
-      const { data, error } = await moderationDb
-        .from("cupido_reports")
-        .select("id,reason,reported_id,reporter_id,reported_comment_id,reported_post_id,status,created_at")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await moderationDb
+          .from("cupido_reports")
+          .select("id,reason,reported_id,reporter_id,reported_comment_id,reported_post_id,status,created_at")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return data ?? [];
+      } catch (error) {
+        console.warn("[admin] No se pudieron cargar los reportes.", error);
+        return [];
+      }
     },
   });
 
@@ -116,12 +131,17 @@ function AdminDashboard() {
   const supportTickets = useQuery({
     queryKey: ["cupido-admin", "support-tickets"],
     queryFn: async () => {
-      const { data, error } = await moderationDb.from("cupido_support_tickets")
-        .select("id,user_id,subject,message,status,admin_reply,created_at,updated_at")
-        .in("status", ["open", "responded"])
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as Array<{ id: string; user_id: string; subject: string; message: string; status: string; admin_reply: string; created_at: string }>;
+      try {
+        const { data, error } = await moderationDb.from("cupido_support_tickets")
+          .select("id,user_id,subject,message,status,admin_reply,created_at,updated_at")
+          .in("status", ["open", "responded"])
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return (data ?? []) as Array<{ id: string; user_id: string; subject: string; message: string; status: string; admin_reply: string; created_at: string }>;
+      } catch (error) {
+        console.warn("[admin] No se pudieron cargar los tickets de soporte.", error);
+        return [];
+      }
     },
   });
 
@@ -164,15 +184,10 @@ function AdminDashboard() {
   });
 
   useEffect(() => {
-    if (snapshot.data?.settings?.site_title) {
+    if (snapshot.data) {
       setSettings({
-        site_title: snapshot.data.settings.site_title ?? "",
-        site_tagline: snapshot.data.settings.site_tagline ?? "",
-        banner_text: snapshot.data.settings.banner_text ?? "",
-        banner_image_url: snapshot.data.settings.banner_image_url ?? "",
-        logo_url: snapshot.data.settings.logo_url ?? "",
-        primary_color: snapshot.data.settings.primary_color ?? "",
-        accent_color: snapshot.data.settings.accent_color ?? "",
+        ...EMPTY_ADMIN_SETTINGS,
+        ...snapshot.data.settings,
       });
     }
   }, [snapshot.data]);
@@ -237,21 +252,7 @@ function AdminDashboard() {
     onError: () => toast.error("No se pudo guardar la identidad."),
   });
 
-  if (snapshot.isLoading)
-    return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Cargando datos…
-      </div>
-    );
-  if (snapshot.error || !snapshot.data || !settings) {
-    return (
-      <div className="flex min-h-screen items-center justify-center px-5 text-destructive">
-        No se pudo cargar el panel.
-      </div>
-    );
-  }
-
-  const users = snapshot.data.users;
+  const users = snapshot.data?.users ?? [];
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8">
@@ -266,6 +267,11 @@ function AdminDashboard() {
           </p>
         </div>
       </div>
+      {(snapshot.isLoading || snapshot.error) && (
+        <p className="mb-5 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80" role="status">
+          {snapshot.isLoading ? "Cargando estadísticas y usuarios… La configuración PayPal está disponible." : "Algunos datos de usuarios o estadísticas no están disponibles; puedes seguir usando el panel."}
+        </p>
+      )}
 
       <Tabs defaultValue="cupido">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">

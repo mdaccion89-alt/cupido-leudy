@@ -139,7 +139,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
           <Square className="size-3.5 fill-current" /> Detener y publicar ({secondsLeft}s)
         </Button>
       )}
-      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={recording ? "aspect-[9/16] max-h-[75dvh] w-full max-w-sm rounded-xl object-cover" : "hidden"} style={{ filter: mediaFilterCss(filter) }} />
+      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={`${recording ? "aspect-[9/16] max-h-[75dvh] w-full max-w-sm rounded-xl object-cover" : "hidden"} ${facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} style={{ filter: mediaFilterCss(filter) }} />
     </div>
   );
 }

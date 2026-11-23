@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CommunityPage } from "@/routes/comunidad";
+import { CommunityPage } from "@/components/cupido/community-page";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 
 export const Route = createFileRoute("/muro")({

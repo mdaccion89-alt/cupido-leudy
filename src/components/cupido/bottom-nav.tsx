@@ -98,6 +98,7 @@ export function BottomNav() {
   useEffect(() => {
     if (previousPath.current === pathname) return;
     previousPath.current = pathname;
+    if (/^\/(?:directo|admin|tienda|perfil)(?:\/|$)/.test(pathname)) return;
     if (![matchesVideos, matchesDiscover, matchesMessages, matchesProfile].some((match) => match(pathname))) return;
     tabChanges.current += 1;
     if (tabChanges.current < 4) return;

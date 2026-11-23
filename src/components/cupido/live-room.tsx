@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
+import { Ban, Check, CreditCard, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Link } from "@tanstack/react-router";
 import { useAccount } from "@/lib/account";
-import { showInterstitialAd } from "@/lib/admob";
 import { canSendGift, giftErrorMessage, type Gift as GiftType } from "@/lib/cupido";
 import { CREDIT_PACKAGES } from "@/lib/credits";
 import { loadPaypalClientId } from "@/lib/paypal-public";
@@ -114,6 +113,7 @@ export function LiveRoom({
   const [pkScores, setPkScores] = useState({ host: 0, challenger: 0 });
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [viewers, setViewers] = useState(0);
   const followed = useQuery({
     queryKey: ["cupido-live-follow", viewerId, hostId],
@@ -135,7 +135,6 @@ export function LiveRoom({
   const [pkSeconds, setPkSeconds] = useState(10);
   const expiredPkRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const moderationWarningShown = useRef(false);
   const moderationRequestPending = useRef(false);
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
@@ -176,13 +175,7 @@ export function LiveRoom({
         const { data, error } = await supabase.functions.invoke("cupido-live-moderation", {
           body: { room_id: roomId, image: canvas.toDataURL("image/jpeg", 0.55) },
         });
-        if (error) {
-          if (!moderationWarningShown.current) {
-            moderationWarningShown.current = true;
-            toast.error("La revisión automática del Live no está disponible. Configura GEMINI_API_KEY en Supabase.");
-          }
-          return;
-        }
+        if (error) return;
         if (data?.closed) {
           toast.error("El Live se cerró automáticamente por seguridad. El Administrador recibió el reporte.");
           onEnded();
@@ -242,7 +235,7 @@ export function LiveRoom({
       try {
         if (role === "host") {
           if (!initialStream) await requestNativeMediaPermissions();
-          const stream = initialStream ?? (await navigator.mediaDevices.getUserMedia({ video: true, audio: true }));
+          const stream = initialStream ?? (await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "user" } }, audio: true }));
           if (disposed) {
             stream.getTracks().forEach((track) => track.stop());
             return;
@@ -713,8 +706,43 @@ export function LiveRoom({
     setMicMuted(next);
   };
 
+  const flipLiveCamera = async () => {
+    const currentStream = localStreamRef.current;
+    if (!currentStream) return;
+    const nextFacingMode = facingMode === "user" ? "environment" : "user";
+    let replacement: MediaStream | null = null;
+    try {
+      await requestNativeMediaPermissions({ camera: true, microphone: false });
+      replacement = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacingMode } },
+        audio: false,
+      });
+      const nextTrack = replacement.getVideoTracks()[0];
+      if (!nextTrack) throw new Error("No se encontró la cámara solicitada.");
+      const actualFacingMode = nextTrack.getSettings().facingMode;
+      if (actualFacingMode && actualFacingMode !== nextFacingMode) {
+        throw new Error("Este dispositivo no encontró esa cámara.");
+      }
+
+      const oldTrack = currentStream.getVideoTracks()[0];
+      const senders = [...peersRef.current.values()].flatMap((peer) => peer.getSenders());
+      await Promise.all(senders.filter((sender) => sender.track?.kind === "video").map((sender) => sender.replaceTrack(nextTrack)));
+      if (oldTrack) {
+        currentStream.removeTrack(oldTrack);
+        oldTrack.stop();
+      }
+      currentStream.addTrack(nextTrack);
+      if (localVideoRef.current) localVideoRef.current.srcObject = currentStream;
+      setFacingMode(nextFacingMode);
+      replacement = null;
+    } catch (error) {
+      toast.error(mediaPermissionMessage(error) ?? (error instanceof Error ? error.message : "No se pudo cambiar la cámara."));
+    } finally {
+      replacement?.getTracks().forEach((track) => track.stop());
+    }
+  };
+
   const exitLive = () => {
-    void showInterstitialAd();
     onClose();
   };
 
@@ -722,7 +750,6 @@ export function LiveRoom({
     const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
     if (error) toast.error("No se pudo finalizar el Live.");
     else {
-      void showInterstitialAd();
       onEnded();
     }
   };
@@ -792,7 +819,7 @@ export function LiveRoom({
             playsInline
             webkit-playsinline="true"
             muted={role === "host" || liveMuted}
-            className="h-full w-full object-cover"
+            className={`h-full w-full object-cover ${role === "host" && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`}
           />
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
           {giftAnimation && (
@@ -817,6 +844,19 @@ export function LiveRoom({
           >
             {liveMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
           </Button>
+          {role === "host" && (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              aria-label={facingMode === "user" ? "Cambiar a cámara trasera" : "Cambiar a cámara frontal"}
+              title={facingMode === "user" ? "Cámara frontal" : "Cámara trasera"}
+              onClick={() => void flipLiveCamera()}
+              className="absolute right-14 top-3 rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+            >
+              <RefreshCw className="size-4" />
+            </Button>
+          )}
           <span className="absolute left-3 top-3 rounded-full bg-pink-600 px-2.5 py-1 text-xs font-bold text-white">
             ● EN VIVO
           </span>

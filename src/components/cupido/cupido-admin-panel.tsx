@@ -151,13 +151,18 @@ export function CupidoAdminPanel() {
     queryKey: ["cupido-admin", "withdrawals"],
     enabled: true,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cupido_withdrawals")
-        .select("id,user_id,amount,country_code,method,account_details,status,created_at")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as WithdrawalRow[];
+      try {
+        const { data, error } = await supabase
+          .from("cupido_withdrawals")
+          .select("id,user_id,amount,country_code,method,account_details,status,created_at")
+          .eq("status", "pending")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        return (data ?? []) as WithdrawalRow[];
+      } catch (error) {
+        console.warn("[admin] No se pudieron cargar los retiros pendientes.", error);
+        return [];
+      }
     },
   });
 

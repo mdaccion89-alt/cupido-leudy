@@ -13,6 +13,7 @@ let initialization: Promise<void> | null = null;
 let bannerShown = false;
 let interstitialLoad: Promise<boolean> | null = null;
 let interstitialReady = false;
+let interstitialShowing = false;
 let lastInterstitialAt = 0;
 let rouletteSkipsSinceInterstitial = 0;
 
@@ -77,11 +78,14 @@ function loadInterstitial(): Promise<boolean> {
 
 export async function showInterstitialAd(): Promise<boolean> {
   if (!isNativeAds()) return false;
+  if (/^\/(?:directo|admin|tienda|perfil)(?:\/|$)/.test(window.location.pathname)) return false;
+  if (interstitialShowing) return false;
   const now = Date.now();
   if (now - lastInterstitialAt < INTERSTITIAL_COOLDOWN_MS) return false;
-  const ready = await loadInterstitial();
-  if (!ready) return false;
+  interstitialShowing = true;
   try {
+    const ready = await loadInterstitial();
+    if (!ready) return false;
     await AdMob.showInterstitial();
     lastInterstitialAt = Date.now();
     interstitialReady = false;
@@ -90,6 +94,8 @@ export async function showInterstitialAd(): Promise<boolean> {
   } catch {
     interstitialReady = false;
     return false;
+  } finally {
+    interstitialShowing = false;
   }
 }
 
