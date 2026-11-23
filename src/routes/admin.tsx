@@ -10,6 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
@@ -180,6 +189,23 @@ function AdminDashboard() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: fetchAdminSnapshot });
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const users = snapshot.data?.users ?? [];
+  const selectedDeleteUser = users.find((user) => user.id === selectedUserId) ?? null;
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`admin-users-live-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
+
   const updateVerification = useMutation({
     mutationFn: async ({ userId, verified }: { userId: string; verified: boolean }) => {
       const { data, error } = await moderationDb.rpc("cupido_admin_set_user_verified", {
@@ -189,11 +215,30 @@ function AdminDashboard() {
       if (error) throw error;
       if (data !== true) throw new Error("No se pudo actualizar la insignia.");
     },
+    onMutate: async ({ userId, verified }) => {
+      await queryClient.cancelQueries({ queryKey: ["admin-snapshot"] });
+      const previousSnapshot = queryClient.getQueryData<AdminSnapshot>(["admin-snapshot"]);
+      queryClient.setQueryData<AdminSnapshot>(["admin-snapshot"], (current) => current
+        ? { ...current, users: current.users.map((user) => user.id === userId ? { ...user, isVerified: verified } : user) }
+        : current);
+      return { previousSnapshot };
+    },
     onSuccess: (_result, variables) => {
       toast.success(variables.verified ? "Insignia azul activada." : "Insignia azul retirada.");
       void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
     },
-    onError: () => toast.error("No se pudo actualizar la insignia."),
+    onError: (error, _variables, context) => {
+      if (context?.previousSnapshot) {
+        queryClient.setQueryData(["admin-snapshot"], context.previousSnapshot);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      }
+      const details = error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "Error desconocido de Supabase.";
+      console.error("[admin] No se pudo actualizar la insignia.", error);
+      toast.error(`No se pudo actualizar la insignia: ${details}`);
+    },
   });
   const deleteAccount = useMutation({
     mutationFn: async (userId: string) => {
@@ -202,6 +247,7 @@ function AdminDashboard() {
       if (data !== true) throw new Error("No se pudo eliminar la cuenta.");
     },
     onSuccess: () => {
+      setSelectedUserId(null);
       toast.success("Cuenta eliminada completamente.");
       void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
     },
@@ -398,8 +444,6 @@ function AdminDashboard() {
     onError: () => toast.error("No se pudo guardar el tema."),
   });
 
-  const users = snapshot.data?.users ?? [];
-
   return (
     <main className="mx-auto w-full max-w-6xl overflow-x-hidden px-5 py-10 sm:px-8">
       <div className="mb-8 flex items-center gap-3">
@@ -559,7 +603,11 @@ function AdminDashboard() {
             <h2 className="mb-4 font-semibold">Usuarios ({users.length})</h2>
             <div className="mb-4 space-y-3 md:hidden">
               {users.map((user) => (
-                <article key={user.id} className="flex w-full max-w-full min-w-0 flex-col gap-3 overflow-x-hidden rounded-2xl border border-border/70 bg-card p-4">
+                <article
+                  key={user.id}
+                  data-delete-selected={selectedUserId === user.id}
+                  className="flex w-full max-w-full min-w-0 flex-col gap-3 overflow-x-hidden rounded-2xl border border-border/70 bg-card p-4 data-[delete-selected=true]:ring-2 data-[delete-selected=true]:ring-destructive"
+                >
                   <div className="min-w-0">
                     <p className="break-words font-semibold text-foreground">{user.display_name || user.email || "Artista"}</p>
                     <p className="break-all text-xs text-muted-foreground">{user.email || "Sin correo"}</p>
@@ -575,7 +623,7 @@ function AdminDashboard() {
                     <Button className="w-full" variant={user.isVerified ? "destructive" : "outline"} disabled={updateVerification.isPending} onClick={() => updateVerification.mutate({ userId: user.id, verified: !user.isVerified })}>
                       {user.isVerified ? "Quitar insignia azul" : "Dar insignia azul"}
                     </Button>
-                    <Button className="w-full" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => deleteAccount.mutate(user.id)}>
+                    <Button className="w-full" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => setSelectedUserId(user.id)}>
                       <Trash2 className="size-4" /> Eliminar cuenta
                     </Button>
                   </div>
@@ -658,7 +706,7 @@ function AdminDashboard() {
                         <Button size="sm" variant={user.isVerified ? "destructive" : "outline"} disabled={updateVerification.isPending} onClick={() => updateVerification.mutate({ userId: user.id, verified: !user.isVerified })}>
                           {user.isVerified ? "Quitar insignia azul" : "Dar insignia azul"}
                         </Button>
-                        <Button size="sm" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => deleteAccount.mutate(user.id)}>
+                        <Button size="sm" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => setSelectedUserId(user.id)}>
                           <Trash2 className="size-4" /> Eliminar cuenta
                         </Button>
                         <Input
@@ -803,6 +851,39 @@ function AdminDashboard() {
         </TabsContent>
 
       </Tabs>
+      <AlertDialog
+        open={selectedUserId !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteAccount.isPending) setSelectedUserId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar eliminación de cuenta</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedDeleteUser
+                ? `Vas a eliminar la cuenta de ${selectedDeleteUser.display_name || selectedDeleteUser.full_name || "este usuario"} (${selectedDeleteUser.email || "sin correo"}). Esta acción no se puede deshacer.`
+                : "No se encontró la cuenta seleccionada. Cierra esta ventana y vuelve a intentarlo."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteAccount.isPending}>Cancelar</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteAccount.isPending || !selectedDeleteUser}
+              onClick={() => {
+                if (selectedDeleteUser && selectedUserId === selectedDeleteUser.id) {
+                  deleteAccount.mutate(selectedDeleteUser.id);
+                }
+              }}
+            >
+              {deleteAccount.isPending ? <Loader2 className="animate-spin" /> : <Trash2 className="size-4" />}
+              Eliminar esta cuenta
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

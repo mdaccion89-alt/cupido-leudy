@@ -231,7 +231,11 @@ export function CupidoAdminPanel() {
       toast.success(variables.approve ? "Insignia azul aprobada." : "Verificación rechazada.");
       invalidate();
     },
-    onError: () => toast.error("No se pudo revisar la verificación."),
+    onError: (error) => {
+      console.error("[admin] No se pudo revisar la verificación.", error);
+      const details = error && typeof error === "object" && "message" in error ? String(error.message) : "Error desconocido de Supabase.";
+      toast.error(`No se pudo revisar la verificación: ${details}`);
+    },
   });
 
   const reviewVerificationVideo = useMutation({
