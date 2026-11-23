@@ -821,10 +821,12 @@ export type Database = {
       Row: {
         callee_id: string;
         caller_id: string;
+        cash_earned: number;
         minute_price: number;
         created_at: string;
         credits_spent: number;
         id: string;
+        live_room_id: string | null;
         mode: string;
         status: string;
         video: boolean;
@@ -832,10 +834,12 @@ export type Database = {
       Insert: {
         callee_id: string;
         caller_id: string;
+        cash_earned?: number;
         minute_price?: number;
         created_at?: string;
         credits_spent?: number;
         id?: string;
+        live_room_id?: string | null;
         mode: string;
         status?: string;
         video?: boolean;
@@ -843,10 +847,12 @@ export type Database = {
       Update: {
         callee_id?: string;
         caller_id?: string;
+        cash_earned?: number;
         minute_price?: number;
         created_at?: string;
         credits_spent?: number;
         id?: string;
+        live_room_id?: string | null;
         mode?: string;
         status?: string;
         video?: boolean;
@@ -938,6 +944,7 @@ export type Database = {
         credits: number;
         gift_id: string;
         id: string;
+        live_room_id: string | null;
         receiver_id: string;
         sender_id: string;
       };
@@ -947,6 +954,7 @@ export type Database = {
         credits: number;
         gift_id: string;
         id?: string;
+        live_room_id?: string | null;
         receiver_id: string;
         sender_id: string;
       };
@@ -956,6 +964,7 @@ export type Database = {
         credits?: number;
         gift_id?: string;
         id?: string;
+        live_room_id?: string | null;
         receiver_id?: string;
         sender_id?: string;
       };
@@ -1328,6 +1337,10 @@ export type Database = {
       cupido_claim_daily_reward: { Args: never; Returns: Json };
       cupido_claim_ad_reward: { Args: { _user_id: string }; Returns: Json };
       cupido_get_my_gift_balance: { Args: never; Returns: number };
+      cupido_get_live_earnings: {
+        Args: { _room: string };
+        Returns: { received_coins: number; usd_value: number }[];
+      };
       cupido_set_live_call_minute_price: { Args: { _price: number; _room: string }; Returns: number };
       cupido_submit_face_verification_selfie: { Args: { _selfie_path: string }; Returns: undefined };
       cupido_public_paypal_client_id: { Args: never; Returns: string };

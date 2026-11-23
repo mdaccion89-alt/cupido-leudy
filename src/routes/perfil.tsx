@@ -622,6 +622,27 @@ function ProfilePage() {
               </Button>
             )}
           </div>
+
+          {own && !isAdmin && (
+            <div className="mt-4">
+              {creator?.verification_status === "pending" ? (
+                <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-100">Solicitud de insignia: En aprobación.</p>
+              ) : !verified ? (
+                <>
+                  {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa al menos 6 de estos 7 datos: foto, nombre completo, fecha de nacimiento (18+), país, teléfono, biografía y encuesta. La biografía puede quedar vacía.</p>}
+                  <Button type="button" onClick={() => setVerificationOpen(true)} disabled={!verificationEligible}>
+                    Solicitar insignia verificada
+                  </Button>
+                  <Dialog open={verificationOpen} onOpenChange={setVerificationOpen}>
+                    <DialogContent className="max-w-sm">
+                      <DialogHeader><DialogTitle>Solicitar insignia verificada</DialogTitle></DialogHeader>
+                      <FaceSelfieVerification onComplete={(selfie) => liveVerification.mutateAsync(selfie)} />
+                    </DialogContent>
+                  </Dialog>
+                </>
+              ) : null}
+            </div>
+          )}
           <LegalLinks className="mt-5 justify-start" />
 
           {own && editing && (
@@ -733,27 +754,6 @@ function ProfilePage() {
                   }}
                 />
               </div>
-            </div>
-          )}
-
-          {own && !isAdmin && (
-            <div className="mt-6">
-              {creator?.verification_status === "pending" ? (
-                <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-100">Solicitud de insignia: En aprobación.</p>
-              ) : !verified ? (
-                <>
-                  {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa al menos 6 de estos 7 datos: foto, nombre completo, fecha de nacimiento (18+), país, teléfono, biografía y encuesta. La biografía puede quedar vacía.</p>}
-                  <Button type="button" onClick={() => setVerificationOpen(true)} disabled={!verificationEligible}>
-                    Solicitar insignia verificada
-                  </Button>
-                  <Dialog open={verificationOpen} onOpenChange={setVerificationOpen}>
-                    <DialogContent className="max-w-sm">
-                      <DialogHeader><DialogTitle>Solicitar insignia verificada</DialogTitle></DialogHeader>
-                      <FaceSelfieVerification onComplete={(selfie) => liveVerification.mutateAsync(selfie)} />
-                    </DialogContent>
-                  </Dialog>
-                </>
-              ) : null}
             </div>
           )}
 

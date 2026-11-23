@@ -100,12 +100,16 @@ export function LiveRoom({
     },
   });
   const liveEarnings = useQuery({
-    queryKey: ["cupido-live-earnings", hostId],
-    enabled: role === "host",
+    queryKey: ["cupido-live-earnings", roomId],
+    enabled: Boolean(roomId),
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("cupido_get_my_gift_balance");
+      const { data, error } = await supabase.rpc("cupido_get_live_earnings", { _room: roomId });
       if (error) throw error;
-      return Number(data ?? 0);
+      const summary = data?.[0];
+      return {
+        coins: Number(summary?.received_coins ?? 0),
+        usd: Number(summary?.usd_value ?? 0),
+      };
     },
   });
   const updatePrivateCallPrice = useMutation({
@@ -362,9 +366,12 @@ export function LiveRoom({
 
     const giftChannel = supabase
       .channel(`cupido-live-gifts-${roomId}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "earnings-updated" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
+      })
       .on("broadcast", { event: "gift" }, ({ payload }) => {
         const gift = payload as { emoji?: unknown; name?: unknown; sender?: unknown; points?: unknown; side?: unknown };
-        if (role === "host" && gift.side === "host") void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", hostId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
         const next: GiftAnimation = {
           id: Date.now(),
           emoji: typeof gift.emoji === "string" ? gift.emoji : "🎁",
@@ -706,7 +713,7 @@ export function LiveRoom({
       return;
     }
     setSendingGift(true);
-    const { data: sendId, error } = await supabase.rpc("cupido_send_live_gift", {
+    const { error } = await supabase.rpc("cupido_send_live_gift", {
       _room: roomId,
       _receiver: hostId,
       _gift_id: gift.id,
@@ -715,14 +722,11 @@ export function LiveRoom({
     });
     setSendingGift(false);
     if (error) {
-      toast.error(giftErrorMessage(error?.message ?? "", "El servidor no confirmó el envío. Intenta de nuevo."));
-      return;
-    }
-    if (typeof sendId !== "string" || !sendId) {
-      toast.error(giftErrorMessage("GIFT_NOT_CONFIRMED", "El servidor no confirmó el envío. Intenta de nuevo."));
+      toast.error(giftErrorMessage(error?.message ?? "", "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
       return;
     }
     await account.refresh();
+    void queryClient.invalidateQueries({ queryKey: ["cupido-live-earnings", roomId] });
     setPendingGiftPurchase(null);
     setGiftPanelOpen(false);
     setGiftCheckoutOpen(false);
@@ -859,26 +863,30 @@ export function LiveRoom({
 
   return (
     <Dialog open onOpenChange={(open) => !open && exitLive()}>
-      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white sm:!max-w-md">
+      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-10 text-white sm:!max-w-md">
         <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-w-[72vw] rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
           <DialogTitle className="flex items-center gap-2">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
             <Radio className="size-5 animate-pulse text-pink-400" />
             {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
+            <span className="shrink-0 rounded-full bg-pink-600 px-2 py-0.5 text-[10px] font-bold text-white">EN VIVO</span>
             <VerifiedBadge granLiga={hostIsGranLiga} className="size-5" />
           </DialogTitle>
           <DialogDescription className="flex flex-wrap items-center gap-3">
             <span className="flex items-center gap-1"><Users className="size-3.5" /> {viewers} viendo</span>
             {role === "viewer" && <span className={`flex items-center gap-1 ${hostOnline ? "text-emerald-300" : "text-white/65"}`}><span className={`size-1.5 rounded-full ${hostOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />{hostOnline ? "En línea" : "Desconectado"}</span>}
             <span className="flex items-center gap-1"><CoinIcon className="size-3.5" /> Monedas brillantes activas</span>
-            {role === "host" && <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-amber-100">Regalos recibidos: US${(liveEarnings.data ?? 0).toFixed(2)}</span>}
+            <span className="inline-flex flex-col rounded-xl border border-amber-300/25 bg-amber-400/10 px-2.5 py-1 text-amber-100" aria-live="polite">
+              <span className="text-xs font-semibold">{liveEarnings.isError ? "—" : (liveEarnings.data?.coins ?? 0).toLocaleString("es")} monedas recibidas</span>
+              <span className="text-[10px]">≈ US${liveEarnings.isError ? "—" : (liveEarnings.data?.usd ?? 0).toFixed(2)} USD</span>
+            </span>
             {role === "viewer" && <span className="rounded-full border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-amber-100">Privada: {privateCallPrice.data ?? 50} monedas/min</span>}
             {role === "viewer" && <Button type="button" size="sm" variant="outline" onClick={() => void toggleFollow()} className="h-7 gap-1 rounded-full border-white/30 bg-black/40 px-2 text-white">{followed.data ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}{followed.data ? "Siguiendo" : "Seguir"}</Button>}
             {!ready && <Loader2 className="size-3.5 animate-spin" />}
           </DialogDescription>
         </DialogHeader>
         {role === "host" && !activePkName && (
-          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+5.5rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
+          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
             Precio privado/min
             <select
               aria-label="Precio por minuto de llamada privada"
@@ -892,7 +900,7 @@ export function LiveRoom({
           </label>
         )}
         {activePkName && (
-          <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+5.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
+          <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+8.5rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
               <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {pkScores.host.toLocaleString("es")}</span>
               <Swords className="size-4 shrink-0 text-amber-300" />
@@ -944,14 +952,11 @@ export function LiveRoom({
               aria-label={facingMode === "user" ? "Cambiar a cámara trasera" : "Cambiar a cámara frontal"}
               title={facingMode === "user" ? "Cámara frontal" : "Cámara trasera"}
               onClick={() => void flipLiveCamera()}
-              className="absolute right-14 top-3 rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+              className="absolute right-14 top-[calc(env(safe-area-inset-top)+0.75rem)] rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
             >
               <RefreshCw className="size-4" />
             </Button>
           )}
-          <span className="absolute left-3 top-3 rounded-full bg-pink-600 px-2.5 py-1 text-xs font-bold text-white">
-            ● EN VIVO
-          </span>
         </div>
         <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-20 flex flex-col gap-2">
           {role === "viewer" && <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="rounded-full border-pink-300/50 bg-pink-600/80 text-white"><Heart className="size-4 fill-current" /></Button>}
@@ -993,7 +998,7 @@ export function LiveRoom({
             {!activePkName && pkRequestStatus === "pending" && <span className="text-xs text-violet-200">Esperando respuesta del anfitrión</span>}
           </section>
         )}
-        <section className="absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-3 z-20 w-[min(70vw,26rem)] rounded-2xl border border-white/15 bg-black/45 p-2.5 backdrop-blur-md" aria-label="Chat en vivo">
+        <section className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-3 z-20 w-[min(70vw,26rem)] rounded-2xl border border-white/15 bg-black/45 p-2.5 backdrop-blur-md" aria-label="Chat en vivo">
           <h3 className="mb-1 flex items-center gap-2 font-display text-xs text-white">
             <MessageCircle className="size-4 text-pink-300" /> Chat del directo
           </h3>

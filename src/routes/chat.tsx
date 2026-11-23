@@ -902,14 +902,13 @@ function ChatPage() {
             ? "No tienes monedas brillantes suficientes."
             : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
         );
-      const { data: sendId, error } = await supabase.rpc("cupido_send_gift", {
+      const { error } = await supabase.rpc("cupido_send_gift", {
         _receiver: activeConversation.other.id,
         _gift_id: gift.id,
         _credits: gift.credits,
         _cash_value: gift.cash,
       });
       if (error) throw error;
-      if (typeof sendId !== "string" || !sendId) throw new Error("GIFT_NOT_CONFIRMED");
       return activeConversation.other.id;
     },
     onSuccess: (receiverId) => {
@@ -921,7 +920,7 @@ function ChatPage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) =>
-      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "El servidor no confirmó el envío. Actualiza la página e inténtalo otra vez.")),
+      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez.")),
   });
 
   const selectGift = (gift: GiftItem) => {
