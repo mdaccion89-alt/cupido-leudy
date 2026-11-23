@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
-import { GlowingEmojiOverlay, parseEmojiOverlay } from "@/components/cupido/glowing-emoji-picker";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,10 +34,6 @@ type TikTokFeedProps = { initialPostId?: string | undefined };
 
 type SharePerson = { id: string; display_name: string };
 
-const StoryFeed = lazy(async () => {
-  const module = await import("@/components/cupido/story-feed");
-  return { default: module.StoryFeed };
-});
 const WallFeed = lazy(async () => {
   const module = await import("@/components/cupido/wall-feed");
   return { default: module.WallFeed };
@@ -478,7 +473,6 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 className="absolute inset-0 h-full w-full bg-black object-cover"
                 style={{ filter: mediaFilterCss(post.filter_name) }}
               />
-              <GlowingEmojiOverlay emojis={parseEmojiOverlay(post.emoji_overlay)} />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/85" />
               {playFeedback?.postId === post.id && (
                 <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white shadow-xl backdrop-blur-sm" aria-hidden="true">
@@ -558,7 +552,6 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       </div>
 
       <div className="pointer-events-auto absolute inset-x-3 top-[calc(env(safe-area-inset-top)+3.8rem)] z-25 mx-auto max-w-md">
-        <Suspense fallback={null}><StoryFeed compact /></Suspense>
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">

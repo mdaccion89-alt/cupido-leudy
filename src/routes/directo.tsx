@@ -83,11 +83,13 @@ function DirectPage() {
     queryKey: ["cupido-direct-streams", viewerId],
     queryFn: async (): Promise<StreamRow[]> => {
       try {
+        await supabase.rpc("cupido_end_stale_lives");
         const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
         const { data: liveRows, error } = await supabase
           .from("live_streams")
           .select("id,host_id,title,viewers_count,started_at,status,premium_coins,premium_minutes,premium_ends_at")
           .eq("status", "live")
+          .neq("host_id", viewerId ?? "00000000-0000-0000-0000-000000000000")
           .order("started_at", { ascending: false });
         if (error) {
           console.error("[directo] No se pudieron cargar los Directos activos.", error);
@@ -127,6 +129,7 @@ function DirectPage() {
       }
     },
     staleTime: 0,
+    refetchInterval: 20_000,
     retry: 2,
   });
 

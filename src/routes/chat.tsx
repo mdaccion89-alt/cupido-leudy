@@ -878,7 +878,7 @@ function ChatPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-3 py-4 sm:px-6 sm:py-8">
+    <main className="mx-auto flex h-full min-h-0 w-full max-w-none flex-col overflow-hidden px-3 py-2 sm:px-5">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-2xl text-white sm:text-3xl">Chat</h1>
@@ -895,8 +895,8 @@ function ChatPage() {
         </div>
       </div>
 
-      <div className="grid min-w-0 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
-        <aside className={`${mobileShowChat ? "hidden" : "block"} max-h-[calc(100dvh-15rem)] overflow-y-auto border-b border-white/10 md:block lg:max-h-[70vh] lg:border-b-0 lg:border-r`}>
+      <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] lg:grid-cols-[320px_1fr]">
+        <aside className={`${mobileShowChat ? "hidden" : "block"} h-full min-h-0 overflow-y-auto border-b border-white/10 md:block lg:border-b-0 lg:border-r`}>
           <div className="border-b border-white/10 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Conversaciones
           </div>
@@ -948,7 +948,7 @@ function ChatPage() {
           ))}
         </aside>
 
-        <section className={`${mobileShowChat ? "flex" : "hidden md:flex"} min-h-[calc(100dvh-15rem)] min-w-0 flex-col md:min-h-[60vh]`}>
+        <section className={`${mobileShowChat ? "flex" : "hidden md:flex"} h-full min-h-0 min-w-0 flex-col`}>
           {activeConversation ? (
             <>
               <header className="flex min-w-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-3 sm:gap-3 sm:px-4">

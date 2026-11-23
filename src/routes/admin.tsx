@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
+import { Check, Loader2, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { CupidoAdminPanel } from "@/components/cupido/cupido-admin-panel";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
+import { adminDeleteUser, adminSetUserVerified } from "@/lib/admin.functions";
 
 const moderationDb = supabase as unknown as {
   from: (table: string) => any;
@@ -29,6 +31,7 @@ type AdminSettings = {
   logo_url: string;
   primary_color: string;
   accent_color: string;
+  theme_preset: "cafe" | "dark" | "rosa" | "neon";
 };
 
 type AdminUser = {
@@ -56,6 +59,12 @@ type AdminSnapshot = {
 
 async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
   const warnings: string[] = [];
+  type ProfileRow = {
+    id: string; email: string | null; display_name: string | null; full_name: string | null;
+    plan: string | null; credits_balance: number | null; credits: number | null;
+  };
+  type CreatorRow = { id: string; is_official: boolean | null; is_verified_blue: boolean | null; follower_count: number | null };
+  type LoginMetadataRow = { user_id: string; country_code: string | null; language_code: string | null; last_ip: string | null };
   const read = async <T,>(name: string, query: () => Promise<{ data: T | null; error: { message: string } | null }>, fallback: T) => {
     try {
       const result = await query();
@@ -76,13 +85,13 @@ async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     read("la configuración", () => moderationDb.from("site_settings").select("*").eq("id", 1).maybeSingle(), null),
     read("los usuarios", () => moderationDb.from("profiles")
       .select("id,email,display_name,full_name,plan,plan_expires_at,created_at,credits,credits_balance")
-      .order("created_at", { ascending: false }).limit(200), [] as Array<Record<string, any>>),
+      .order("created_at", { ascending: false }).limit(200), [] as ProfileRow[]),
     read("los saldos", () => moderationDb.from("user_credits").select("user_id,balance,daily_reset_at"), [] as Array<{ user_id: string; balance: number | null }>),
     read("los roles", () => moderationDb.from("user_roles").select("user_id,role"), [] as Array<{ user_id: string; role: string }>),
     read("los perfiles de creador", () => moderationDb.from("creator_profiles")
-      .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"), [] as Array<Record<string, any>>),
+      .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"), [] as CreatorRow[]),
     read("los datos de inicio de sesión", () => moderationDb.from("cupido_login_metadata")
-      .select("user_id,country_code,language_code,last_ip"), [] as Array<Record<string, any>>),
+      .select("user_id,country_code,language_code,last_ip"), [] as LoginMetadataRow[]),
     read("el total de usuarios", async () => {
       const result = await moderationDb.from("profiles").select("id", { count: "exact", head: true });
       return { data: result.count ?? 0, error: result.error };
@@ -135,6 +144,7 @@ const EMPTY_ADMIN_SETTINGS: AdminSettings = {
   logo_url: "",
   primary_color: "",
   accent_color: "",
+  theme_preset: "cafe",
 };
 
 export const Route = createFileRoute("/admin")({
@@ -169,18 +179,32 @@ function AdminPage() {
 }
 
 function AdminDashboard() {
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: fetchAdminSnapshot });
-  const removeBadge = useMutation({
-    mutationFn: async (userId: string) => {
-      const { error } = await moderationDb.rpc("cupido_admin_remove_badge", { _user: userId });
-      if (error) throw error;
+  const setUserVerified = useServerFn(adminSetUserVerified);
+  const deleteUser = useServerFn(adminDeleteUser);
+  const updateVerification = useMutation({
+    mutationFn: async ({ userId, verified }: { userId: string; verified: boolean }) => {
+      const result = await setUserVerified({ data: { userId, verified } });
+      if (!result.ok) throw new Error("No se pudo actualizar la insignia.");
     },
-    onSuccess: () => {
-      toast.success("Insignia azul retirada.");
+    onSuccess: (_result, variables) => {
+      toast.success(variables.verified ? "Insignia azul activada." : "Insignia azul retirada.");
       void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
     },
-    onError: () => toast.error("No se pudo retirar la insignia."),
+    onError: () => toast.error("No se pudo actualizar la insignia."),
+  });
+  const deleteAccount = useMutation({
+    mutationFn: async (userId: string) => {
+      const result = await deleteUser({ data: { userId } });
+      if (!result.ok) throw new Error("No se pudo eliminar la cuenta.");
+    },
+    onSuccess: () => {
+      toast.success("Cuenta eliminada completamente.");
+      void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo eliminar la cuenta."),
   });
   const [settings, setSettings] = useState<AdminSettings>(EMPTY_ADMIN_SETTINGS);
   const [uploadingAsset, setUploadingAsset] = useState(false);
@@ -348,6 +372,7 @@ function AdminDashboard() {
         logo_url: value.logo_url,
         primary_color: value.primary_color,
         accent_color: value.accent_color,
+        theme_preset: value.theme_preset,
       }).eq("id", 1);
       if (error) throw error;
     },
@@ -356,6 +381,20 @@ function AdminDashboard() {
       toast.success("Identidad actualizada.");
     },
     onError: () => toast.error("No se pudo guardar la identidad."),
+  });
+
+  const saveThemePreset = useMutation({
+    mutationFn: async (theme_preset: AdminSettings["theme_preset"]) => {
+      const { error } = await moderationDb.from("site_settings").update({ theme_preset }).eq("id", 1);
+      if (error) throw error;
+      return theme_preset;
+    },
+    onSuccess: (theme_preset) => {
+      setSettings((current) => ({ ...current, theme_preset }));
+      void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      toast.success("Tema principal actualizado.");
+    },
+    onError: () => toast.error("No se pudo guardar el tema."),
   });
 
   const users = snapshot.data?.users ?? [];
@@ -400,6 +439,20 @@ function AdminDashboard() {
         <TabsContent value="identidad" className="mt-6">
           <section className="panel grain space-y-5 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Tema principal de la app">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ["cafe", "Blanco limpio · Cafe"],
+                    ["dark", "Oscuro elegante"],
+                    ["rosa", "Rosa Cupido"],
+                    ["neon", "Morado Neón"],
+                  ] as const).map(([value, label]) => (
+                    <Button key={value} type="button" variant={settings.theme_preset === value ? "hero" : "outline"} disabled={saveThemePreset.isPending} onClick={() => saveThemePreset.mutate(value)}>
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </Field>
               <Field label="Título del sitio">
                 <Input
                   value={settings.site_title}
@@ -535,7 +588,12 @@ function AdminDashboard() {
                     </td>
                     <td>
                       <div className="flex items-center gap-1">
-                        {user.isVerified && <Button size="sm" variant="destructive" disabled={removeBadge.isPending} onClick={() => removeBadge.mutate(user.id)}>Quitar insignia</Button>}
+                        <Button size="sm" variant={user.isVerified ? "destructive" : "outline"} disabled={updateVerification.isPending} onClick={() => updateVerification.mutate({ userId: user.id, verified: !user.isVerified })}>
+                          {user.isVerified ? "Quitar insignia azul" : "Dar insignia azul"}
+                        </Button>
+                        <Button size="sm" variant="destructive" disabled={deleteAccount.isPending || user.id === session?.user.id} onClick={() => deleteAccount.mutate(user.id)}>
+                          <Trash2 className="size-4" /> Eliminar cuenta
+                        </Button>
                         <Input
                           type="number"
                           className="h-9 w-20"

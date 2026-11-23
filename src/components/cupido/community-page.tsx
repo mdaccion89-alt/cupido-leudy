@@ -5,7 +5,6 @@ import { Search, SlidersHorizontal, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
 import { WallFeed } from "@/components/cupido/wall-feed";
-import { StoryFeed } from "@/components/cupido/story-feed";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -130,7 +129,10 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const activeLives = useQuery({
     queryKey: ["cupido-discovery-live-streams"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("live_streams").select("id,host_id,viewers_count").eq("status", "live").order("started_at", { ascending: false }).limit(40);
+      await supabase.rpc("cupido_end_stale_lives");
+      let query = supabase.from("live_streams").select("id,host_id,viewers_count").eq("status", "live").order("started_at", { ascending: false }).limit(40);
+      if (viewerId) query = query.neq("host_id", viewerId);
+      const { data, error } = await query;
       if (error) {
         console.warn("[comunidad] No se pudo cargar la lista de Lives activos.", error);
         return [];
@@ -138,6 +140,7 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
       return data ?? [];
     },
     staleTime: 0,
+    refetchInterval: 20_000,
   });
   const livePresenceCounts = useLivePresenceCounts(activeLives.data?.map((live) => live.id) ?? []);
 
@@ -205,7 +208,9 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
     () =>
       (people.data ?? []).filter((person) =>
         person.id === viewerId || (!relations.data?.passed.has(person.id) && !optimisticPasses.includes(person.id)),
-      ).map((person) => ({
+      ).map((person) => {
+        const live = activeLives.data?.find((stream) => stream.host_id === person.id);
+        return ({
         id: person.id,
         display_name: person.display_name?.trim() || (person.is_official_profile ? "Cupido Leudy Cuenta Oficial" : "Miembro"),
         avatar_url: person.avatar_url ?? "",
@@ -222,12 +227,8 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
         follower_count: person.follower_count ?? 0,
         survey_completed: Boolean(person.survey_completed),
         isOnline: onlineUserIds.includes(person.id),
-        live_id: activeLives.data?.find((live) => live.host_id === person.id)?.id,
-        live_viewers: (() => {
-          const live = activeLives.data?.find((stream) => stream.host_id === person.id);
-          return live ? livePresenceCounts[live.id] ?? live.viewers_count : undefined;
-        })(),
-      })),
+        ...(live ? { live_id: live.id, live_viewers: livePresenceCounts[live.id] ?? live.viewers_count } : {}),
+      }); }),
     [people.data, relations.data?.passed, optimisticPasses, viewerId, activeLives.data, livePresenceCounts, onlineUserIds],
   );
 
@@ -381,7 +382,6 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
           <h2 className="font-display text-2xl text-white">Muro público</h2>
           <p className="mt-1 text-sm text-muted-foreground">Sube una foto o video y descubre las publicaciones nuevas de la comunidad.</p>
         </div>
-        <StoryFeed compact />
         <WallFeed
           highlightPostId={highlightPostId}
           searchTerm={searchTerm || search}

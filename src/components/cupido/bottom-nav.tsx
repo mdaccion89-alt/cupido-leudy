@@ -32,7 +32,7 @@ const NAV_ITEMS = [
 
 const SHORTCUTS = [
   { to: "/muro", label: "Muro", match: (path: string) => path.startsWith("/muro") },
-  { to: "/historia", label: "Historias 24h", match: (path: string) => path.startsWith("/historia") },
+  { to: "/historia", label: "Historias", match: (path: string) => path.startsWith("/historia") },
   { to: "/descubrir", label: "Conexiones", match: (path: string) => path.startsWith("/comunidad") || path.startsWith("/descubrir") || path.startsWith("/siguiendo") },
 ] as const;
 

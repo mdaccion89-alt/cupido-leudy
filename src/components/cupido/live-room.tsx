@@ -26,7 +26,7 @@ type LiveRoomProps = {
   roomId: string;
   hostId: string;
   hostName: string;
-  hostAvatar?: string;
+  hostAvatar?: string | undefined;
   hostIsGranLiga?: boolean;
   viewerId: string;
   role: "host" | "viewer";
@@ -157,6 +157,16 @@ export function LiveRoom({
     }, remaining);
     return () => window.clearTimeout(timer);
   }, [onEnded, premiumEndsAt, role, roomId]);
+
+  useEffect(() => {
+    if (role !== "host") return;
+    const sendHeartbeat = () => {
+      void supabase.rpc("cupido_live_heartbeat", { _room: roomId });
+    };
+    sendHeartbeat();
+    const heartbeat = window.setInterval(sendHeartbeat, 15_000);
+    return () => window.clearInterval(heartbeat);
+  }, [role, roomId]);
 
   useEffect(() => {
     if (role !== "host" || premiumEndsAt) return;

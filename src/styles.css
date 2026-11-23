@@ -127,28 +127,37 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --background: oklch(0.975 0.012 78);
-  --foreground: oklch(0.24 0.022 55);
-  --surface: oklch(0.995 0.008 78);
-  --surface-raised: oklch(0.95 0.015 75);
-  --card: oklch(0.995 0.008 78);
-  --card-foreground: oklch(0.24 0.022 55);
-  --popover: oklch(0.995 0.008 78);
-  --popover-foreground: oklch(0.24 0.022 55);
-  --secondary: oklch(0.93 0.018 72);
-  --secondary-foreground: oklch(0.28 0.024 55);
-  --muted: oklch(0.93 0.018 72);
-  --muted-foreground: oklch(0.49 0.022 58);
-  --accent: oklch(0.92 0.026 70);
-  --accent-foreground: oklch(0.27 0.022 55);
-  --border: oklch(0.3 0.02 58 / 14%);
-  --input: oklch(0.3 0.02 58 / 18%);
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-raised: #f8fafc;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f8fafc;
+  --muted-foreground: #475569;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --primary: #e85d75;
+  --primary-foreground: #ffffff;
+  --primary-glow: #fb7185;
+  --gradient-panel: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%);
+  --shadow-panel: 0 12px 32px -24px rgb(15 23 42 / 20%);
   --sidebar: var(--surface);
   --sidebar-foreground: var(--foreground);
   --sidebar-accent: var(--accent);
   --sidebar-accent-foreground: var(--accent-foreground);
   --sidebar-border: var(--border);
 }
+
+:root[data-theme-preset="dark"] { --primary: #a78bfa; --primary-glow: #c4b5fd; }
+:root[data-theme-preset="rosa"] { --primary: #ec4899; --primary-glow: #fb7185; }
+:root[data-theme-preset="neon"] { --primary: #a855f7; --primary-glow: #c084fc; }
 
 :root[data-theme="light"] body {
   background-color: var(--background);
@@ -171,6 +180,19 @@
 
 :root[data-theme="light"] [class*="border-white/"] {
   border-color: color-mix(in oklab, var(--foreground) 15%, transparent) !important;
+}
+
+:root[data-theme="light"] .panel {
+  background-color: #ffffff;
+  background-image: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%);
+  border-color: #e2e8f0;
+  box-shadow: 0 12px 32px -24px rgb(15 23 42 / 20%);
+}
+
+:root[data-theme="light"] .bg-black .text-white,
+:root[data-theme="light"] .bg-slate-950 .text-white,
+:root[data-theme="light"] .bg-gradient-to-br .text-white {
+  color: #ffffff !important;
 }
 
 @layer base {

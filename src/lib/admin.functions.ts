@@ -68,7 +68,12 @@ export const getAdminSnapshot = createServerFn({ method: "GET" })
       readAdminQuery("roles", () => dataClient.from("user_roles").select("user_id,role"), []),
       readAdminQuery("creator profiles", () => dataClient.from("creator_profiles")
         .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"), []),
-      readAdminQuery("login metadata", () => (dataClient as unknown as { from: (table: string) => any })
+      readAdminQuery<Array<{
+        user_id: string;
+        country_code: string | null;
+        language_code: string | null;
+        last_ip: string | null;
+      }>>("login metadata", () => (dataClient as unknown as { from: (table: string) => any })
         .from("cupido_login_metadata").select("user_id,country_code,language_code,last_ip"), []),
     ]);
     return {
@@ -284,6 +289,42 @@ export const adminSetPlan = createServerFn({ method: "POST" })
       _plan: data.plan,
       _days: data.days,
     });
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const adminSetUserVerified = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { userId: string; verified: boolean }) => {
+    if (!/^[0-9a-f-]{36}$/i.test(input?.userId ?? "")) throw new Error("Usuario no válido.");
+    return { userId: input.userId, verified: Boolean(input.verified) };
+  })
+  .handler(async ({ data, context }) => {
+    assertSupremeAdmin(context);
+    const admin = getSupabaseServiceClient() as unknown as {
+      from: (table: string) => { update: (value: Record<string, unknown>) => { eq: (column: string, value: string) => Promise<{ error: { message: string } | null }> } };
+    };
+    const { error } = await admin.from("creator_profiles").update({
+      is_verified_blue: data.verified,
+      verification_status: data.verified ? "approved" : "none",
+    }).eq("id", data.userId);
+    if (error) throw error;
+    return { ok: true };
+  });
+
+export const adminDeleteUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator((input: { userId: string }) => {
+    if (!/^[0-9a-f-]{36}$/i.test(input?.userId ?? "")) throw new Error("Usuario no válido.");
+    return { userId: input.userId };
+  })
+  .handler(async ({ data, context }) => {
+    assertSupremeAdmin(context);
+    if (data.userId === context.userId) throw new Error("No puedes eliminar la cuenta con la que estás usando el panel.");
+    const admin = getSupabaseServiceClient() as unknown as {
+      auth: { admin: { deleteUser: (userId: string) => Promise<{ error: { message: string } | null }> } };
+    };
+    const { error } = await admin.auth.admin.deleteUser(data.userId);
     if (error) throw error;
     return { ok: true };
   });

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { App } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import {
   Outlet,
   Link,
@@ -22,9 +23,31 @@ import { Toaster } from "@/components/ui/sonner";
 import { hideFeedBanner, initializeAdMob, showFeedBanner } from "@/lib/admob";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { supabase } from "@/integrations/supabase/client";
+import { siteSettingsQuery } from "@/lib/account";
 import { BRAND, SLOGAN } from "@/lib/cupido";
 import { registerCupidoReferral } from "@/lib/referral.functions";
 import { captureReferralFromUrl, clearStoredReferral, getStoredReferral } from "@/lib/referral";
+
+const NATIVE_SERVER_ORIGIN = "https://leudyia.onrender.com";
+
+if (typeof window !== "undefined" && Capacitor.isNativePlatform()) {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const rawUrl = input instanceof Request ? input.url : String(input);
+    const requestUrl = new URL(rawUrl, window.location.origin);
+    if (!requestUrl.pathname.startsWith("/_serverFn")) return originalFetch(input, init);
+
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    if (init?.headers) new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    headers.set("Accept", "application/json");
+    if ((init?.body || (input instanceof Request && input.method !== "GET")) && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    const target = new URL(`${requestUrl.pathname}${requestUrl.search}`, NATIVE_SERVER_ORIGIN);
+    const request = input instanceof Request ? new Request(target, input) : target;
+    return originalFetch(request, { ...init, mode: "cors", credentials: "include", headers });
+  };
+}
 
 function NotFoundComponent() {
   return (
@@ -202,6 +225,8 @@ function RootComponent() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const immersiveVideos = pathname.startsWith("/videos");
+  const immersiveMessages = pathname === "/chat";
+  const immersive = immersiveVideos || immersiveMessages;
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -214,15 +239,15 @@ function RootComponent() {
         <ReferralTracker />
         <AndroidBackHandler />
         <div className="relative flex h-[100dvh] min-h-[100svh] flex-col overflow-x-hidden">
-          {!immersiveVideos && <SiteHeader />}
-          {!immersiveVideos && <RouteShortcuts />}
+          {!immersive && <SiteHeader />}
+          {!immersive && <RouteShortcuts />}
           <div
             translate="no"
-            className={`min-h-0 flex-1 overflow-x-hidden ${immersiveVideos ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
+            className={`min-h-0 flex-1 overflow-x-hidden ${immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
           >
             <AccountScopedOutlet />
           </div>
-          <BottomNav />
+          {!immersive && <BottomNav />}
         </div>
         <EscudoWidget />
         <TermsModal />
@@ -292,11 +317,13 @@ function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light")
       };
     },
   });
+  const siteSettings = useQuery(siteSettingsQuery);
 
   useEffect(() => {
     const mode = preference.data?.theme_mode ?? (localStorage.getItem("cupido-dark") === "false" ? "light" : "dark");
     const root = document.documentElement;
     root.dataset["theme"] = mode;
+    root.dataset["themePreset"] = siteSettings.data?.theme_preset ?? "cafe";
     root.classList.toggle("dark", mode === "dark");
     localStorage.setItem("cupido-dark", String(mode === "dark"));
     if (preference.data) {
@@ -304,7 +331,7 @@ function ThemeSync({ onThemeChange }: { onThemeChange: (theme: "dark" | "light")
       localStorage.setItem("cupido-sounds", String(preference.data.sound_enabled));
     }
     onThemeChange(mode);
-  }, [preference.data, onThemeChange]);
+  }, [preference.data, siteSettings.data?.theme_preset, onThemeChange]);
 
   return null;
 }

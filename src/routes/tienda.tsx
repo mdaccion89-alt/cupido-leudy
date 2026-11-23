@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Capacitor } from "@capacitor/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
 import { toast } from "sonner";
@@ -167,7 +168,8 @@ function StorePage() {
 
   const buy = useMutation({
     mutationFn: async (packageId: string) => {
-      const returnUrl = `${window.location.origin}/tienda${giftTo ? `?userId=${giftTo}` : ""}`;
+      const origin = Capacitor.isNativePlatform() ? "https://leudyia.onrender.com" : window.location.origin;
+      const returnUrl = `${origin}/tienda${giftTo ? `?userId=${giftTo}` : ""}`;
       const result = await createOrder({ data: { packageId, returnUrl } });
       if (!result.ok) throw new Error(result.message);
       return result.approveUrl;

@@ -53,7 +53,7 @@ function storyBackground(id: string) {
   return STORY_BACKGROUNDS.find((item) => item.id === id)?.className ?? STORY_BACKGROUNDS[0].className;
 }
 
-export function StoryFeed({ compact = false, initialStoryId }: { compact?: boolean; initialStoryId?: string }) {
+export function StoryFeed({ compact = false, initialStoryId }: { compact?: boolean; initialStoryId?: string | undefined }) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const client = useQueryClient();
@@ -131,17 +131,6 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [draft]);
-
-  useEffect(() => {
-    if (!initialStoryId || !visibleStories.some((story) => story.id === initialStoryId)) return;
-    setStoryViewerId(initialStoryId);
-  }, [initialStoryId, visibleStories]);
-
-  useEffect(() => {
-    if (!activeStory || !viewerId || activeStory.user_id === viewerId || viewedStories.current.has(activeStory.id)) return;
-    viewedStories.current.add(activeStory.id);
-    void storyDb.rpc("cupido_story_view", { _story: activeStory.id });
-  }, [activeStory, viewerId]);
 
   const viewers = useQuery({
     queryKey: ["cupido-story-viewers", viewersStory],
@@ -292,6 +281,17 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
   const activeStoryIndex = storySequence.findIndex((story) => story.id === activeStory?.id);
 
   useEffect(() => {
+    if (!initialStoryId || !visibleStories.some((story) => story.id === initialStoryId)) return;
+    setStoryViewerId(initialStoryId);
+  }, [initialStoryId, visibleStories]);
+
+  useEffect(() => {
+    if (!activeStory || !viewerId || activeStory.user_id === viewerId || viewedStories.current.has(activeStory.id)) return;
+    viewedStories.current.add(activeStory.id);
+    void storyDb.rpc("cupido_story_view", { _story: activeStory.id });
+  }, [activeStory, viewerId]);
+
+  useEffect(() => {
     if (!activeStory) return;
     const handleBack = (event: Event) => {
       event.preventDefault();
@@ -315,12 +315,12 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-white"><Clock3 className="size-3.5 text-pink-300" /> Historias 24 h</div>
           <Button asChild type="button" size="sm" className="h-7 gap-1 px-2 text-[11px]">
-            <Link to="/historia"><Plus className="size-3.5" /> Agregar historia</Link>
+            <Link to="/historia" search={{ story: undefined }}><Plus className="size-3.5" /> Agregar historia</Link>
           </Button>
         </div>
         <div translate="no" className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {stories.isLoading && <span className="px-1 py-2 text-[11px] text-white/60">Cargando historias…</span>}
-          {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
+          {!stories.isLoading && visibleStories.length === 0 && <Link to="/historia" search={{ story: undefined }} className="px-1 py-2 text-[11px] text-white/60">Sé la primera persona en compartir una historia.</Link>}
           {visibleStories.map((story) => (
             <Link key={story.id} to="/historia" search={{ story: story.id }} aria-label={`Ver historia de ${story.display_name}`} className="relative h-[88px] w-[66px] shrink-0 overflow-hidden rounded-xl border border-pink-300/50 bg-black p-0.5 shadow-[0_0_18px_rgba(236,72,153,0.2)]">
               {story.media_type === "text" ? <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br p-2 text-center text-[10px] font-semibold text-white ${storyBackground(story.background_gradient)}`}>{story.caption || "✨"}<GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "image" ? <img src={story.media_url ?? ""} alt="" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} /> : <video src={story.media_url ?? undefined} muted playsInline webkit-playsinline="true" preload="metadata" className="absolute inset-0 size-full object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
@@ -343,7 +343,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
         <div className="mb-3 flex items-center gap-2 font-display text-sm text-white"><Clock3 className="size-4 text-pink-300" /> Comparte una historia · desaparece en 24 h</div>
         <Input value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={300} placeholder="Escribe algo para acompañar la foto o el video..." className="mb-3" />
         {!viewerId && <p className="mb-3 text-xs text-muted-foreground">Inicia sesión para publicar historias.</p>}
-        <div className="mb-3"><EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} /></div>
+        {!draft && <div className="mb-3"><EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} /></div>}
         <div className="mb-3 space-y-2">
           <p className="text-xs font-semibold text-white">Fondo para historia de texto</p>
           <div className="flex flex-wrap gap-2">{STORY_BACKGROUNDS.map((background) => <button key={background.id} type="button" aria-label={`Fondo ${background.label}`} aria-pressed={backgroundGradient === background.id} disabled={uploading} onClick={() => setBackgroundGradient(background.id)} className={`h-9 w-14 rounded-lg border bg-gradient-to-br ${background.className} ${backgroundGradient === background.id ? "border-white ring-2 ring-pink-300" : "border-white/20"}`} />)}</div>
@@ -356,7 +356,6 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
               {draft.file.type.startsWith("video/")
                 ? <video src={previewUrl} controls playsInline webkit-playsinline="true" className="mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-sm object-cover" style={{ filter: mediaFilterCss(draft.filter) }} />
                 : <img src={previewUrl} alt="Vista previa de la historia" className="mx-auto aspect-[9/16] max-h-[70dvh] w-full max-w-sm object-cover" style={{ filter: mediaFilterCss(draft.filter) }} />}
-              <GlowingEmojiOverlay emojis={emojiOverlay} />
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" disabled={uploading} onClick={() => setDraft(null)}>Quitar</Button>
@@ -390,7 +389,6 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
             </div>
             <div className="relative">
               {story.media_type === "text" ? <div className={`relative flex aspect-[9/16] items-center justify-center overflow-hidden bg-gradient-to-br p-6 text-center text-xl font-semibold text-white ${storyBackground(story.background_gradient)}`}><span className="relative z-[1] whitespace-pre-wrap break-words">{story.caption || "✨"}</span><GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} /></div> : story.media_type === "video" ? <CupidoVideoPlayer src={story.media_url ?? ""} filter={story.filter_name as MediaFilterId} className="aspect-[9/16] w-full bg-black object-cover" /> : <img src={story.media_url ?? ""} alt={story.caption || `Historia de ${story.display_name}`} className="aspect-[9/16] w-full bg-black object-cover" style={{ filter: mediaFilterCss(story.filter_name as MediaFilterId) }} />}
-              {story.media_type !== "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(story.emoji_overlay)} />}
               <button type="button" aria-label={`Ver historia de ${story.display_name}`} onClick={() => setStoryViewerId(story.id)} className="absolute inset-0 z-[2] grid place-items-center bg-black/0 text-sm font-semibold text-white opacity-0 transition hover:bg-black/15 hover:opacity-100 focus-visible:bg-black/25 focus-visible:opacity-100"><span className="rounded-full bg-black/60 px-4 py-2 backdrop-blur">Ver historia</span></button>
             </div>
             {story.caption && <p className="px-3 pt-3 text-sm text-foreground/90">{story.caption}</p>}
@@ -414,7 +412,7 @@ export function StoryFeed({ compact = false, initialStoryId }: { compact?: boole
             ) : (
               <img src={activeStory.media_url ?? ""} alt={activeStory.caption || `Historia de ${activeStory.display_name}`} className="size-full object-cover" style={{ filter: mediaFilterCss(activeStory.filter_name as MediaFilterId) }} />
             )}
-            <GlowingEmojiOverlay emojis={parseEmojiOverlay(activeStory.emoji_overlay)} />
+            {activeStory.media_type === "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(activeStory.emoji_overlay)} />}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/75" />
           </div>
           <div className="absolute inset-x-0 top-0 z-10 px-3 pt-[calc(env(safe-area-inset-top)+0.5rem)]">

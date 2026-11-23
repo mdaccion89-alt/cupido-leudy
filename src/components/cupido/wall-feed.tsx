@@ -399,7 +399,7 @@ export function WallFeed({
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
             <MentionInput value={caption} onChange={setCaption} placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video… Usa @ para mencionar y # para etiquetar."} className="min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
-            <EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} />
+            {!draft && <EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} />}
           </div>
           <input
             ref={fileRef}
@@ -440,7 +440,6 @@ export function WallFeed({
           ) : (
             <img src={previewUrl} alt="Vista previa de la publicación" className="max-h-80 w-full rounded-xl bg-black object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
           )}
-          <GlowingEmojiOverlay emojis={emojiOverlay} />
           </div>
           <div className="mt-3 flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setDraft(null)} disabled={uploading}>

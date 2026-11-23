@@ -35,12 +35,27 @@ export default defineConfig((env) => {
       buildHash = "local";
     }
   }
-  define["import.meta.env.VITE_APP_VERSION"] = JSON.stringify(publicEnv["VITE_APP_VERSION"]?.trim() || "2.6");
+  define["import.meta.env.VITE_APP_VERSION"] = JSON.stringify(publicEnv["VITE_APP_VERSION"]?.trim() || "3.0");
   define["import.meta.env.VITE_BUILD_HASH"] = JSON.stringify(buildHash);
 
   return {
     define,
-    build: { outDir: "dist", emptyOutDir: true },
+    build: {
+      outDir: "dist",
+      emptyOutDir: true,
+      // Keep route components that share social/media modules in one client
+      // chunk. Android production builds previously split cyclic lazy routes
+      // into chunks whose evaluation order could hit a temporal dead zone.
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes("/src/")) return undefined;
+            if (/\/src\/(routes|components\/cupido|lib)\//.test(id)) return "cupido-app";
+            return undefined;
+          },
+        },
+      },
+    },
     environments: {
       client: { build: { outDir: "dist" } },
       ssr: { build: { outDir: ".tanstack/server" } },

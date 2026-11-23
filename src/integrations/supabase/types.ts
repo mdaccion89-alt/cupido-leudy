@@ -599,6 +599,7 @@ export type Database = {
           purchases_enabled: boolean;
           site_tagline: string;
           site_title: string;
+          theme_preset: string;
           songs_enabled: boolean;
           updated_at: string;
           videos_enabled: boolean;
@@ -618,6 +619,7 @@ export type Database = {
           purchases_enabled?: boolean;
           site_tagline?: string;
           site_title?: string;
+          theme_preset?: string;
           songs_enabled?: boolean;
           updated_at?: string;
           videos_enabled?: boolean;
@@ -637,6 +639,7 @@ export type Database = {
           purchases_enabled?: boolean;
           site_tagline?: string;
           site_title?: string;
+          theme_preset?: string;
           songs_enabled?: boolean;
           updated_at?: string;
           videos_enabled?: boolean;
@@ -1313,6 +1316,8 @@ export type Database = {
     };
     Functions: {
       cupido_count_followers: { Args: { _following: string }; Returns: number };
+      cupido_end_stale_lives: { Args: never; Returns: number };
+      cupido_live_heartbeat: { Args: { _room: string }; Returns: boolean };
       cupido_claim_daily_reward: { Args: never; Returns: Json };
       cupido_public_paypal_client_id: { Args: never; Returns: string };
       cupido_count_followers_batch: {

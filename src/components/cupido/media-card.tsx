@@ -296,7 +296,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
         </span>
         {media.is_pinned && <span className="absolute right-3 top-3 rounded-full bg-pink-600/90 px-2.5 py-1 text-[11px] font-semibold text-white">📌 Fijada</span>}
         {media.is_promoted && <span className="absolute bottom-3 left-3 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-semibold text-black">Promocionada</span>}
-        <GlowingEmojiOverlay emojis={parseEmojiOverlay(media.emoji_overlay)} />
+        {media.kind === "text" && <GlowingEmojiOverlay emojis={parseEmojiOverlay(media.emoji_overlay)} />}
       </div>
       <div className="p-4">
         <div className="flex items-center gap-3">
@@ -416,8 +416,8 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
               <label className="block space-y-1 text-xs text-muted-foreground">Filtro
                 <select value={editFilter} onChange={(event) => setEditFilter(event.target.value as MediaFilterId)} className="h-9 w-full rounded-md border border-input bg-background px-2 text-foreground">{MEDIA_FILTERS.map((filter) => <option key={filter.id} value={filter.id}>{filter.label}</option>)}</select>
               </label>
-              <EmojiOverlayPicker value={editEmojiOverlay} onChange={setEditEmojiOverlay} />
             </>}
+            {media.kind === "text" && <EmojiOverlayPicker value={editEmojiOverlay} onChange={setEditEmojiOverlay} />}
             <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setEditOpen(false)}>Cancelar</Button><Button onClick={() => { onEdit(editTitle, editCaption, editFilter, serializeEmojiOverlay(editEmojiOverlay)); setEditOpen(false); }}>Guardar cambios</Button></div>
           </div>
         </DialogContent>

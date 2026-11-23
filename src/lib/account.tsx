@@ -10,7 +10,7 @@ export function isSupremeAdminEmail(email?: string | null): boolean {
   return email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
 }
 
-export const OFFICIAL_FOLLOWER_BONUS = 40_000;
+export const OFFICIAL_FOLLOWER_BONUS = 0;
 
 export function displayedFollowerCount(
   realCount?: number | null,
@@ -114,6 +114,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   videos_enabled: false,
   purchases_enabled: true,
   gallery_enabled: true,
+  theme_preset: "cafe",
 };
 
 export const siteSettingsQuery = {
