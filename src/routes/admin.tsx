@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { Check, Loader2, Save, ShieldCheck, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { CupidoAdminPanel } from "@/components/cupido/cupido-admin-panel";
@@ -12,21 +11,121 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { isSupremeAdminEmail, useAccount } from "@/lib/account";
+import { useAccount } from "@/lib/account";
 import { useAuth } from "@/lib/auth-context";
-import {
-  adminAdjustCredits,
-  adminSetPlan,
-  getAdminSnapshot,
-  saveAdminSettings,
-  type AdminSettings,
-} from "@/lib/admin.functions";
+import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
 
 const moderationDb = supabase as unknown as {
   from: (table: string) => any;
   rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
 };
+
+type AdminSettings = {
+  site_title: string;
+  site_tagline: string;
+  banner_text: string;
+  banner_image_url: string;
+  logo_url: string;
+  primary_color: string;
+  accent_color: string;
+};
+
+type AdminUser = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  full_name: string | null;
+  plan: "free" | "pro" | "premium";
+  balance: number;
+  roles: string[];
+  isOfficial: boolean;
+  isVerified: boolean;
+  followers: number;
+  countryCode: string;
+  languageCode: string;
+  lastIp: string | null;
+};
+
+type AdminSnapshot = {
+  settings: Partial<AdminSettings>;
+  users: AdminUser[];
+  stats: { userCount: number; credits: number; pendingWithdrawals: number };
+  warnings: string[];
+};
+
+async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
+  const warnings: string[] = [];
+  const read = async <T,>(name: string, query: () => Promise<{ data: T | null; error: { message: string } | null }>, fallback: T) => {
+    try {
+      const result = await query();
+      if (result.error) {
+        warnings.push(name);
+        console.warn(`[admin] No se pudo cargar ${name}.`, result.error.message);
+        return fallback;
+      }
+      return result.data ?? fallback;
+    } catch (error) {
+      warnings.push(name);
+      console.warn(`[admin] No se pudo cargar ${name}.`, error);
+      return fallback;
+    }
+  };
+
+  const [settings, profiles, credits, roles, creators, loginMetadata, userCount, pendingWithdrawals] = await Promise.all([
+    read("la configuración", () => moderationDb.from("site_settings").select("*").eq("id", 1).maybeSingle(), null),
+    read("los usuarios", () => moderationDb.from("profiles")
+      .select("id,email,display_name,full_name,plan,plan_expires_at,created_at,credits,credits_balance")
+      .order("created_at", { ascending: false }).limit(200), [] as Array<Record<string, any>>),
+    read("los saldos", () => moderationDb.from("user_credits").select("user_id,balance,daily_reset_at"), [] as Array<{ user_id: string; balance: number | null }>),
+    read("los roles", () => moderationDb.from("user_roles").select("user_id,role"), [] as Array<{ user_id: string; role: string }>),
+    read("los perfiles de creador", () => moderationDb.from("creator_profiles")
+      .select("id,display_name,is_official,is_premium,is_verified_blue,follower_count"), [] as Array<Record<string, any>>),
+    read("los datos de inicio de sesión", () => moderationDb.from("cupido_login_metadata")
+      .select("user_id,country_code,language_code,last_ip"), [] as Array<Record<string, any>>),
+    read("el total de usuarios", async () => {
+      const result = await moderationDb.from("profiles").select("id", { count: "exact", head: true });
+      return { data: result.count ?? 0, error: result.error };
+    }, 0),
+    read("el total de retiros", async () => {
+      const result = await moderationDb.from("cupido_withdrawals").select("id", { count: "exact", head: true }).eq("status", "pending");
+      return { data: result.count ?? 0, error: result.error };
+    }, 0),
+  ]);
+
+  const creditByUser = new Map(credits.map((row) => [row.user_id, Number(row.balance ?? 0)]));
+  const creatorByUser = new Map(creators.map((row) => [row.id, row]));
+  const loginByUser = new Map(loginMetadata.map((row) => [row.user_id, row]));
+  const rolesByUser = new Map<string, string[]>();
+  for (const row of roles) rolesByUser.set(row.user_id, [...(rolesByUser.get(row.user_id) ?? []), row.role]);
+  const users = profiles.map((profile): AdminUser => {
+    const creator = creatorByUser.get(profile.id);
+    const login = loginByUser.get(profile.id);
+    return {
+      ...profile,
+      plan: profile.plan === "pro" || profile.plan === "premium" ? profile.plan : "free",
+      balance: creditByUser.get(profile.id) ?? Number(profile.credits_balance ?? profile.credits ?? 0),
+      roles: rolesByUser.get(profile.id) ?? [],
+      isOfficial: Boolean(creator?.is_official),
+      isVerified: Boolean(creator?.is_verified_blue),
+      followers: Number(creator?.follower_count ?? 0),
+      countryCode: login?.country_code ?? "",
+      languageCode: login?.language_code ?? "",
+      lastIp: login?.last_ip ?? null,
+    };
+  });
+
+  return {
+    settings: (settings ?? {}) as Partial<AdminSettings>,
+    users,
+    stats: {
+      userCount: Number(userCount),
+      credits: credits.reduce((sum, row) => sum + Number(row.balance ?? 0), 0) || users.reduce((sum, user) => sum + user.balance, 0),
+      pendingWithdrawals: Number(pendingWithdrawals),
+    },
+    warnings,
+  };
+}
 
 const EMPTY_ADMIN_SETTINGS: AdminSettings = {
   site_title: "Cupido Leudy",
@@ -46,7 +145,7 @@ export const Route = createFileRoute("/admin")({
 function AdminPage() {
   const { loading } = useAccount();
   const { session, loading: authLoading } = useAuth();
-  const isAdmin = isSupremeAdminEmail(session?.user.email);
+  const isAdmin = session?.user.email?.trim().toLowerCase() === SUPREME_ADMIN_EMAIL;
   if (loading || authLoading)
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
@@ -71,11 +170,7 @@ function AdminPage() {
 
 function AdminDashboard() {
   const queryClient = useQueryClient();
-  const getSnapshot = useServerFn(getAdminSnapshot);
-  const saveSettingsFn = useServerFn(saveAdminSettings);
-  const adjustCreditsFn = useServerFn(adminAdjustCredits);
-  const setPlanFn = useServerFn(adminSetPlan);
-  const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: () => getSnapshot() });
+  const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: fetchAdminSnapshot });
   const removeBadge = useMutation({
     mutationFn: async (userId: string) => {
       const { error } = await moderationDb.rpc("cupido_admin_remove_badge", { _user: userId });
@@ -244,7 +339,18 @@ function AdminDashboard() {
   };
 
   const saveSettings = useMutation({
-    mutationFn: (value: AdminSettings) => saveSettingsFn({ data: { settings: value } }),
+    mutationFn: async (value: AdminSettings) => {
+      const { error } = await moderationDb.from("site_settings").update({
+        site_title: value.site_title,
+        site_tagline: value.site_tagline,
+        banner_text: value.banner_text,
+        banner_image_url: value.banner_image_url,
+        logo_url: value.logo_url,
+        primary_color: value.primary_color,
+        accent_color: value.accent_color,
+      }).eq("id", 1);
+      if (error) throw error;
+    },
     onSuccess: () => {
       invalidate();
       toast.success("Identidad actualizada.");
@@ -267,11 +373,17 @@ function AdminDashboard() {
           </p>
         </div>
       </div>
-      {(snapshot.isLoading || snapshot.error) && (
+      {(snapshot.isLoading || snapshot.error || (snapshot.data?.warnings.length ?? 0) > 0) && (
         <p className="mb-5 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-sm text-amber-100/80" role="status">
-          {snapshot.isLoading ? "Cargando estadísticas y usuarios… La configuración PayPal está disponible." : "Algunos datos de usuarios o estadísticas no están disponibles; puedes seguir usando el panel."}
+          {snapshot.isLoading ? "Cargando estadísticas y usuarios… La configuración PayPal está disponible." : "Algunos datos no están disponibles; puedes seguir usando el panel."}
         </p>
       )}
+
+      <section className="mb-6 grid gap-3 sm:grid-cols-3" aria-label="Estadísticas del panel">
+        <AdminStat label="Usuarios" value={snapshot.data?.stats.userCount ?? users.length} />
+        <AdminStat label="Monedas en circulación" value={(snapshot.data?.stats.credits ?? 0).toLocaleString("es")} />
+        <AdminStat label="Retiros pendientes" value={snapshot.data?.stats.pendingWithdrawals ?? 0} />
+      </section>
 
       <Tabs defaultValue="cupido">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
@@ -437,9 +549,10 @@ function AdminDashboard() {
                           variant="glass"
                           onClick={() =>
                             mutate(
-                              adjustCreditsFn({
-                                data: { userId: user.id, delta: creditDrafts[user.id] ?? 1 },
-                              }),
+                              moderationDb.rpc("admin_adjust_credits", {
+                                _user_id: user.id,
+                                _delta: creditDrafts[user.id] ?? 1,
+                              }).then(({ error }) => { if (error) throw error; }),
                               "Créditos ajustados.",
                             )
                           }
@@ -465,15 +578,11 @@ function AdminDashboard() {
                           variant="glass"
                           onClick={() =>
                             mutate(
-                              setPlanFn({
-                                data: {
-                                  userId: user.id,
-                                  plan:
-                                    planDrafts[user.id] ??
-                                    (user.plan as "free" | "pro" | "premium"),
-                                  days: 30,
-                                },
-                              }),
+                              moderationDb.rpc("admin_set_plan", {
+                                _user_id: user.id,
+                                _plan: planDrafts[user.id] ?? user.plan,
+                                _days: 30,
+                              }).then(({ error }) => { if (error) throw error; }),
                               "Plan actualizado.",
                             )
                           }
@@ -578,5 +687,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <Label>{label}</Label>
       {children}
     </div>
+  );
+}
+
+function AdminStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <article className="panel grain px-5 py-4">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-2xl font-semibold text-white">{value}</p>
+    </article>
   );
 }

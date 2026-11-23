@@ -34,7 +34,6 @@ import {
 import {
   capturePaypalOrder,
   createPaypalOrder,
-  getPaypalCheckoutConfig,
 } from "@/lib/payments.functions";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
@@ -125,8 +124,8 @@ function StorePage() {
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     queryFn: async () => {
-      const config = await getPaypalCheckoutConfig();
-      return { ...config, clientId: await loadPaypalClientId(config.clientId) };
+      const clientId = await loadPaypalClientId();
+      return { configured: Boolean(clientId), clientId, businessName: "Cupido Leudy" };
     },
     staleTime: 0,
     refetchOnMount: "always",

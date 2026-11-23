@@ -856,6 +856,11 @@ function ProfilePage() {
           </div>
         )}
       </section>
+      <footer className="mt-10 flex justify-center pb-4">
+        <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] text-muted-foreground">
+          Build v{import.meta.env["VITE_APP_VERSION"] || "2.6"} · {import.meta.env["VITE_BUILD_HASH"] || "local"}
+        </span>
+      </footer>
     </main>
   );
 }

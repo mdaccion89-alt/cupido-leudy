@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { defineConfig, loadEnv } from "vite";
@@ -26,6 +27,16 @@ export default defineConfig((env) => {
       JSON.stringify(value),
     ]),
   );
+  let buildHash = publicEnv["VITE_BUILD_HASH"]?.trim() || process.env["VITE_BUILD_HASH"]?.trim() || "";
+  if (!buildHash) {
+    try {
+      buildHash = execSync("git rev-parse --short=8 HEAD", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    } catch {
+      buildHash = "local";
+    }
+  }
+  define["import.meta.env.VITE_APP_VERSION"] = JSON.stringify(publicEnv["VITE_APP_VERSION"]?.trim() || "2.6");
+  define["import.meta.env.VITE_BUILD_HASH"] = JSON.stringify(buildHash);
 
   return {
     define,

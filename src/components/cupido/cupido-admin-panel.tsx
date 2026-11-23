@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Eye, EyeOff, Gift, Loader2, ShieldCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
@@ -10,9 +9,8 @@ import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { VerificationVideoPreview } from "@/components/cupido/verification-video-preview";
 import { supabase } from "@/integrations/supabase/client";
 import { countryFlag, countryName } from "@/lib/cupido";
-import { getPaypalBusinessSettings as getPaypalBusinessSettingsServer, savePaypalBusinessSettings as savePaypalBusinessSettingsServer } from "@/lib/admin.functions";
 import { useAuth } from "@/lib/auth-context";
-import { isSupremeAdminEmail } from "@/lib/account";
+import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 const LIVE_POSES = ["Frente", "Derecha", "Izquierda"];
 
@@ -66,12 +64,18 @@ type GiftRow = {
   created_at: string;
 };
 
+const paypalSettingsDb = supabase as unknown as {
+  from: (table: string) => any;
+};
+
+function paypalText(...values: unknown[]) {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
+}
+
 export function CupidoAdminPanel() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
-  const canManagePaypal = isSupremeAdminEmail(session?.user.email);
-  const getPaypalServer = useServerFn(getPaypalBusinessSettingsServer);
-  const savePaypalServer = useServerFn(savePaypalBusinessSettingsServer);
+  const canManagePaypal = session?.user.email?.trim().toLowerCase() === SUPREME_ADMIN_EMAIL;
   const [paypalConfig, setPaypalConfig] = useState<PaypalBusinessInput>({
     email: "",
     businessName: "",
@@ -184,7 +188,26 @@ export function CupidoAdminPanel() {
     enabled: canManagePaypal,
     refetchOnWindowFocus: false,
     queryFn: async () => {
-      const next = await getPaypalServer();
+      let result = await paypalSettingsDb.from("payment_settings")
+        .select("business_name,paypal_business_name,paypal_email,admin_paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+        .eq("id", 1).maybeSingle();
+      if (result.error) {
+        result = await paypalSettingsDb.from("payment_settings")
+          .select("paypal_business_name,paypal_email,paypal_client_id,paypal_secret,paypal_mode")
+          .eq("id", 1).maybeSingle();
+      }
+      if (result.error) throw result.error;
+      const row = result.data as Record<string, unknown> | null;
+      const clientId = paypalText(row?.["paypal_client_id"], import.meta.env["VITE_PAYPAL_CLIENT_ID"]);
+      const next = {
+        email: paypalText(row?.["paypal_email"], row?.["admin_paypal_email"]),
+        businessName: paypalText(row?.["business_name"], row?.["paypal_business_name"]),
+        clientId,
+        secret: paypalText(row?.["paypal_secret"]),
+        mode: paypalText(row?.["paypal_mode"]) === "sandbox" ? "sandbox" as const : "live" as const,
+        configured: Boolean(clientId),
+        source: row?.["paypal_client_id"] ? "supabase" as const : clientId ? "environment" as const : "missing" as const,
+      };
       setPaypalConfig({
         email: next.email,
         businessName: next.businessName,
@@ -240,14 +263,32 @@ export function CupidoAdminPanel() {
 
   const savePaypalConfig = useMutation({
     mutationFn: async () => {
-      const input = {
-        businessName: paypalConfig.businessName,
-        email: paypalConfig.email,
-        clientId: paypalConfig.clientId,
-        secret: paypalConfig.secret,
-        mode: paypalConfig.mode,
+      const email = paypalConfig.email.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Escribe un correo PayPal válido.");
+      const shared = {
+        id: 1,
+        paypal_email: email,
+        admin_paypal_email: email,
+        paypal_client_id: paypalConfig.clientId.trim(),
+        paypal_secret: paypalConfig.secret.trim(),
+        paypal_mode: paypalConfig.mode,
       };
-      await savePaypalServer({ data: input });
+      let result = await paypalSettingsDb.from("payment_settings").upsert({
+        ...shared,
+        business_name: paypalConfig.businessName.trim(),
+        paypal_business_name: paypalConfig.businessName.trim(),
+      }, { onConflict: "id" });
+      if (result.error) {
+        result = await paypalSettingsDb.from("payment_settings").upsert({
+          id: 1,
+          paypal_email: email,
+          paypal_business_name: paypalConfig.businessName.trim(),
+          paypal_client_id: paypalConfig.clientId.trim(),
+          paypal_secret: paypalConfig.secret.trim(),
+          paypal_mode: paypalConfig.mode,
+        }, { onConflict: "id" });
+      }
+      if (result.error) throw result.error;
     },
     onSuccess: () => {
       setPaypalSaved(true);

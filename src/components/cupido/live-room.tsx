@@ -819,7 +819,8 @@ export function LiveRoom({
             playsInline
             webkit-playsinline="true"
             muted={role === "host" || liveMuted}
-            className={`h-full w-full object-cover ${role === "host" && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`}
+            className="h-full w-full object-cover"
+            style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
           />
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
           {giftAnimation && (
