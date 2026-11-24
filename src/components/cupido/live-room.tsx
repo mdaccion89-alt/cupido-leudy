@@ -342,6 +342,8 @@ export function LiveRoom({
   const [treasureBusy, setTreasureBusy] = useState(false);
   const [goalCelebration, setGoalCelebration] = useState(false);
   const [confirmEndLiveOpen, setConfirmEndLiveOpen] = useState(false);
+  const [endingLive, setEndingLive] = useState(false);
+  const endingLiveRef = useRef(false);
   const goalCelebratedRef = useRef(false);
   const pkFinishStartedRef = useRef(false);
   const [liveMuted, setLiveMuted] = useState(false);
@@ -1476,11 +1478,31 @@ export function LiveRoom({
   };
 
   const endLive = async () => {
-    const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
-    if (error) toast.error("No se pudo finalizar el Live.");
-    else {
+    if (endingLiveRef.current) return;
+    endingLiveRef.current = true;
+    setEndingLive(true);
+    [localStreamRef.current, guestCameraStreamRef.current, pkCameraStreamRef.current].forEach((stream) => {
+      stream?.getTracks().forEach((track) => track.stop());
+    });
+    localStreamRef.current = null;
+    guestCameraStreamRef.current = null;
+    pkCameraStreamRef.current = null;
+    [localVideoRef.current, guestLocalVideoRef.current, pkLocalVideoRef.current].forEach((video) => {
+      if (video) video.srcObject = null;
+    });
+
+    try {
+      const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
+      if (error) throw error;
+      peersRef.current.forEach((peer) => peer.close());
+      peersRef.current.clear();
       setConfirmEndLiveOpen(false);
       onEndedRef.current();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(message || "No se pudo confirmar el cierre del Live. Inténtalo de nuevo.");
+      endingLiveRef.current = false;
+      setEndingLive(false);
     }
   };
 
@@ -1601,11 +1623,11 @@ export function LiveRoom({
       exitLive();
     }}>
       <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
-        {!cleanView && <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur-sm">
+        {!cleanView && role === "viewer" && <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur-sm">
           <DialogTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
             <Radio className="size-5 animate-pulse text-pink-400" />
-            {role === "host" ? "Tu Live está en vivo" : <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>}
+            <>Live de <Link to="/perfil" search={{ userId: hostId }} className="hover:underline">{hostName}</Link></>
             <span className="shrink-0 rounded-full bg-pink-600 px-2 py-0.5 text-[10px] font-bold text-white">EN VIVO</span>
             <VerifiedBadge granLiga={hostIsGranLiga} className="size-5" />
           </DialogTitle>
@@ -1624,15 +1646,26 @@ export function LiveRoom({
             {topFanRows.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
           </div>}
         </DialogHeader>}
+        {!cleanView && role === "host" && <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 inline-flex h-8 items-center gap-2 rounded-full border border-white/15 bg-black/55 px-2.5 backdrop-blur-sm" aria-live="polite">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-2 py-1 text-[10px] font-bold tracking-wide text-white"><span className="size-1.5 animate-pulse rounded-full bg-white" />EN VIVO</span>
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-white"><Users className="size-3.5" />{viewers}</span>
+        </div>}
+        {!cleanView && role === "host" && <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+2.8rem)] z-20 inline-flex items-center gap-2 rounded-xl border border-amber-300/25 bg-black/60 px-2.5 py-1 text-amber-100 backdrop-blur-sm" aria-live="polite">
+          <span className="text-[11px] font-semibold">{liveEarnings.isError ? "—" : (liveEarnings.data?.coins ?? 0).toLocaleString("es")} monedas</span>
+          <span className="text-[10px]">≈ US${liveEarnings.isError ? "—" : (liveEarnings.data?.usd ?? 0).toFixed(2)} USD</span>
+        </div>}
+        {!cleanView && role === "host" && topFanRows.length > 0 && <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+4.9rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
+          {topFanRows.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
+        </div>}
         {!cleanView && role === "host" && !pkIsActive && (
-          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+9rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
+          <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+7.3rem)] z-20 flex items-center gap-2 rounded-xl border border-amber-300/30 bg-black/75 px-2.5 py-1.5 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
             Precio privado/min
             <select
               aria-label="Precio por minuto de llamada privada"
               value={privateCallPrice.data ?? 50}
               disabled={privateCallPrice.isLoading || updatePrivateCallPrice.isPending}
               onChange={(event) => updatePrivateCallPrice.mutate(Number(event.target.value))}
-              className="h-8 rounded-lg border border-white/15 bg-zinc-900 px-2 text-xs text-white outline-none focus:ring-2 focus:ring-amber-300"
+              className="h-7 rounded-lg border border-white/15 bg-zinc-900 px-2 text-xs text-white outline-none focus:ring-2 focus:ring-amber-300"
             >
               {[25, 50, 75, 100, 150, 200].map((price) => <option key={price} value={price}>{price} monedas</option>)}
             </select>
@@ -1653,14 +1686,14 @@ export function LiveRoom({
           </section>
         )}
         {!cleanView && role === "host" && !pkIsActive && (
-          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+12rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
-            <span className="shrink-0">Meta</span><Input aria-label="Meta de monedas del Live" inputMode="numeric" value={goalInput} onChange={(event) => setGoalInput(event.target.value)} placeholder={coinGoal.data ? `${coinGoal.data}` : "500"} className="h-7 min-w-0 bg-black/60 px-2 text-xs" />
-            <Button size="sm" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal()}>Guardar</Button>
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal(0)}>Quitar</Button>
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+10.2rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1 text-[10px] text-amber-100 backdrop-blur">
+            <span className="shrink-0">Meta</span><Input aria-label="Meta de monedas del Live" inputMode="numeric" value={goalInput} onChange={(event) => setGoalInput(event.target.value)} placeholder={coinGoal.data ? `${coinGoal.data}` : "500"} className="h-6 min-w-0 bg-black/60 px-2 text-xs" />
+            <Button size="sm" className="h-6 px-2 text-[10px]" onClick={() => void setLiveGoal()}>Guardar</Button>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => void setLiveGoal(0)}>Quitar</Button>
           </div>
         )}
         {!cleanView && Number(coinGoal.data ?? 0) > 0 && !pkIsActive && (
-          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+14.8rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2.5 py-2 text-[10px] text-amber-100 backdrop-blur">
+          <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+12.8rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
             <div className="mb-1 flex justify-between gap-2"><span>Meta del anfitrión</span><span>{Math.min(100, Math.round(((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100))}%</span></div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-gradient-to-r from-amber-400 to-yellow-200 transition-all" style={{ width: `${Math.min(100, ((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100)}%` }} /></div>
             <div className="mt-1 text-right">{(liveGiftTotal.data ?? 0).toLocaleString("es")} / {Number(coinGoal.data).toLocaleString("es")} monedas</div>
@@ -1737,8 +1770,16 @@ export function LiveRoom({
               <RefreshCw className="size-4" />
             </Button>
           )}
+          {!cleanView && role === "host" && <Button
+            type="button"
+            variant="destructive"
+            disabled={endingLive}
+            onClick={() => setConfirmEndLiveOpen(true)}
+            aria-label="Finalizar Live"
+            className="absolute right-2 top-[calc(env(safe-area-inset-top)+3rem)] z-30 h-8 gap-1.5 rounded-full px-2.5 text-[11px] font-semibold shadow-lg"
+          ><PhoneOff className="size-3.5" />Finalizar</Button>}
         </div>
-        {!cleanView && <div className="absolute right-2 top-[calc(env(safe-area-inset-top)+3.5rem)] z-20 flex flex-col gap-1.5">
+        {!cleanView && <div className={`absolute right-2 z-20 flex flex-col gap-1.5 ${role === "host" ? "top-[calc(env(safe-area-inset-top)+6rem)]" : "top-[calc(env(safe-area-inset-top)+3.5rem)]"}`}>
           <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="size-8 rounded-full border-pink-300/50 bg-pink-600/75 p-0 text-white"><Heart className="size-3.5 fill-current" /></Button>
           <Button variant={visibleMicMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={visibleMicMuted ? "Activar micrófono" : "Silenciar micrófono"} className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white">
             {visibleMicMuted ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
@@ -1750,11 +1791,7 @@ export function LiveRoom({
               <Button variant="destructive" size="icon" onClick={() => void blockHost()} aria-label="Bloquear anfitrión" className="size-8 rounded-full p-0"><Ban className="size-3.5" /></Button>
               <Button variant="destructive" size="icon" onClick={exitLive} aria-label="Salir" className="size-8 rounded-full p-0"><X className="size-3.5" /></Button>
             </>
-          ) : (
-            <Button variant="destructive" size="icon" onClick={() => setConfirmEndLiveOpen(true)} aria-label="Finalizar Live" className="size-8 rounded-full p-0">
-              <PhoneOff className="size-3.5" />
-            </Button>
-          )}
+          ) : null}
           <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })} className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white">
             <Shield className="size-3.5 text-sky-300" />
           </Button>
@@ -2011,7 +2048,7 @@ export function LiveRoom({
         </DialogHeader>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" onClick={() => setConfirmEndLiveOpen(false)}>Seguir en vivo</Button>
-          <Button type="button" variant="destructive" onClick={() => void endLive()}>Finalizar Live</Button>
+          <Button type="button" variant="destructive" disabled={endingLive} onClick={() => void endLive()}>{endingLive && <Loader2 className="mr-2 size-4 animate-spin" />}{endingLive ? "Finalizando…" : "Finalizar Live"}</Button>
         </div>
       </DialogContent>
     </Dialog>
