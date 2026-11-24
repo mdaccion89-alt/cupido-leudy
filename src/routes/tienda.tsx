@@ -363,7 +363,7 @@ function StorePage() {
         </div>
       </header>
 
-      {!account.isInfiniteCreditsAdmin && (
+      {(
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-400/[0.10] to-pink-500/[0.07] p-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-amber-100">Monedas gratis</h2>
