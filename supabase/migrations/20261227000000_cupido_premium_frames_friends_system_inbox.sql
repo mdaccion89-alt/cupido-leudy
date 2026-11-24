@@ -5,9 +5,9 @@ BEGIN;
 ALTER TABLE public.user_credits
   ADD COLUMN IF NOT EXISTS purchased_credit_balance integer NOT NULL DEFAULT 0;
 
--- Conservative one-time backfill: count captured paid credits, subtract all
--- recorded spends and the still-known welcome/ad credits. This can under-credit
--- legacy accounts, but cannot make promotional credits frame-purchasable.
+-- Conservative one-time backfill: only captured PayPal credits are a source;
+-- subtract every recorded debit, including debits that may have used bonuses.
+-- That can under-credit legacy accounts, but can never fund frames from bonuses.
 WITH paid AS (
   SELECT user_id, sum(credits)::bigint AS total
   FROM public.paypal_orders
@@ -21,10 +21,7 @@ WITH paid AS (
 UPDATE public.user_credits c
 SET purchased_credit_balance = greatest(
       0,
-      coalesce(p.total, 0)
-      - coalesce(s.total, 0)
-      - coalesce(c.ad_reward_balance, 0)
-      - CASE WHEN coalesce(pf.has_purchased, false) THEN 500 ELSE 0 END
+      coalesce(p.total, 0) - coalesce(s.total, 0)
     )::integer
 FROM public.profiles pf
 LEFT JOIN paid p ON p.user_id = pf.id
