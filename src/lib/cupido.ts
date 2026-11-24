@@ -52,6 +52,7 @@ type SpendingAccount = {
 
 export function canSendGift(gift: { credits: number; id?: string }, account: SpendingAccount): boolean {
   if (account.isInfiniteCreditsAdmin === true) return true;
+  if (account.hasPurchased !== true) return false;
   if (gift.id === "gran-liga-diamond" && !account.isGranLiga) return false;
   return account.balance >= gift.credits;
 }

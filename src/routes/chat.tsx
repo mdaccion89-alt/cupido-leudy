@@ -993,9 +993,9 @@ function ChatPage() {
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canSendGift(gift, account))
         throw new Error(
-          account.hasPurchased || account.isInfiniteCreditsAdmin
-            ? "No tienes monedas brillantes suficientes."
-            : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
+          account.isInfiniteCreditsAdmin ? "No tienes monedas brillantes suficientes." : account.hasPurchased
+            ? "INSUFFICIENT_CREDITS"
+            : "PURCHASE_REQUIRED",
         );
       const { error } = await supabase.rpc("cupido_transfer_gift", {
         _receiver: activeConversation.other.id,
@@ -1491,7 +1491,9 @@ function ChatPage() {
               <section className="space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
                 {giftBalanceInsufficient && !readyToSend && (
                   <p role="alert" className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-medium leading-snug text-amber-100">
-                    Saldo insuficiente. Recarga monedas para enviar este regalo ❤️
+                    {!account.hasPurchased && !account.isInfiniteCreditsAdmin
+                      ? "Realiza tu primera recarga para activar tus monedas y enviar regalos ❤️"
+                      : "Saldo insuficiente. Recarga monedas para enviar este regalo ❤️"}
                   </p>
                 )}
                 <div>

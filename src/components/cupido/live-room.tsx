@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Ban, Check, CreditCard, Crown, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy, Dices } from "lucide-react";
+import { ArrowLeft, Ban, Check, CreditCard, Crown, Dices, Eye, EyeOff, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
@@ -345,6 +345,8 @@ export function LiveRoom({
   const pkFinishStartedRef = useRef(false);
   const [liveMuted, setLiveMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [guestMicMuted, setGuestMicMuted] = useState(false);
+  const [cleanView, setCleanView] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [viewers, setViewers] = useState(0);
   const [hostOnline, setHostOnline] = useState(false);
@@ -368,6 +370,8 @@ export function LiveRoom({
   const [pkSeconds, setPkSeconds] = useState(10);
   const expiredPkRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const liveMutedRef = useRef(false);
+  const guestMicMutedRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const onEndedRef = useRef(onEnded);
 
@@ -378,6 +382,15 @@ export function LiveRoom({
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+
+  useEffect(() => {
+    liveMutedRef.current = liveMuted;
+  }, [liveMuted]);
+
+  useEffect(() => {
+    guestMicMutedRef.current = guestMicMuted;
+  }, [guestMicMuted]);
+
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     enabled: Boolean(pendingGiftPurchase),
@@ -494,23 +507,33 @@ export function LiveRoom({
       [...localStreamRef.current.getAudioTracks(), ...localStreamRef.current.getVideoTracks()].forEach((track) => {
         peer.addTrack(track, localStreamRef.current!);
       });
+      const existingGuestStream = guestRemoteVideoRef.current?.srcObject;
+      if (activeGuestIdRef.current && existingGuestStream instanceof MediaStream) {
+        existingGuestStream.getTracks().forEach((track) => {
+          if (!peer.getSenders().some((sender) => sender.track === track)) peer.addTrack(track, existingGuestStream);
+        });
+      }
       peer.ontrack = (event) => {
         if (role !== "host") return;
         const stream = event.streams[0] ?? new MediaStream([event.track]);
+        const isGuestMedia = peerId === activeGuestIdRef.current;
+        const isGuestVideo = event.track.kind === "video" && isGuestMedia;
+        const isPkVideo = event.track.kind === "video" && peerId === activePkChallengerIdRef.current;
         if (event.track.kind === "audio") {
           if (remoteAudioRef.current) {
             remoteAudioRef.current.srcObject = stream;
+            remoteAudioRef.current.volume = 1;
+            remoteAudioRef.current.muted = liveMutedRef.current;
             void remoteAudioRef.current.play().catch(() => undefined);
           }
-          return;
+          if (!isGuestMedia) return;
         }
-        const isGuestVideo = event.track.kind === "video" && peerId === activeGuestIdRef.current;
-        const isPkVideo = event.track.kind === "video" && peerId === activePkChallengerIdRef.current;
-        if (!isGuestVideo && !isPkVideo) return;
+        if (event.track.kind === "video" && !isGuestVideo && !isPkVideo) return;
         if (isGuestVideo) {
           guestStreamIdRef.current = stream.id;
           if (guestRemoteVideoRef.current) {
             guestRemoteVideoRef.current.srcObject = stream;
+            guestRemoteVideoRef.current.volume = 1;
             void guestRemoteVideoRef.current.play().catch(() => undefined);
           }
         } else if (pkRemoteVideoRef.current) {
@@ -518,7 +541,7 @@ export function LiveRoom({
           void pkRemoteVideoRef.current.play().catch(() => undefined);
         }
         const gifts = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
-        if (gifts) void gifts.send({ type: "broadcast", event: isGuestVideo ? "guest-stream-id" : "pk-stream-id", payload: { stream_id: stream.id } });
+        if (gifts) void gifts.send({ type: "broadcast", event: isGuestMedia ? "guest-stream-id" : "pk-stream-id", payload: { stream_id: stream.id } });
         for (const [viewerPeerId, viewerPeer] of peersRef.current) {
           if (viewerPeerId === peerId || viewerPeer.signalingState !== "stable") continue;
           try {
@@ -542,6 +565,10 @@ export function LiveRoom({
         }
       };
       peersRef.current.set(peerId, peer);
+      if (activeGuestIdRef.current && existingGuestStream instanceof MediaStream) {
+        const giftChannel = supabase.getChannels().find((channel) => channel.topic.includes(`cupido-live-gifts-${roomId}`));
+        if (giftChannel) void giftChannel.send({ type: "broadcast", event: "guest-stream-id", payload: { stream_id: existingGuestStream.id } });
+      }
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       await sendSignal({ kind: "offer", sender: viewerId, receiver: peerId, sdp: offer });
@@ -627,6 +654,8 @@ export function LiveRoom({
               : stream.id === pkStreamIdRef.current ? pkRemoteVideoRef.current : remoteVideoRef.current;
             if (!target) return;
             target.srcObject = stream;
+            target.volume = 1;
+            target.muted = liveMutedRef.current;
             void target.play().catch(() => undefined);
           };
           viewerStream?.getAudioTracks().forEach((track) => offerPeer.addTrack(track, viewerStream));
@@ -891,6 +920,7 @@ export function LiveRoom({
         else videoSender = peer.addTrack(videoTrack, stream);
         const audioTrack = stream.getAudioTracks()[0];
         if (audioTrack) {
+          audioTrack.enabled = !guestMicMutedRef.current;
           audioSender = peer.getSenders().find((item) => item.track?.kind === "audio");
           if (audioSender) {
             previousAudioTrack = audioSender.track;
@@ -1172,11 +1202,12 @@ export function LiveRoom({
 
   const sendGift = async (gift: GiftType) => {
     if (!canSendGift(gift, account)) {
-      toast.error(
-        account.hasPurchased || account.isInfiniteCreditsAdmin
-          ? "No tienes monedas brillantes suficientes."
-          : "Confirma una recarga real para desbloquear tus monedas y enviar regalos.",
-      );
+      setPendingGiftPurchase(gift);
+      const shortage = Math.max(gift.credits - account.balance, account.hasPurchased ? 0 : 1);
+      const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+      setLiveCheckoutPackageId(pack?.id ?? null);
+      setGiftPanelOpen(true);
+      setGiftCheckoutOpen(true);
       return;
     }
     setSendingGift(true);
@@ -1190,6 +1221,17 @@ export function LiveRoom({
     });
     setSendingGift(false);
     if (error) {
+      const message = giftErrorMessage(error, "").toLowerCase();
+      if (message.includes("purchase_required") || message.includes("insufficient") || message.includes("insuficiente")) {
+        setPendingGiftPurchase(gift);
+        const shortage = Math.max(gift.credits - account.balance, account.hasPurchased ? 1 : 0);
+        const pack = CREDIT_PACKAGES.find((item) => item.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
+        setLiveCheckoutPackageId(pack?.id ?? null);
+        setGiftPanelOpen(true);
+        setGiftCheckoutOpen(true);
+        void account.refresh();
+        return;
+      }
       toast.error(giftErrorMessage(error, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
       return;
     }
@@ -1374,9 +1416,13 @@ export function LiveRoom({
   };
 
   const toggleMicrophone = () => {
-    const next = !micMuted;
-    localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
-    setMicMuted(next);
+    const guestIsPublishing = role === "viewer" && activeGuestId === viewerId;
+    const currentMuted = guestIsPublishing ? guestMicMuted : micMuted;
+    const next = !currentMuted;
+    const stream = guestIsPublishing ? guestCameraStreamRef.current : localStreamRef.current;
+    stream?.getAudioTracks().forEach((track) => { track.enabled = !next; });
+    if (guestIsPublishing) setGuestMicMuted(next);
+    else setMicMuted(next);
   };
 
   const flipLiveCamera = async () => {
@@ -1521,6 +1567,21 @@ export function LiveRoom({
   const activeGuestName = onlineViewers.find((person) => person.user_id === activeGuestId)?.display_name
     ?? guestRequestProfiles.data?.find((person) => person.id === activeGuestId)?.display_name
     ?? "Invitado";
+  const guestIsPublishing = role === "viewer" && activeGuestId === viewerId;
+  const visibleMicMuted = guestIsPublishing ? guestMicMuted : micMuted;
+
+  useEffect(() => {
+    const remoteMedia = [remoteVideoRef.current, guestRemoteVideoRef.current, pkRemoteVideoRef.current];
+    for (const element of remoteMedia) {
+      if (!element) continue;
+      element.volume = 1;
+      if (role === "viewer") element.muted = liveMuted;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.volume = 1;
+      remoteAudioRef.current.muted = liveMuted;
+    }
+  }, [guestIsActive, liveMuted, pkIsActive, ready, role]);
 
   return (
     <>
@@ -1533,7 +1594,7 @@ export function LiveRoom({
       exitLive();
     }}>
       <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
-        <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
+        {!cleanView && <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur-sm">
           <DialogTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Avatar className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>
             <Radio className="size-5 animate-pulse text-pink-400" />
@@ -1555,8 +1616,8 @@ export function LiveRoom({
           {topFanRows.length > 0 && <div className="flex max-w-full items-center gap-1.5 overflow-x-auto" aria-label="Top fans del Live">
             {topFanRows.slice(0, 3).map((fan, index) => <div key={fan.user_id} className={`flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold text-white ${index === 0 ? "border-amber-300/60 bg-amber-500/20" : index === 1 ? "border-slate-300/50 bg-slate-400/20" : "border-orange-500/50 bg-orange-600/20"}`}><span aria-hidden="true">{index === 0 ? "🥇" : index === 1 ? "🥈" : "🥉"}</span><Avatar userId={fan.user_id} className="size-5"><AvatarImage src={fan.avatar_url} /><AvatarFallback>{fan.display_name.slice(0, 1)}</AvatarFallback></Avatar><span className="max-w-16 truncate">{fan.display_name}</span><span>{Number(fan.coins).toLocaleString("es")}</span></div>)}
           </div>}
-        </DialogHeader>
-        {role === "host" && !pkIsActive && (
+        </DialogHeader>}
+        {!cleanView && role === "host" && !pkIsActive && (
           <label className="absolute left-3 top-[calc(env(safe-area-inset-top)+9rem)] z-20 flex items-center gap-2 rounded-2xl border border-amber-300/30 bg-black/75 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur-md">
             Precio privado/min
             <select
@@ -1570,7 +1631,7 @@ export function LiveRoom({
             </select>
           </label>
         )}
-        {activePkName && (
+        {!cleanView && activePkName && (
           <section className="absolute left-3 right-3 top-[calc(env(safe-area-inset-top)+9rem)] z-20 rounded-2xl border border-white/15 bg-black/65 p-3 backdrop-blur-md" aria-live="polite">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-white">
               <span className="truncate text-rose-200">{role === "host" ? hostName : "Anfitrión"} · {Number(pkState.data?.host_coins ?? 0).toLocaleString("es")}</span>
@@ -1584,27 +1645,27 @@ export function LiveRoom({
             {role === "viewer" && <div className="mt-2 flex justify-end gap-1"><Button size="sm" variant={pkSide === "host" ? "default" : "outline"} className="h-7 px-2 text-[10px]" onClick={() => setPkSide("host")}>Apoyar anfitrión</Button><Button size="sm" variant={pkSide === "challenger" ? "default" : "outline"} className="h-7 px-2 text-[10px]" onClick={() => setPkSide("challenger")}>Apoyar rival</Button></div>}
           </section>
         )}
-        {role === "host" && !pkIsActive && (
+        {!cleanView && role === "host" && !pkIsActive && (
           <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+12rem)] z-20 flex max-w-[min(80vw,22rem)] items-center gap-1.5 rounded-xl border border-amber-300/30 bg-black/70 px-2 py-1.5 text-[10px] text-amber-100 backdrop-blur">
             <span className="shrink-0">Meta</span><Input aria-label="Meta de monedas del Live" inputMode="numeric" value={goalInput} onChange={(event) => setGoalInput(event.target.value)} placeholder={coinGoal.data ? `${coinGoal.data}` : "500"} className="h-7 min-w-0 bg-black/60 px-2 text-xs" />
             <Button size="sm" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal()}>Guardar</Button>
             <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" onClick={() => void setLiveGoal(0)}>Quitar</Button>
           </div>
         )}
-        {Number(coinGoal.data ?? 0) > 0 && !pkIsActive && (
+        {!cleanView && Number(coinGoal.data ?? 0) > 0 && !pkIsActive && (
           <div className="absolute left-3 right-16 top-[calc(env(safe-area-inset-top)+14.8rem)] z-20 rounded-xl border border-amber-300/30 bg-black/70 px-2.5 py-2 text-[10px] text-amber-100 backdrop-blur">
             <div className="mb-1 flex justify-between gap-2"><span>Meta del anfitrión</span><span>{Math.min(100, Math.round(((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100))}%</span></div>
             <div className="h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-gradient-to-r from-amber-400 to-yellow-200 transition-all" style={{ width: `${Math.min(100, ((liveGiftTotal.data ?? 0) / Number(coinGoal.data)) * 100)}%` }} /></div>
             <div className="mt-1 text-right">{(liveGiftTotal.data ?? 0).toLocaleString("es")} / {Number(coinGoal.data).toLocaleString("es")} monedas</div>
           </div>
         )}
-        {treasure.data && treasureSeconds > 0 && !giftAnimation && !entryNotice && !highValueGift && (
+        {!cleanView && treasure.data && treasureSeconds > 0 && !giftAnimation && !entryNotice && !highValueGift && (
           <button type="button" onClick={() => void claimTreasure()} disabled={treasureBusy} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+20.5rem)] z-30 -translate-x-1/2 rounded-2xl border border-amber-300/60 bg-amber-500/20 px-4 py-2 text-center text-sm font-bold text-amber-100 shadow-lg shadow-amber-500/20 backdrop-blur">
             <span className="mr-2 text-xl">🎁</span>{treasureBusy ? "Abriendo…" : `¡Cofre! ${treasureSeconds}s · 5 monedas`}
           </button>
         )}
-        {goalCelebration && <div className="pointer-events-none absolute inset-x-0 top-1/2 z-40 flex justify-center gap-3 text-4xl" aria-hidden="true"><span className="animate-bounce">&#127881;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127874;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127881;</span></div>}
-        {giftAnimation ? <div key={giftAnimation.id} className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center" aria-live="polite"><div className="animate-in slide-in-from-top-4 fade-in duration-300 rounded-2xl border border-pink-300/50 bg-black/85 px-4 py-2 text-center text-white shadow-xl shadow-pink-500/20"><span className="mr-2 text-3xl">{giftAnimation.emoji}</span><span className="text-sm font-bold">{giftAnimation.sender} envio {giftAnimation.name}</span><span className="mt-0.5 block text-xs text-amber-200">{giftAnimation.coins.toLocaleString("es")} monedas</span></div></div> : entryNotice ? <div className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center"><div className="rounded-full border border-violet-300/40 bg-zinc-950/85 px-4 py-2 text-center text-xs font-semibold text-violet-100 shadow-lg backdrop-blur">{entryNotice}</div></div> : highValueGift ? <button type="button" onClick={() => setGiftPanelOpen(true)} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-300/60 bg-gradient-to-r from-amber-600/90 via-amber-300/90 to-yellow-600/90 px-4 py-1.5 text-center text-xs font-bold text-zinc-950 shadow-lg shadow-amber-400/20">&#10024; {highValueGift.sender} · {highValueGift.name} · {highValueGift.coins} monedas <span className="ml-2 underline">Ir</span></button> : null}
+        {!cleanView && goalCelebration && <div className="pointer-events-none absolute inset-x-0 top-1/2 z-40 flex justify-center gap-3 text-4xl" aria-hidden="true"><span className="animate-bounce">&#127881;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127874;</span><span className="animate-pulse">&#10024;</span><span className="animate-bounce">&#127881;</span></div>}
+        {!cleanView && (giftAnimation ? <div key={giftAnimation.id} className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center" aria-live="polite"><div className="animate-in slide-in-from-top-4 fade-in duration-300 rounded-2xl border border-pink-300/50 bg-black/85 px-4 py-2 text-center text-white shadow-xl shadow-pink-500/20"><span className="mr-2 text-3xl">{giftAnimation.emoji}</span><span className="text-sm font-bold">{giftAnimation.sender} envio {giftAnimation.name}</span><span className="mt-0.5 block text-xs text-amber-200">{giftAnimation.coins.toLocaleString("es")} monedas</span></div></div> : entryNotice ? <div className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 flex justify-center"><div className="rounded-full border border-violet-300/40 bg-zinc-950/85 px-4 py-2 text-center text-xs font-semibold text-violet-100 shadow-lg backdrop-blur">{entryNotice}</div></div> : highValueGift ? <button type="button" onClick={() => setGiftPanelOpen(true)} className="absolute left-1/2 top-[calc(env(safe-area-inset-top)+18.5rem)] z-40 -translate-x-1/2 whitespace-nowrap rounded-full border border-amber-300/60 bg-gradient-to-r from-amber-600/90 via-amber-300/90 to-yellow-600/90 px-4 py-1.5 text-center text-xs font-bold text-zinc-950 shadow-lg shadow-amber-400/20">&#10024; {highValueGift.sender} · {highValueGift.name} · {highValueGift.coins} monedas <span className="ml-2 underline">Ir</span></button> : null)}
         <div className="absolute inset-0 z-0 overflow-hidden bg-black">
           <video
             ref={role === "host" ? localVideoRef : remoteVideoRef}
@@ -1618,22 +1679,45 @@ export function LiveRoom({
           />
           {pkIsActive && <video ref={role === "host" ? pkRemoteVideoRef : pkState.data?.challenger_id === viewerId ? pkLocalVideoRef : pkRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role !== "host" || liveMuted} className={`absolute inset-x-0 bottom-0 h-1/2 w-full object-cover ${role === "viewer" && pkState.data?.challenger_id === viewerId && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} />}
           {guestIsActive && <video ref={role === "host" ? guestRemoteVideoRef : activeGuestId === viewerId ? guestLocalVideoRef : guestRemoteVideoRef} autoPlay playsInline webkit-playsinline="true" muted={role === "host" || activeGuestId === viewerId || liveMuted} className={`absolute inset-x-0 bottom-0 h-1/2 w-full object-cover ${role === "viewer" && activeGuestId === viewerId && facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} />}
-          {pkIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">🔴 {hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-amber-100">✨ {activePkName}</span></>}
-          {guestIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">{hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-sky-100">Invitado · {activeGuestName}</span></>}
+          {!cleanView && pkIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">🔴 {hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-amber-100">✨ {activePkName}</span></>}
+          {!cleanView && guestIsActive && <><span className="pointer-events-none absolute left-3 top-[42%] z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-rose-100">{hostName}</span><span className="pointer-events-none absolute bottom-[48%] left-3 z-10 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-sky-100">Invitado · {activeGuestName}</span></>}
           {role === "host" && <audio ref={remoteAudioRef} autoPlay playsInline muted={liveMuted} className="hidden" />}
-          {floatingHearts.map((heart) => <div key={heart.id} className="pointer-events-none absolute bottom-1/4 z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-4xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" style={{ right: `${heart.right}%`, animationDuration: "1.8s" }} aria-hidden="true">💖</div>)}
+          {!cleanView && floatingHearts.map((heart) => <div key={heart.id} className="pointer-events-none absolute bottom-1/4 z-10 animate-in slide-in-from-bottom-8 fade-in duration-700 text-4xl drop-shadow-[0_0_18px_rgba(244,63,94,0.9)]" style={{ right: `${heart.right}%`, animationDuration: "1.8s" }} aria-hidden="true">💖</div>)}
           <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            aria-label={cleanView ? "Mostrar botones del Live" : "Ocultar botones y ver cámaras"}
+            title={cleanView ? "Mostrar botones" : "Vista limpia"}
+            onClick={() => {
+              const next = !cleanView;
+              setCleanView(next);
+              if (next) {
+                setGiftPanelOpen(false);
+                setGiftCheckoutOpen(false);
+                setGuestToolsOpen(false);
+                setRouletteOpen(false);
+                setModerationOpen(false);
+                setClubOpen(false);
+                setRankingOpen(false);
+              }
+            }}
+            className="absolute right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 size-8 rounded-full border-white/30 bg-black/50 p-0 text-white backdrop-blur-sm hover:bg-black/75"
+          >
+            {cleanView ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </Button>
+          {!cleanView && <Button
             type="button"
             size="icon"
             variant="outline"
             aria-label={liveMuted ? "Activar sonido del Live" : "Silenciar Live"}
             title={liveMuted ? "Activar sonido" : "Silenciar"}
             onClick={() => setLiveMuted((value) => !value)}
-            className="absolute right-3 top-[calc(env(safe-area-inset-top)+0.75rem)] rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+            className="absolute right-12 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 size-8 rounded-full border-white/30 bg-black/50 p-0 text-white backdrop-blur-sm hover:bg-black/75"
           >
             {liveMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
-          </Button>
-          {role === "host" && (
+          </Button>}
+          {!cleanView && role === "host" && (
             <Button
               type="button"
               size="icon"
@@ -1641,34 +1725,34 @@ export function LiveRoom({
               aria-label={facingMode === "user" ? "Cambiar a cámara trasera" : "Cambiar a cámara frontal"}
               title={facingMode === "user" ? "Cámara frontal" : "Cámara trasera"}
               onClick={() => void flipLiveCamera()}
-              className="absolute right-14 top-[calc(env(safe-area-inset-top)+0.75rem)] rounded-full border-white/30 bg-black/70 text-white hover:bg-black/90"
+              className="absolute right-[5.5rem] top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 size-8 rounded-full border-white/30 bg-black/50 p-0 text-white backdrop-blur-sm hover:bg-black/75"
             >
               <RefreshCw className="size-4" />
             </Button>
           )}
         </div>
-        <div className="absolute right-3 top-[calc(env(safe-area-inset-top)+4.25rem)] z-20 flex flex-col gap-2">
-          <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="rounded-full border-pink-300/50 bg-pink-600/80 text-white"><Heart className="size-4 fill-current" /></Button>
-          <Button variant={micMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={micMuted ? "Activar micrófono" : "Silenciar micrófono"} className="rounded-full border-white/30 bg-black/55 text-white">
-            {micMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+        {!cleanView && <div className="absolute right-2 top-[calc(env(safe-area-inset-top)+3.5rem)] z-20 flex flex-col gap-1.5">
+          <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="size-8 rounded-full border-pink-300/50 bg-pink-600/75 p-0 text-white"><Heart className="size-3.5 fill-current" /></Button>
+          <Button variant={visibleMicMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={visibleMicMuted ? "Activar micrófono" : "Silenciar micrófono"} className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white">
+            {visibleMicMuted ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
           </Button>
-          <Button type="button" variant="outline" size="icon" onClick={() => setGuestToolsOpen(true)} aria-label="Herramientas del Live" title="Silla, ruleta y opciones" className="rounded-full border-sky-300/40 bg-black/70 text-sky-100"><Users className="size-4" /></Button>
+          <Button type="button" variant="outline" size="icon" onClick={() => setGuestToolsOpen(true)} aria-label="Herramientas del Live" title="Silla, ruleta y opciones" className="size-8 rounded-full border-sky-300/40 bg-black/60 p-0 text-sky-100"><Users className="size-3.5" /></Button>
           {role === "viewer" ? (
             <>
-              <Button variant="outline" size="icon" onClick={() => void reportHost()} aria-label="Reportar anfitrión" className="rounded-full border-white/30 bg-black/55 text-white"><Flag className="size-4" /></Button>
-              <Button variant="destructive" size="icon" onClick={() => void blockHost()} aria-label="Bloquear anfitrión" className="rounded-full"><Ban className="size-4" /></Button>
-              <Button variant="destructive" size="icon" onClick={exitLive} aria-label="Salir" className="rounded-full"><X className="size-4" /></Button>
+              <Button variant="outline" size="icon" onClick={() => void reportHost()} aria-label="Reportar anfitrión" className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white"><Flag className="size-3.5" /></Button>
+              <Button variant="destructive" size="icon" onClick={() => void blockHost()} aria-label="Bloquear anfitrión" className="size-8 rounded-full p-0"><Ban className="size-3.5" /></Button>
+              <Button variant="destructive" size="icon" onClick={exitLive} aria-label="Salir" className="size-8 rounded-full p-0"><X className="size-3.5" /></Button>
             </>
           ) : (
-            <Button variant="destructive" size="icon" onClick={() => setConfirmEndLiveOpen(true)} aria-label="Finalizar Live" className="rounded-full">
-              <PhoneOff className="size-4" />
+            <Button variant="destructive" size="icon" onClick={() => setConfirmEndLiveOpen(true)} aria-label="Finalizar Live" className="size-8 rounded-full p-0">
+              <PhoneOff className="size-3.5" />
             </Button>
           )}
-          <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })} className="rounded-full border-white/30 bg-black/55 text-white">
-            <Shield className="size-4 text-sky-300" />
+          <Button type="button" variant="outline" size="icon" aria-label="Manual de políticas de Cupido Leudy" title="Manual de políticas" onClick={() => toast.message("Manual de Políticas de Cupido Leudy ❤️", { description: "En llamadas y transmisiones públicas está prohibido fumar, beber alcohol, publicar números de teléfono, mostrar violencia o desnudez." })} className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white">
+            <Shield className="size-3.5 text-sky-300" />
           </Button>
-        </div>
-        {role === "host" && pendingPk && (
+        </div>}
+        {!cleanView && role === "host" && pendingPk && (
           <section className="absolute inset-x-3 bottom-[calc(18rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/40 bg-black/75 p-3" aria-live="polite">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-100"><Swords className="size-4" /> {pendingPk.requester_name} solicita una Batalla PK · {pkSeconds}s</p>
             <div className="flex gap-2">
@@ -1677,7 +1761,7 @@ export function LiveRoom({
             </div>
           </section>
         )}
-        {role === "viewer" && (
+        {!cleanView && role === "viewer" && (
           <section className="absolute bottom-[calc(18rem+env(safe-area-inset-bottom))] left-3 right-16 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-violet-300/25 bg-black/65 p-2">
             <p className="flex items-center gap-2 text-sm text-violet-100"><Swords className="size-4" />{activePkName ? `Batalla PK 1 vs 1 contra ${activePkName}` : pkRequestStatus === "pending" ? `Solicitud PK enviada · ${pkSeconds}s` : pkRequestStatus === "accepted" ? "Batalla PK aceptada · 1 vs 1" : "Desafía al anfitrión a una batalla PK 1 vs 1"}</p>
             {!activePkName && pkRequestStatus !== "pending" && pkRequestStatus !== "accepted" && (
@@ -1688,11 +1772,11 @@ export function LiveRoom({
             {!activePkName && pkRequestStatus === "pending" && <span className="text-xs text-violet-200">Esperando respuesta del anfitrión</span>}
           </section>
         )}
-        <section className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-3 z-20 w-[min(70vw,26rem)] rounded-2xl border border-white/15 bg-black/45 p-2.5 backdrop-blur-md" aria-label="Chat en vivo">
+        {!cleanView && <section className="absolute bottom-[calc(5rem+env(safe-area-inset-bottom))] left-2 z-20 flex max-h-[22dvh] w-[min(72vw,26rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-t from-black/65 via-black/40 to-black/20 p-2 backdrop-blur-sm" aria-label="Chat en vivo">
           <h3 className="mb-1 flex items-center gap-2 font-display text-xs text-white">
             <MessageCircle className="size-4 text-pink-300" /> Chat del directo
           </h3>
-          <div translate="no" className="max-h-[22dvh] space-y-1 overflow-y-auto rounded-xl bg-black/20 p-2" aria-live="polite">
+          <div translate="no" className="min-h-0 max-h-[12dvh] space-y-1 overflow-y-auto overscroll-contain rounded-xl bg-transparent p-1" aria-live="polite">
             {joinMessages.map((message, index) => (
               <p key={`${message}-${index}`} className="rounded-full bg-pink-500/10 px-3 py-1 text-center text-[11px] text-pink-200">
                 {message}
@@ -1726,8 +1810,8 @@ export function LiveRoom({
               {sendingComment ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             </Button>
           </div>
-        </section>
-        {role === "viewer" && <Button type="button" size="icon" onClick={() => {
+        </section>}
+        {!cleanView && role === "viewer" && <Button type="button" size="icon" onClick={() => {
           if (giftPanelOpen) {
             setGiftPanelOpen(false);
             setGiftCheckoutOpen(false);
@@ -1735,7 +1819,7 @@ export function LiveRoom({
             setGiftPanelOpen(true);
           }
         }} aria-label="Abrir regalos" className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-3 z-30 size-12 rounded-full bg-pink-600 text-white shadow-lg shadow-pink-900/40"><Gift className="size-5" /></Button>}
-        {role === "viewer" && (
+        {!cleanView && role === "viewer" && (
           <Sheet open={giftPanelOpen} onOpenChange={(open) => {
             setGiftPanelOpen(open);
             if (!open) setGiftCheckoutOpen(false);
@@ -1753,6 +1837,11 @@ export function LiveRoom({
                 </div>
               </SheetHeader>
               <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-3 pb-10">
+                {pendingGiftPurchase && !account.hasPurchased && !account.isInfiniteCreditsAdmin && (
+                  <p role="alert" className="mb-3 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-medium leading-snug text-amber-100">
+                    Realiza tu primera recarga para activar tus monedas y enviar regalos ❤️
+                  </p>
+                )}
                 {!giftCheckoutOpen ? (
                   <>
                     <GiftGrid compact onSelect={selectGift} disabled={sendingGift || account.loading || account.balanceUnavailable} />

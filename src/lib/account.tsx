@@ -73,7 +73,7 @@ export function useAccount() {
         isOfficial: Boolean(profile.data?.is_official),
         isGranLiga: Boolean(profile.data?.is_gran_liga || privateProfile.data?.is_gran_liga),
         plan: profile.data?.is_premium ? "premium" : "free",
-        hasPurchased: isImmediateAdmin || Boolean(privateProfile.data?.has_recharged || capturedOrders.data?.length),
+        hasPurchased: isImmediateAdmin || Boolean(privateProfile.data?.has_purchased || capturedOrders.data?.length),
         dailyStreak: privateProfile.data?.daily_streak ?? 0,
         lastDailyClaim: privateProfile.data?.last_daily_claim ?? null,
       };

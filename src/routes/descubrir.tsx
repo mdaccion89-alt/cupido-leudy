@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Heart, Search } from "lucide-react";
 import { PeopleSuggestions } from "@/components/cupido/people-suggestions";
+import { CommunityDemoFeed } from "@/components/cupido/community-demo-feed";
 import { WallFeed } from "@/components/cupido/wall-feed";
 import { Input } from "@/components/ui/input";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
@@ -52,6 +53,7 @@ function DiscoverPage() {
           </div>
         </header>
         <PeopleSuggestions search={search} />
+        <CommunityDemoFeed title="Perfiles y publicaciones de la comunidad" />
         <section aria-label="Videos cortos">
           <h2 className="mb-3 font-display text-xl font-semibold text-white">Videos cortos</h2>
           <WallFeed videoOnly hideUpload showScopeTabs={false} searchTerm={search} emptyText="Todavía no hay videos que coincidan con la búsqueda." />
