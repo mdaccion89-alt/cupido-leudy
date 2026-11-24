@@ -1491,7 +1491,7 @@ function ChatPage() {
               <section className="space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
                 {giftBalanceInsufficient && !readyToSend && (
                   <p role="alert" className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-medium leading-snug text-amber-100">
-                    No tienes monedas suficientes. Recarga para enviar este regalo ❤️
+                    Saldo insuficiente. Recarga monedas para enviar este regalo ❤️
                   </p>
                 )}
                 <div>
@@ -1514,6 +1514,7 @@ function ChatPage() {
                       toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
                     }}
                     onError={(message) => toast.error(message)}
+                    onCancel={(message) => toast.info(message)}
                   />
                 ) : (
                   <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
@@ -1521,7 +1522,7 @@ function ChatPage() {
                 {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
                   <div className="space-y-2 rounded-xl border border-amber-300/30 bg-amber-400/[0.06] p-3">
                     <p className="text-sm font-semibold text-amber-100">Diamante Gran Liga ? 1.000.000 monedas ? US$100</p>
-                    {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
+                    {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} onCancel={(message) => toast.info(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
                   </div>
                 )}
                 <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>

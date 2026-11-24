@@ -41,63 +41,102 @@ export async function applyMediaFilter(file: File, filter: MediaFilterId): Promi
     return new File([blob], outputName(file.name, "jpg"), { type: "image/jpeg", lastModified: Date.now() });
   }
   if (!file.type.startsWith("video/")) return file;
-  if (typeof MediaRecorder === "undefined") throw new Error("Este navegador no admite filtros de video.");
+  if (typeof MediaRecorder === "undefined") return file;
 
-  const url = URL.createObjectURL(file);
   const video = document.createElement("video");
-  video.src = url;
-  video.playsInline = true;
-  video.muted = true;
-  await new Promise<void>((resolve, reject) => {
-    video.onloadedmetadata = () => resolve();
-    video.onerror = () => reject(new Error("No se pudo leer el video."));
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.min(1280, video.videoWidth || 640);
-  canvas.height = Math.max(1, Math.round(canvas.width * (video.videoHeight || 480) / (video.videoWidth || 640)));
-  const context = canvas.getContext("2d");
-  if (!context || !canvas.captureStream) {
-    URL.revokeObjectURL(url);
-    throw new Error("Este navegador no admite filtros de video.");
-  }
-  const stream = canvas.captureStream(24);
-  const audioContext = new AudioContext();
-  const audioOutput = audioContext.createMediaStreamDestination();
-  const source = audioContext.createMediaElementSource(video);
-  source.connect(audioOutput);
-  audioOutput.stream.getAudioTracks().forEach((track) => stream.addTrack(track));
-  const type = recorderType();
-  const recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
-  const chunks: Blob[] = [];
-  const recording = new Promise<Blob>((resolve, reject) => {
-    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-    recorder.onerror = () => reject(new Error("No se pudo filtrar el video."));
-    recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || "video/webm" }));
-  });
+  let url = "";
+  let stream: MediaStream | null = null;
+  let audioContext: AudioContext | null = null;
+  let source: MediaElementAudioSourceNode | null = null;
+  let recorder: MediaRecorder | null = null;
   let frameId = 0;
-  const paint = () => {
-    if (video.readyState >= 2) {
-      context.filter = mediaFilterCss(filter);
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    }
-    if (!video.ended) frameId = requestAnimationFrame(paint);
-  };
+  let playbackTimer = 0;
+  let metadataTimer = 0;
   try {
+    url = URL.createObjectURL(file);
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.muted = true;
+    const metadataReady = await new Promise<boolean>((resolve) => {
+      const finish = (ready: boolean) => {
+        window.clearTimeout(metadataTimer);
+        video.onloadedmetadata = null;
+        video.onerror = null;
+        resolve(ready);
+      };
+      video.onloadedmetadata = () => finish(video.videoWidth > 0 && video.videoHeight > 0);
+      video.onerror = () => finish(false);
+      metadataTimer = window.setTimeout(() => finish(false), 4_000);
+      video.src = url;
+    });
+    if (!metadataReady) return file;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.min(1280, video.videoWidth || 640);
+    canvas.height = Math.max(1, Math.round(canvas.width * (video.videoHeight || 480) / (video.videoWidth || 640)));
+    const context = canvas.getContext("2d");
+    if (!context || !canvas.captureStream) return file;
+
+    stream = canvas.captureStream(24);
+    audioContext = new AudioContext();
+    const audioOutput = audioContext.createMediaStreamDestination();
+    source = audioContext.createMediaElementSource(video);
+    source.connect(audioOutput);
+    audioOutput.stream.getAudioTracks().forEach((track) => stream?.addTrack(track));
+    const type = recorderType();
+    recorder = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    const chunks: Blob[] = [];
+    const recording = new Promise<Blob | null>((resolve) => {
+      recorder!.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+      recorder!.onerror = () => resolve(null);
+      recorder!.onstop = () => resolve(chunks.length ? new Blob(chunks, { type: recorder?.mimeType || "video/webm" }) : null);
+    });
+    const paint = () => {
+      if (video.readyState >= 2) {
+        context.filter = mediaFilterCss(filter);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+      if (!video.ended) frameId = requestAnimationFrame(paint);
+    };
+
     await audioContext.resume();
     await video.play();
     recorder.start(250);
     paint();
-    await new Promise<void>((resolve) => { video.onended = () => resolve(); });
+    const maxWait = Number.isFinite(video.duration) && video.duration > 0
+      ? Math.min(180_000, video.duration * 1000 + 5_000)
+      : 35_000;
+    const reachedEnd = await Promise.race([
+      new Promise<boolean>((resolve) => { video.onended = () => resolve(true); }),
+      new Promise<boolean>((resolve) => { playbackTimer = window.setTimeout(() => resolve(false), maxWait); }),
+    ]);
+    if (playbackTimer) window.clearTimeout(playbackTimer);
+    if (!reachedEnd) {
+      if (recorder.state !== "inactive") recorder.stop();
+      await recording;
+      return file;
+    }
     if (recorder.state !== "inactive") recorder.stop();
     const blob = await recording;
+    if (!blob?.size) return file;
     return new File([blob], outputName(file.name, "webm"), { type: blob.type, lastModified: Date.now() });
+  } catch {
+    return file;
   } finally {
+    window.clearTimeout(metadataTimer);
+    window.clearTimeout(playbackTimer);
     cancelAnimationFrame(frameId);
-    stream.getTracks().forEach((track) => track.stop());
-    source.disconnect();
-    await audioContext.close().catch(() => undefined);
-    video.pause();
-    video.removeAttribute("src");
-    URL.revokeObjectURL(url);
+    if (recorder?.state !== "inactive") recorder?.stop();
+    stream?.getTracks().forEach((track) => track.stop());
+    try { source?.disconnect(); } catch { /* The audio graph may already be closed. */ }
+    await audioContext?.close().catch(() => undefined);
+    try {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    } catch { /* A decoder failure must fall back to the source file. */ }
+    if (url) {
+      try { URL.revokeObjectURL(url); } catch { /* The temporary URL may already be released. */ }
+    }
   }
 }

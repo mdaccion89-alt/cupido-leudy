@@ -1778,6 +1778,7 @@ export function LiveRoom({
                           }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
                         }}
                         onError={(message) => toast.error(message)}
+                        onCancel={(message) => toast.info(message)}
                       />
                     ) : (
                       <p className="text-center text-sm text-amber-100/80">PayPal Business Live no está configurado para completar el pago seguro.</p>

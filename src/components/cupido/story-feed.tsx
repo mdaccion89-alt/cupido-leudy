@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { playCupidoSound } from "@/lib/cupido-sounds";
 import { notifyUser } from "@/lib/posts";
-import { compressImageFile, safeExtension } from "@/lib/storage";
+import { compressImageFile, isVideoFile, safeExtension, videoContentType, videoFileExtension } from "@/lib/storage";
 import type { MediaFilterId } from "@/lib/media-filters";
 import { mediaFilterCss } from "@/lib/media-filters";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -155,7 +155,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
       toast.error("Inicia sesión para publicar una historia.");
       return;
     }
-    const isVideo = file.type.startsWith("video/");
+    const isVideo = isVideoFile(file);
     if (!isVideo && !file.type.startsWith("image/")) {
       toast.error("Elige una foto o un video.");
       return;
@@ -171,11 +171,10 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
     try {
       const uploadFile = isVideo ? file : await compressImageFile(file, 300 * 1024);
       if (cancelUploadRef.current) { toast.info("Subida cancelada."); return; }
-      const extension = safeExtension(uploadFile.name, isVideo ? "webm" : "jpg");
-      if (isVideo && !["mp4", "webm", "mov", "m4v"].includes(extension)) throw new Error("Formato de video no admitido.");
+      const extension = isVideo ? videoFileExtension(uploadFile) : safeExtension(uploadFile.name, "jpg");
       const path = `${viewerId}/stories/${Date.now()}.${extension}`;
       const { error: uploadError } = await supabase.storage.from("media").upload(path, uploadFile, {
-        contentType: uploadFile.type || (isVideo ? "video/webm" : "image/jpeg"),
+        contentType: isVideo ? videoContentType(uploadFile, extension) : uploadFile.type || "image/jpeg",
         upsert: false,
       });
       if (uploadError) throw uploadError;

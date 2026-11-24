@@ -32,6 +32,7 @@ import {
   type Gift as GiftItem,
 } from "@/lib/cupido";
 import { capturePaypalOrder } from "@/lib/payments.functions";
+import { readableErrorMessage } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 
 export const Route = createFileRoute("/tienda")({
@@ -50,6 +51,8 @@ function StorePage() {
   const minimumWithdrawal = account.isGranLiga ? GRAN_LIGA_MIN_WITHDRAWAL : MIN_WITHDRAWAL;
   const captureOrder = useServerFn(capturePaypalOrder);
   const capturedRef = useRef<string | null>(null);
+  const [captureRetry, setCaptureRetry] = useState<{ orderId: string; message: string; retryable: boolean } | null>(null);
+  const [captureRetrying, setCaptureRetrying] = useState(false);
 
   const [pendingGift, setPendingGift] = useState<GiftItem | null>(null);
   const [selectedCheckoutPackageId, setSelectedCheckoutPackageId] = useState<string | null>(null);
@@ -144,24 +147,38 @@ function StorePage() {
     };
   }, [queryClient]);
 
+  const verifyReturnedOrder = async (orderId: string) => {
+    setCaptureRetrying(true);
+    try {
+      const result = await captureOrder({ data: { orderId } });
+      if (!result.ok) throw new Error(result.message);
+      account.addPurchasedCredits(result.credits);
+      await account.refresh();
+      void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
+      setCaptureRetry(null);
+      toast.success(result.isGranLiga
+        ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+        : `Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
+      void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
+      void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
+    } catch (error) {
+      const message = readableErrorMessage(error, "No se pudo verificar el pago. Reintenta la confirmación del mismo pedido.");
+      const lowerMessage = message.toLowerCase();
+      const retryable = !lowerMessage.includes("pago cancelado") &&
+        !lowerMessage.includes("no se acreditaron monedas") &&
+        !lowerMessage.includes("no se encontró el pedido") &&
+        !lowerMessage.includes("paquete no válido");
+      setCaptureRetry({ orderId, message, retryable });
+      toast.error(message);
+    } finally {
+      setCaptureRetrying(false);
+    }
+  };
+
   useEffect(() => {
     if (!token || !viewerId || capturedRef.current === token) return;
     capturedRef.current = token;
-    void (async () => {
-      const result = await captureOrder({ data: { orderId: token } });
-      if (result.ok) {
-        account.addPurchasedCredits(result.credits);
-        await account.refresh();
-        void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
-        toast.success(result.isGranLiga
-          ? "Diamante Gran Liga activado: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
-          : `Se acreditaron ${result.credits.toLocaleString("es")} monedas brillantes ❤️`);
-        void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
-        void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
-      } else {
-        toast.error(result.message);
-      }
-    })();
+    void verifyReturnedOrder(token);
   }, [token, viewerId, giftTo, captureOrder, account, navigate]);
 
   const sendGift = useMutation({
@@ -272,6 +289,18 @@ function StorePage() {
         </div>
       </header>
 
+      {captureRetry && (
+        <section role="alert" className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-amber-100">{captureRetry.message}</p>
+          <Button type="button" className="w-full whitespace-normal sm:w-auto" disabled={captureRetrying} onClick={() => {
+            if (captureRetry.retryable) void verifyReturnedOrder(captureRetry.orderId);
+            else void navigate({ to: "/tienda", search: giftTo ? { userId: giftTo } : {}, replace: true });
+          }}>
+            {captureRetrying ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+            {captureRetry.retryable ? "Reintentar confirmación" : "Volver a elegir monedas"}
+          </Button>
+        </section>
+      )}
 
 
       {giftTo && (
@@ -402,6 +431,7 @@ function StorePage() {
                 disabled={sendGift.isPending}
                 onSuccess={(credits) => { void handleCheckoutSuccess(credits).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo.")); }}
                 onError={(message) => toast.error(message)}
+                onCancel={(message) => toast.info(message)}
               />
             ) : paypalConfig.isLoading ? (
               <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>

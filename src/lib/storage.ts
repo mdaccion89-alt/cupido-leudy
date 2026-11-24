@@ -1,11 +1,45 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export const PUBLIC_IMAGE_BUCKETS = ["media", "avatars", "cupido-media"] as const;
+export const SUPPORTED_VIDEO_EXTENSIONS = ["mp4", "mov", "webm", "mkv", "3gp", "m4v"] as const;
 
 export function safeExtension(name: string, fallback: string): string {
   const ext = name.includes(".") ? name.split(".").pop() || "" : "";
   const cleaned = ext.toLowerCase().replace(/[^a-z0-9]/g, "");
   return cleaned || fallback;
+}
+
+const VIDEO_MIME_EXTENSIONS: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "video/x-matroska": "mkv",
+  "video/3gpp": "3gp",
+};
+
+const VIDEO_EXTENSION_TYPES: Record<string, string> = {
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  mkv: "video/x-matroska",
+  "3gp": "video/3gpp",
+  m4v: "video/mp4",
+};
+
+export function isVideoFile(file: File): boolean {
+  const extension = safeExtension(file.name, "").toLowerCase();
+  return file.type.startsWith("video/") || SUPPORTED_VIDEO_EXTENSIONS.includes(extension as (typeof SUPPORTED_VIDEO_EXTENSIONS)[number]);
+}
+
+export function videoFileExtension(file: File): string {
+  const extension = safeExtension(file.name, "").toLowerCase();
+  if (SUPPORTED_VIDEO_EXTENSIONS.includes(extension as (typeof SUPPORTED_VIDEO_EXTENSIONS)[number])) return extension;
+  return VIDEO_MIME_EXTENSIONS[file.type.toLowerCase()] ?? "mp4";
+}
+
+export function videoContentType(file: File, extension = videoFileExtension(file)): string {
+  if (file.type.startsWith("video/")) return file.type;
+  return (VIDEO_EXTENSION_TYPES[extension] ?? file.type) || "video/mp4";
 }
 
 export function publicImagePath(userId: string, folder: string, extension: string): string {
@@ -61,20 +95,37 @@ export async function compressImageFile(file: File, targetBytes = 150 * 1024): P
   }
 }
 
-export function readVideoDuration(file: File): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
+export function readVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
+    let url = "";
+    let timer = 0;
     const video = document.createElement("video");
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(Number.isFinite(video.duration) ? video.duration : 0);
+    const finish = (duration: number | null) => {
+      window.clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      try {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      } catch {
+        // An Android WebView decoder can throw while releasing an unsupported codec.
+      }
+      if (url) {
+        try { URL.revokeObjectURL(url); } catch { /* The temporary URL may already be released. */ }
+      }
+      resolve(duration);
     };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("No se pudo leer el video."));
-    };
-    video.src = url;
+    try {
+      url = URL.createObjectURL(file);
+      video.preload = "metadata";
+      video.onloadedmetadata = () => finish(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null);
+      video.onerror = () => finish(null);
+      timer = window.setTimeout(() => finish(null), 4_000);
+      video.src = url;
+    } catch {
+      finish(null);
+    }
   });
 }
 

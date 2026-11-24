@@ -20,15 +20,10 @@ import {
   togglePostLike,
   togglePostSave,
 } from "@/lib/posts";
-import { compressImageFile, readVideoDuration, safeExtension } from "@/lib/storage";
+import { compressImageFile, isVideoFile, readVideoDuration, safeExtension, videoContentType, videoFileExtension } from "@/lib/storage";
 import { mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
 
-const VIDEO_EXTENSIONS = ["mp4", "webm", "mov", "m4v"];
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
-
-function isVideoFile(file: File): boolean {
-  return file.type.startsWith("video/") || VIDEO_EXTENSIONS.includes(safeExtension(file.name, "").toLowerCase());
-}
 
 function errorMessage(value: unknown, fallback: string): string {
   if (value instanceof Error) return value.message || fallback;
@@ -297,12 +292,10 @@ export function WallFeed({
   const handleUpload = async (file: File | null, filter = mediaFilter) => {
     if (!file || !viewerId) return;
     if (!requireSession()) return;
-    const videoMime = file.type === "video/mp4" || file.type === "video/webm" || file.type === "video/quicktime";
-    const mimeExtension = videoMime
-      ? file.type === "video/webm" ? "webm" : file.type === "video/quicktime" ? "mov" : "mp4"
-      : file.type.startsWith("image/") ? (file.type.split("/")[1] ?? "jpg").replace(/^jpeg$/, "jpg") : "";
-    const extension = safeExtension(file.name, mimeExtension).toLowerCase();
-    const isVideo = videoMime || VIDEO_EXTENSIONS.includes(extension);
+    const isVideo = isVideoFile(file);
+    const extension = isVideo
+      ? videoFileExtension(file)
+      : safeExtension(file.name, file.type.startsWith("image/") ? (file.type.split("/")[1] ?? "jpg").replace(/^jpeg$/, "jpg") : "").toLowerCase();
     const isImage = file.type.startsWith("image/");
     if (galleryOnly && !isImage) {
       toast.error("En la galería del perfil solo se publican fotos.");
@@ -314,14 +307,6 @@ export function WallFeed({
     }
     if (!isVideo && !isImage) {
       toast.error("Elige una foto o un video corto.");
-      return;
-    }
-    if (isVideo && !VIDEO_EXTENSIONS.includes(extension)) {
-      toast.error("Formato de video no admitido. Usa MP4, WEBM o MOV.");
-      return;
-    }
-    if (isVideo && file.type && file.type !== "application/octet-stream" && !videoMime) {
-      toast.error("El tipo de video no es compatible. Usa MP4, WEBM o MOV.");
       return;
     }
     if (!isVideo && !IMAGE_EXTENSIONS.includes(extension)) {
@@ -340,14 +325,14 @@ export function WallFeed({
       let uploadFile = file;
       if (isVideo) {
         const duration = await readVideoDuration(uploadFile);
-        if (duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
+        if (duration !== null && duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
       } else {
         uploadFile = await compressImageFile(uploadFile, 200 * 1024);
       }
-      const finalExtension = safeExtension(uploadFile.name, extension);
+      const finalExtension = isVideo ? extension : safeExtension(uploadFile.name, extension);
       const path = `${viewerId}/${Date.now()}.${finalExtension}`;
       const contentType = isVideo
-        ? videoMime ? uploadFile.type : finalExtension === "webm" ? "video/webm" : finalExtension === "mov" ? "video/quicktime" : "video/mp4"
+        ? videoContentType(uploadFile, finalExtension)
         : uploadFile.type || "image/jpeg";
       let uploadResult = await supabase.storage.from("cupido-media").upload(path, uploadFile, {
         contentType,
@@ -417,7 +402,7 @@ export function WallFeed({
           <input
             ref={fileRef}
             type="file"
-            accept={videoOnly ? "video/mp4,video/webm,video/quicktime" : "image/*,video/mp4,video/webm,video/quicktime"}
+            accept={videoOnly ? "video/*,.mp4,.mov,.webm,.mkv,.3gp,.m4v" : "image/*,video/*,.mp4,.mov,.webm,.mkv,.3gp,.m4v"}
             className="hidden"
             onChange={(event) => void handlePick(event.target.files?.[0] ?? null)}
           />

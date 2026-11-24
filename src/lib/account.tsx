@@ -32,7 +32,7 @@ export function useAccount() {
     queryFn: async () => {
       const { error: refreshError } = await supabase.rpc("refresh_my_credits");
       if (refreshError) throw refreshError;
-      const [credits, roles, profile, privateProfile, capturedOrders] = await Promise.all([
+      const [credits, roles, profile, privateProfile, coinMirror, capturedOrders] = await Promise.all([
         supabase
           .from("user_credits")
           .select("balance,daily_reset_at")
@@ -49,6 +49,7 @@ export function useAccount() {
           .select("credits,credits_balance,daily_streak,last_daily_claim,has_purchased,has_recharged,is_gran_liga")
           .eq("id", userId!)
           .maybeSingle(),
+        supabase.from("profiles").select("coins").eq("id", userId!).maybeSingle(),
         supabase
           .from("paypal_orders")
           .select("id")
@@ -58,8 +59,10 @@ export function useAccount() {
       ]);
       if (privateProfile.error) throw privateProfile.error;
       if (credits.error) throw credits.error;
+      if (coinMirror.error && coinMirror.error.code !== "42703" && coinMirror.error.code !== "PGRST204") throw coinMirror.error;
       return {
         balance:
+          coinMirror.data?.coins ??
           privateProfile.data?.credits_balance ??
           privateProfile.data?.credits ??
           credits.data?.balance ??

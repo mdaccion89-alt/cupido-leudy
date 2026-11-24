@@ -474,6 +474,7 @@ export type Database = {
           bio: string | null;
           country_code: string | null;
           created_at: string;
+          coins: number;
           credits: number;
           credits_balance: number;
           daily_streak: number;
@@ -515,6 +516,7 @@ export type Database = {
           bio?: string | null;
           country_code?: string | null;
           created_at?: string;
+          coins?: number;
           credits?: number;
           credits_balance?: number;
           daily_streak?: number;
@@ -556,6 +558,7 @@ export type Database = {
           bio?: string | null;
           country_code?: string | null;
           created_at?: string;
+          coins?: number;
           credits?: number;
           credits_balance?: number;
           daily_streak?: number;

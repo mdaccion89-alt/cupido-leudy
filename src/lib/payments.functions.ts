@@ -259,16 +259,22 @@ export async function paypal(path: string, init: RequestInit = {}, config?: Payp
 }
 
 export function paypalMessage(err: unknown) {
-  const code = err instanceof Error ? err.message : "";
+  const code = typeof err === "string"
+    ? err
+    : err && typeof err === "object" && "message" in err && typeof (err as { message?: unknown }).message === "string"
+      ? (err as { message: string }).message
+      : "";
   if (code === "PAYPAL_NOT_CONFIGURED")
     return "El Admin Supremo debe configurar PayPal Business en el panel Admin antes de comprar.";
   if (code === "SUPABASE_SERVICE_ROLE_KEY_MISSING")
     return "El servidor de pagos no tiene configurada la clave segura de Supabase. Contacta a soporte.";
-  if (code.startsWith("PAYPAL_")) {
-    const detail = code.replace(/^PAYPAL_/, "").slice(0, 360);
-    return `PayPal devolvió ${detail}. Revisa el código y motivo con PayPal o soporte.`;
-  }
-  if (code && code.length <= 360 && !/secret|authorization|bearer|token/i.test(code)) return code;
+  if (/PAYPAL_NETWORK_ERROR|network|failed to fetch|timeout|connection/i.test(code))
+    return "No se pudo conectar con PayPal. Comprueba tu conexión e inténtalo de nuevo.";
+  if (code.includes("PAYPAL_FINALIZE_FAILED"))
+    return "PayPal confirmó el pago, pero falta terminar la acreditación. No vuelvas a pagar; reintenta la confirmación.";
+  if (code.includes("PAYPAL_ORDER_SAVE_FAILED") || code.includes("PAYPAL_NO_ID"))
+    return "No se pudo preparar la compra segura. No se realizó ningún cargo; inténtalo de nuevo.";
+  if (code && code.length <= 360 && code !== "[object Object]" && !/secret|authorization|bearer|token|^PAYPAL_/i.test(code)) return code;
   return "No se pudo completar el pago con PayPal. Inténtalo de nuevo.";
 }
 
@@ -452,6 +458,13 @@ export const capturePaypalOrder = createServerFn({ method: "POST" })
         });
         if (capture?.status === "COMPLETED" || captured["status"] === "COMPLETED") {
           await admin.from("paypal_orders").update({ status: "failed" }).eq("id", order.id).eq("status", "created");
+        }
+        if (captured["status"] === "VOIDED") {
+          await admin.from("paypal_orders").update({ status: "failed" }).eq("id", order.id).eq("status", "created");
+          return { ok: false, message: "Pago cancelado. No se acreditaron monedas; puedes volver a intentarlo cuando quieras." };
+        }
+        if (captured["status"] === "CREATED" || captured["status"] === "APPROVED" || captured["status"] === "PAYER_ACTION_REQUIRED") {
+          return { ok: false, message: "PayPal aún no confirmó el pago. No se acreditaron monedas; puedes reintentar la compra." };
         }
         return {
           ok: false,
