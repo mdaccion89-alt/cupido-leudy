@@ -151,6 +151,11 @@ function actionErrorMessage(error: unknown, fallback: string): string {
   return readableErrorMessage(error, fallback);
 }
 
+function isGiftBalanceInsufficientError(error: unknown): boolean {
+  const message = readableErrorMessage(error, "").toLowerCase();
+  return message.includes("insufficient") || message.includes("insuficiente") || message.includes("purchase_required");
+}
+
 function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) {
   const shortage = Math.max(gift.credits - balance, hasPurchased ? 0 : 1);
   return CREDIT_PACKAGES.find((pack) => pack.credits >= shortage) ?? CREDIT_PACKAGES[CREDIT_PACKAGES.length - 1];
@@ -187,6 +192,7 @@ function ChatPage() {
   const [giftOpen, setGiftOpen] = useState(false);
   const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
+  const [giftBalanceInsufficient, setGiftBalanceInsufficient] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const mobileBannerSuppressed = useRef(false);
@@ -1008,14 +1014,22 @@ function ChatPage() {
     onSuccess: ({ receiverId, transcriptSaved }) => {
       account.refresh();
       setPendingGiftPurchase(null);
+      setGiftBalanceInsufficient(false);
       setGiftOpen(false);
       toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
       if (!transcriptSaved) toast.info("El regalo sí se envió; no pudimos mostrarlo en el historial del chat.");
       void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
-    onError: (error) => {
+    onError: (error, gift) => {
       console.error("[chat] No se pudo enviar el regalo.", error);
+      if (isGiftBalanceInsufficientError(error)) {
+        setPendingGiftPurchase(gift);
+        setGiftBalanceInsufficient(true);
+        setGiftOpen(true);
+        void account.refresh();
+        return;
+      }
       toast.error(giftErrorMessage(error, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
     },
   });
@@ -1024,9 +1038,12 @@ function ChatPage() {
     if (account.loading || account.balanceUnavailable) return;
     if (!canSendGift(gift, account)) {
       setPendingGiftPurchase(gift);
+      setGiftBalanceInsufficient(true);
+      setGiftOpen(true);
       return;
     }
     setPendingGiftPurchase(null);
+    setGiftBalanceInsufficient(false);
     sendGift.mutate(gift);
   };
 
@@ -1442,11 +1459,21 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={giftOpen} onOpenChange={(open) => { setGiftOpen(open); if (!open) setPendingGiftPurchase(null); }}>
+      <Dialog open={giftOpen} onOpenChange={(open) => {
+        setGiftOpen(open);
+        if (!open) {
+          setPendingGiftPurchase(null);
+          setGiftBalanceInsufficient(false);
+        }
+      }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}
+              {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
+                <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
+              ) : (
+                <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
+              )}
             </DialogTitle>
             <DialogDescription className="flex items-center gap-1.5">
               <CoinIcon className="size-4" /> Tienes {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
@@ -1462,6 +1489,11 @@ function ChatPage() {
             const readyToSend = canSendGift(pendingGiftPurchase, account);
             return (
               <section className="space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
+                {giftBalanceInsufficient && !readyToSend && (
+                  <p role="alert" className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2.5 text-sm font-medium leading-snug text-amber-100">
+                    No tienes monedas suficientes. Recarga para enviar este regalo ❤️
+                  </p>
+                )}
                 <div>
                   <p className="font-semibold text-white">{readyToSend ? `${pendingGiftPurchase.name} está listo para enviar` : `Desbloquea ${pendingGiftPurchase.name}`}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{readyToSend ? "Elige si quieres enviarlo ahora. El saldo restante se queda en tu cuenta." : `Compra ${pack?.credits.toLocaleString("es")} monedas por US$${pack?.price}. El regalo no se enviará hasta que pulses el botón; las monedas restantes seguirán disponibles.`}</p>
