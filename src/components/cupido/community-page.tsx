@@ -129,7 +129,6 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const activeLives = useQuery({
     queryKey: ["cupido-discovery-live-streams"],
     queryFn: async () => {
-      await supabase.rpc("cupido_end_stale_lives");
       let query = supabase.from("cupido_live_rooms").select("id,host_id,viewer_count").eq("is_live", true).order("created_at", { ascending: false }).limit(40);
       if (viewerId) query = query.neq("host_id", viewerId);
       const { data, error } = await query;

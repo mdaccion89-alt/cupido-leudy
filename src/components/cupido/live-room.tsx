@@ -340,6 +340,7 @@ export function LiveRoom({
   const [pkSide, setPkSide] = useState<"host" | "challenger">("host");
   const [treasureBusy, setTreasureBusy] = useState(false);
   const [goalCelebration, setGoalCelebration] = useState(false);
+  const [confirmEndLiveOpen, setConfirmEndLiveOpen] = useState(false);
   const goalCelebratedRef = useRef(false);
   const pkFinishStartedRef = useRef(false);
   const [liveMuted, setLiveMuted] = useState(false);
@@ -367,7 +368,16 @@ export function LiveRoom({
   const [pkSeconds, setPkSeconds] = useState(10);
   const expiredPkRef = useRef<string | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
-  const moderationRequestPending = useRef(false);
+  const onCloseRef = useRef(onClose);
+  const onEndedRef = useRef(onEnded);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    onEndedRef.current = onEnded;
+  }, [onEnded]);
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
     enabled: Boolean(pendingGiftPurchase),
@@ -438,11 +448,11 @@ export function LiveRoom({
     const timer = window.setTimeout(() => {
       void supabase.rpc("cupido_end_live_room", { _id: roomId }).then(({ error }) => {
         if (error) toast.error("No se pudo cerrar el Live al terminar la tarifa.");
-        else { toast.info("El tiempo del Live Premium terminó."); onEnded(); }
+        else { toast.info("El tiempo del Live Premium terminó."); onEndedRef.current(); }
       });
     }, remaining);
     return () => window.clearTimeout(timer);
-  }, [onEnded, premiumEndsAt, role, roomId]);
+  }, [premiumEndsAt, role, roomId]);
 
   useEffect(() => {
     if (role !== "host") return;
@@ -453,36 +463,6 @@ export function LiveRoom({
     const heartbeat = window.setInterval(sendHeartbeat, 15_000);
     return () => window.clearInterval(heartbeat);
   }, [role, roomId]);
-
-  useEffect(() => {
-    if (role !== "host" || premiumEndsAt) return;
-    const checkFrame = async () => {
-      if (moderationRequestPending.current) return;
-      const video = localVideoRef.current;
-      if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0) return;
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.min(video.videoWidth, 640);
-      canvas.height = Math.round(video.videoHeight * (canvas.width / video.videoWidth));
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      moderationRequestPending.current = true;
-      try {
-        const { data, error } = await supabase.functions.invoke("cupido-live-moderation", {
-          body: { room_id: roomId, image: canvas.toDataURL("image/jpeg", 0.55) },
-        });
-        if (error) return;
-        if (data?.closed) {
-          toast.error("El Live se cerró automáticamente por seguridad. El Administrador recibió el reporte.");
-          onEnded();
-        }
-      } finally {
-        moderationRequestPending.current = false;
-      }
-    };
-    const timer = window.setInterval(() => void checkFrame(), 15_000);
-    return () => window.clearInterval(timer);
-  }, [onEnded, premiumEndsAt, role, roomId]);
 
   const sendSignal = useCallback(
     async (signal: LiveSignal) => {
@@ -500,7 +480,16 @@ export function LiveRoom({
 
   const createHostPeer = useCallback(
     async (peerId: string) => {
-      if (!localStreamRef.current || peersRef.current.has(peerId)) return;
+      if (!localStreamRef.current) return;
+      const existingPeer = peersRef.current.get(peerId);
+      if (existingPeer) {
+        const connectionHealthy = existingPeer.connectionState === "connected" || existingPeer.connectionState === "connecting";
+        const iceFailed = existingPeer.iceConnectionState === "failed" || existingPeer.iceConnectionState === "closed";
+        if (connectionHealthy && !iceFailed) return;
+        existingPeer.close();
+        peersRef.current.delete(peerId);
+        pendingIceRef.current.delete(peerId);
+      }
       const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
       [...localStreamRef.current.getAudioTracks(), ...localStreamRef.current.getVideoTracks()].forEach((track) => {
         peer.addTrack(track, localStreamRef.current!);
@@ -563,12 +552,22 @@ export function LiveRoom({
   useEffect(() => {
     let disposed = false;
     let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
+    let reconnectTimer: number | null = null;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer === null) return;
+      window.clearInterval(reconnectTimer);
+      reconnectTimer = null;
+    };
 
     const start = async () => {
       try {
         if (role === "host") {
-          if (!initialStream) await requestNativeMediaPermissions();
-          const stream = initialStream ?? (await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "user" } }, audio: true }));
+          const reusableStream = initialStream?.getTracks().length && initialStream.getTracks().every((track) => track.readyState === "live")
+            ? initialStream
+            : null;
+          if (!reusableStream) await requestNativeMediaPermissions();
+          const stream = reusableStream ?? (await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "user" } }, audio: true }));
           if (disposed) {
             stream.getTracks().forEach((track) => track.stop());
             return;
@@ -592,6 +591,35 @@ export function LiveRoom({
           if (viewerError && viewerError.code !== "23505") throw viewerError;
           const offerPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
           peersRef.current.set(hostId, offerPeer);
+          const watchConnection = () => {
+            const isConnected = offerPeer.connectionState === "connected"
+              && ["connected", "completed"].includes(offerPeer.iceConnectionState);
+            if (isConnected) {
+              clearReconnectTimer();
+              return;
+            }
+            const connectionLost = ["disconnected", "failed", "closed"].includes(offerPeer.connectionState)
+              || ["disconnected", "failed", "closed"].includes(offerPeer.iceConnectionState);
+            if (!connectionLost || reconnectTimer !== null) return;
+            reconnectTimer = window.setInterval(() => {
+              if (disposed || peersRef.current.get(hostId) !== offerPeer) {
+                clearReconnectTimer();
+                return;
+              }
+              const isConnected = offerPeer.connectionState === "connected"
+                && ["connected", "completed"].includes(offerPeer.iceConnectionState);
+              if (isConnected) {
+                clearReconnectTimer();
+                return;
+              }
+              if (["disconnected", "failed", "closed"].includes(offerPeer.connectionState)
+                || ["disconnected", "failed", "closed"].includes(offerPeer.iceConnectionState)) {
+                void sendSignal({ kind: "join", sender: viewerId }).catch(() => undefined);
+              }
+            }, 2_000);
+          };
+          offerPeer.onconnectionstatechange = watchConnection;
+          offerPeer.oniceconnectionstatechange = watchConnection;
           offerPeer.ontrack = (event) => {
             const stream = event.streams[0] ?? new MediaStream([event.track]);
             const target = stream.id === guestStreamIdRef.current
@@ -616,7 +644,7 @@ export function LiveRoom({
             ? "Permite cámara y micrófono para iniciar el Live."
             : "No se pudo iniciar el video en vivo. Revisa permisos de cámara y micrófono.");
         toast.error(message);
-        onClose();
+        onCloseRef.current();
       }
     };
 
@@ -629,7 +657,7 @@ export function LiveRoom({
         { event: "*", schema: "public", table: "cupido_live_rooms", filter: `id=eq.${roomId}` },
         (payload) => {
           const updatedRoom = payload.new as { is_live?: boolean };
-          if (payload.eventType === "DELETE" || (payload.eventType === "UPDATE" && updatedRoom.is_live === false)) onEnded();
+          if (payload.eventType === "DELETE" || (payload.eventType === "UPDATE" && updatedRoom.is_live === false)) onEndedRef.current();
         },
       )
       .subscribe();
@@ -762,7 +790,8 @@ export function LiveRoom({
               return;
             }
             if (signal.kind === "end") {
-              onEnded();
+              // Older mobile clients used to broadcast "end" from component cleanup.
+              // Only the persisted room status is authoritative for ending a Live.
               return;
             }
             if (signal.kind === "offer" && role === "host") {
@@ -816,7 +845,7 @@ export function LiveRoom({
 
     return () => {
       disposed = true;
-      if (role === "host") void sendSignal({ kind: "end", sender: viewerId }).catch(() => undefined);
+      clearReconnectTimer();
       void supabase.from("cupido_live_viewers").delete().eq("room_id", roomId).eq("user_id", viewerId).then(() => undefined);
       localStreamRef.current?.getTracks().forEach((track) => track.stop());
       pkCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -831,7 +860,7 @@ export function LiveRoom({
       if (highValueGiftTimerRef.current !== null) window.clearTimeout(highValueGiftTimerRef.current);
       if (entryNoticeTimerRef.current !== null) window.clearTimeout(entryNoticeTimerRef.current);
     };
-  }, [roomId, hostId, viewerId, role, onClose, onEnded, initialStream, createHostPeer, queryClient, sendSignal]);
+  }, [roomId, hostId, viewerId, role, initialStream, createHostPeer, queryClient, sendSignal]);
 
   useEffect(() => {
     if (role !== "viewer" || activeGuestId !== viewerId || guestSeat.data?.status !== "accepted" || !ready) return;
@@ -1397,14 +1426,15 @@ export function LiveRoom({
     const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
     if (error) toast.error("No se pudo finalizar el Live.");
     else {
-      onEnded();
+      setConfirmEndLiveOpen(false);
+      onEndedRef.current();
     }
   };
 
   useEffect(() => {
     const handleBack = (event: Event) => {
       event.preventDefault();
-      if (role === "host") void endLive();
+      if (role === "host") toast.info('El Live sigue activo. Usa "Finalizar Live" y confirma para terminarlo.');
       else exitLive();
     };
     window.addEventListener("cupido:android-back", handleBack);
@@ -1493,7 +1523,15 @@ export function LiveRoom({
     ?? "Invitado";
 
   return (
-    <Dialog open onOpenChange={(open) => !open && exitLive()}>
+    <>
+    <Dialog open onOpenChange={(open) => {
+      if (open) return;
+      if (role === "host") {
+        toast.info('El Live sigue activo. Usa "Finalizar Live" y confirma para terminarlo.');
+        return;
+      }
+      exitLive();
+    }}>
       <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
         <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/50 p-2.5 backdrop-blur-md">
           <DialogTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -1622,7 +1660,7 @@ export function LiveRoom({
               <Button variant="destructive" size="icon" onClick={exitLive} aria-label="Salir" className="rounded-full"><X className="size-4" /></Button>
             </>
           ) : (
-            <Button variant="destructive" size="icon" onClick={() => void endLive()} aria-label="Finalizar Live" className="rounded-full">
+            <Button variant="destructive" size="icon" onClick={() => setConfirmEndLiveOpen(true)} aria-label="Finalizar Live" className="rounded-full">
               <PhoneOff className="size-4" />
             </Button>
           )}
@@ -1869,5 +1907,18 @@ export function LiveRoom({
         </Sheet>
       </DialogContent>
     </Dialog>
+    <Dialog open={confirmEndLiveOpen} onOpenChange={setConfirmEndLiveOpen}>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-3xl border-white/10 bg-zinc-950 text-white">
+        <DialogHeader>
+          <DialogTitle>¿Finalizar este Live?</DialogTitle>
+          <DialogDescription className="text-zinc-300">La transmisión terminará para todos los espectadores y dejará de aparecer en En Directo.</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" onClick={() => setConfirmEndLiveOpen(false)}>Seguir en vivo</Button>
+          <Button type="button" variant="destructive" onClick={() => void endLive()}>Finalizar Live</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

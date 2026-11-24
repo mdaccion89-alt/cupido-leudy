@@ -83,7 +83,6 @@ function DirectPage() {
     queryKey: ["cupido-direct-streams", viewerId],
     queryFn: async (): Promise<StreamRow[]> => {
       try {
-        await supabase.rpc("cupido_end_stale_lives");
         const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
         const { data: liveRows, error } = await supabase
           .from("cupido_live_rooms")
@@ -211,11 +210,8 @@ function DirectPage() {
   }, [queryClient]);
 
   const closeDirect = useCallback(() => {
-    if (active?.role === "host") {
-      void supabase.rpc("cupido_end_live_room", { _id: active.roomId });
-    }
     dismissDirect();
-  }, [active, dismissDirect]);
+  }, [dismissDirect]);
 
   const enterStream = (stream: StreamRow) => {
     if (!viewerId) { toast.info("Inicia sesiÃ³n para entrar, comentar o enviar regalos."); return; }
