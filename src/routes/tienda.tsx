@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
+import { PayPalLogo } from "@/components/cupido/paypal-logo";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ import {
 import { capturePaypalOrder } from "@/lib/payments.functions";
 import { readableErrorMessage } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
+import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
 
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
@@ -61,6 +63,11 @@ function StorePage() {
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
   const [accountDetails, setAccountDetails] = useState("");
+  const closeCheckoutSheet = () => {
+    setSelectedCheckoutPackageId(null);
+    setCheckoutForGift(false);
+  };
+  useAndroidBackDismiss(Boolean(selectedCheckoutPackageId), closeCheckoutSheet);
 
   const target = useQuery({
     queryKey: ["cupido-gift-target", giftTo],
@@ -83,12 +90,17 @@ function StorePage() {
     enabled: Boolean(viewerId),
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("cupido_balances")
-        .select("balance")
-        .eq("user_id", viewerId!)
+        .from("profiles")
+        .select("withdrawable_balance")
+        .eq("id", viewerId!)
         .maybeSingle();
-      if (error) throw error;
-      return Number(data?.balance ?? 0);
+      if (error && error.code !== "42703" && error.code !== "PGRST204") throw error;
+      if (!error && data) return Number(data.withdrawable_balance ?? 0);
+
+      // Read the canonical ledger until the profile mirror migration is applied.
+      const ledger = await supabase.from("cupido_balances").select("balance").eq("user_id", viewerId!).maybeSingle();
+      if (ledger.error) throw ledger.error;
+      return Number(ledger.data?.balance ?? 0);
     },
   });
 
@@ -96,6 +108,9 @@ function StorePage() {
     if (!viewerId) return;
     const channel = supabase
       .channel((`cupido-wallet-${viewerId}`) + "-" + crypto.randomUUID())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles", filter: `id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
+      })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances", filter: `user_id=eq.${viewerId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
       })
@@ -384,11 +399,11 @@ function StorePage() {
                   {"discountLabel" in pack && pack.discountLabel && <Badge className="px-1.5 py-0.5 text-[9px] leading-none">{pack.discountLabel}</Badge>}
                   {"promoLabel" in pack && pack.promoLabel && <Badge variant="secondary" className="px-1.5 py-0.5 text-[8px] leading-none">{pack.promoLabel}</Badge>}
                 </div>
-                <p className="truncate text-[10px] text-muted-foreground sm:text-xs">{pack.label}</p>
-                <p className="mt-1 font-display text-base text-white sm:text-2xl">{pack.credits.toLocaleString("es")}</p>
-                <p className="text-[9px] leading-tight text-muted-foreground sm:text-xs">monedas brillantes</p>
+                <p className="min-w-0 break-words text-[9px] leading-tight text-muted-foreground sm:text-xs">{pack.label}</p>
+                <p className="mt-1 min-w-0 break-words font-display text-base leading-tight text-white sm:text-xl">{pack.credits.toLocaleString("es")}</p>
+                <p className="min-w-0 break-words text-[9px] leading-tight text-muted-foreground sm:text-xs">monedas brillantes</p>
                 {"originalPrice" in pack && pack.originalPrice && <p className="mt-2 text-[10px] text-muted-foreground line-through sm:text-xs">US${pack.originalPrice}</p>}
-                <p className="text-sm font-semibold text-white sm:text-xl">US${pack.price}</p>
+                <p className="min-w-0 break-words text-xs font-semibold leading-tight text-white sm:text-xl">US${pack.price}</p>
                 <Button type="button" className="mt-3 h-auto min-h-9 w-full max-w-full whitespace-normal px-2 py-2 text-center text-[10px] leading-tight sm:text-sm" disabled={paypalConfig.isLoading || !officialCheckout} onClick={() => {
                   setCheckoutForGift(false);
                   setSelectedCheckoutPackageId(pack.id);
@@ -409,20 +424,22 @@ function StorePage() {
       </section>
 
       <Sheet open={Boolean(selectedCheckoutPackageId)} onOpenChange={(open) => {
-        if (!open) {
-          setSelectedCheckoutPackageId(null);
-          setCheckoutForGift(false);
-        }
+        if (!open) closeCheckoutSheet();
       }}>
-        <SheetContent side="bottom" className="max-h-[72vh] overflow-y-auto rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
-          <SheetHeader className="pr-8 text-left">
-            <SheetTitle className="text-white">Pago seguro</SheetTitle>
+        <SheetContent side="bottom" className="flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-white/10 bg-zinc-950 p-0 text-white">
+          <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
+            <div className="flex items-center justify-between gap-3">
+              <SheetTitle className="text-white">Pago seguro</SheetTitle>
+              <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeCheckoutSheet}>
+                <ArrowLeft className="size-4" /> Volver
+              </Button>
+            </div>
             <SheetDescription>
               {selectedCheckoutPackage ? `${selectedCheckoutPackage.credits.toLocaleString("es")} monedas · US$${selectedCheckoutPackage.price}` : "Paga con PayPal o tarjeta."}
               {checkoutForGift && pendingGift ? ` Después de confirmar, enviaremos ${pendingGift.name}.` : " Los campos de tarjeta se pueden recorrer dentro de esta ventana."}
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-8 [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
             {selectedCheckoutPackage && paypalConfig.data?.configured && paypalConfig.data.clientId ? (
               <PayPalCheckoutButtons
                 key={selectedCheckoutPackage.id}
@@ -445,7 +462,7 @@ function StorePage() {
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
           <div className="mb-4 flex items-center gap-2">
-            <Wallet className="h-5 w-5 text-emerald-300" />
+            <PayPalLogo className="h-7 w-[94px]" />
             <h2 className="font-display text-xl text-white">Retirar saldo</h2>
           </div>
           <div className="mb-4 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3">
@@ -489,7 +506,9 @@ function StorePage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {withdrawalMethods(country).map((item) => (
-                    <SelectItem key={item} value={item}>{item}</SelectItem>
+                    <SelectItem key={item} value={item}>
+                      {item.toLowerCase() === "paypal" ? <span className="flex items-center gap-2"><PayPalLogo className="h-5 w-[72px]" /> PayPal</span> : item}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

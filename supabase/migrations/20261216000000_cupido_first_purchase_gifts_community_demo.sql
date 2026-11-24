@@ -199,6 +199,7 @@ DECLARE
   caption_value TEXT;
   like_total INTEGER;
   comment_total INTEGER;
+  demo_profile_ids UUID[];
   female_names TEXT[] := ARRAY['Sofía','Valentina','Camila','Isabella','Mariana','Lucía','Daniela','Gabriela','Paola','Natalia','Renata','Elena','Carolina','Andrea','Julieta','Mía','Alma','Victoria','Sara','Antonella'];
   male_names TEXT[] := ARRAY['Mateo','Sebastián','Santiago','Gabriel','Daniel','Alejandro','Emiliano','Nicolás','Samuel','Diego','Andrés','Julián','Leonardo','Tomás','Adrián','Thiago','David','Bruno','Martín','Luca'];
   surnames TEXT[] := ARRAY['García','Rodríguez','Martínez','Hernández','López','Pérez','Gómez','Sánchez','Ramírez','Torres','Flores','Rivera','Díaz','Cruz','Morales','Ortiz','Reyes','Castro','Vargas','Rojas','Mendoza','Romero','Álvarez','Herrera','Medina','Aguilar','Navarro','Silva','Cabrera','Fuentes','Paredes'];
@@ -232,6 +233,23 @@ BEGIN
       now() - ((i * 3) % 4320) * interval '1 minute')
     ON CONFLICT (id) DO NOTHING;
 
+  END LOOP;
+
+  -- Use the actual IDs stored in the demo profile table for every interaction.
+  -- This also makes reruns safe when a profile row already existed.
+  SELECT ARRAY(SELECT id FROM public.cupido_demo_profiles WHERE is_demo ORDER BY id)
+    INTO demo_profile_ids;
+
+  IF COALESCE(array_length(demo_profile_ids, 1), 0) < 1000 THEN
+    RAISE EXCEPTION 'CUPIDO_DEMO_PROFILES_INCOMPLETE';
+  END IF;
+
+  FOR i IN 1..1000 LOOP
+    profile_id := md5('cupido-community-demo-profile-' || i)::uuid;
+    SELECT avatar_url INTO avatar_value
+    FROM public.cupido_demo_profiles
+    WHERE id = profile_id AND is_demo;
+
     FOR post_no IN 1..(3 + (i % 2)) LOOP
       post_id := md5(format('cupido-community-demo-post-%s-%s', i, post_no))::uuid;
       caption_value := format('%s · %s',
@@ -247,7 +265,7 @@ BEGIN
 
       FOR k IN 1..like_total LOOP
         INSERT INTO public.cupido_demo_post_likes (post_id, demo_profile_id, is_demo)
-        VALUES (post_id, md5('cupido-community-demo-profile-' || (1 + ((i + k + post_no) % 1000)))::uuid, TRUE)
+        VALUES (post_id, demo_profile_ids[1 + ((i + k + post_no) % array_length(demo_profile_ids, 1))], TRUE)
         ON CONFLICT DO NOTHING;
       END LOOP;
 
@@ -256,7 +274,7 @@ BEGIN
         VALUES (
           md5(format('cupido-community-demo-comment-%s-%s-%s', i, post_no, k))::uuid,
           post_id,
-          md5('cupido-community-demo-profile-' || (1 + ((i + k + post_no + 7) % 1000)))::uuid,
+          demo_profile_ids[1 + ((i + k + post_no + 7) % array_length(demo_profile_ids, 1))],
           comments[1 + ((i * 3 + post_no + k * 5) % array_length(comments, 1))],
           TRUE,
           now() - ((i + post_no + k) % 1440) * interval '1 minute'

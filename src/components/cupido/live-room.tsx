@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Ban, Check, CreditCard, Crown, Dices, Eye, EyeOff, Flag, Gift, Heart, Loader2, MessageCircle, Mic, MicOff, PhoneOff, Radio, RefreshCw, Send, Shield, Swords, Users, Volume2, VolumeX, X, UserPlus, UserCheck, Trophy } from "lucide-react";
 import { toast } from "sonner";
+import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
@@ -374,6 +375,12 @@ export function LiveRoom({
   const guestMicMutedRef = useRef(false);
   const onCloseRef = useRef(onClose);
   const onEndedRef = useRef(onEnded);
+
+  useAndroidBackDismiss(giftCheckoutOpen, () => {
+    setGiftCheckoutOpen(false);
+    setGiftPanelOpen(false);
+    setPendingGiftPurchase(null);
+  });
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -1824,10 +1831,10 @@ export function LiveRoom({
             setGiftPanelOpen(open);
             if (!open) setGiftCheckoutOpen(false);
           }}>
-            <SheetContent side="bottom" className="z-[90] max-h-[75dvh] w-full flex flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-[#160b12] p-0 text-white shadow-2xl">
+            <SheetContent side="bottom" className="z-[90] flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-[#160b12] p-0 text-white shadow-2xl">
               <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
                 <div className="flex items-start gap-2">
-                  {giftCheckoutOpen && <Button type="button" variant="ghost" size="icon" className="size-8 shrink-0 text-white" onClick={() => setGiftCheckoutOpen(false)} aria-label="Volver a los regalos"><ArrowLeft className="size-4" /></Button>}
+                  {giftCheckoutOpen && <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={() => { setGiftCheckoutOpen(false); setGiftPanelOpen(false); setPendingGiftPurchase(null); }} aria-label="Volver al Live"><ArrowLeft className="size-4" /> Volver</Button>}
                   <div className="min-w-0 flex-1">
                     <SheetTitle className="flex items-center gap-2 text-white"><Gift className="size-4 shrink-0 text-pink-300" />{giftCheckoutOpen ? "Pago seguro" : `Regalos para ${hostName}`}</SheetTitle>
                     <SheetDescription className="mt-1 flex items-center gap-1 text-xs">

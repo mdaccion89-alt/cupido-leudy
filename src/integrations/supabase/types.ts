@@ -491,6 +491,7 @@ export type Database = {
           id: string;
           is_verified: boolean;
           verification_status: string;
+          withdrawable_balance: number;
           last_daily_claim: string | null;
           last_wheel_spin: string | null;
           theme_mode: string;
@@ -533,6 +534,7 @@ export type Database = {
           id: string;
           is_verified?: boolean;
           verification_status?: string;
+          withdrawable_balance?: number;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
           theme_mode?: string;
@@ -575,6 +577,7 @@ export type Database = {
           id?: string;
           is_verified?: boolean;
           verification_status?: string;
+          withdrawable_balance?: number;
           last_daily_claim?: string | null;
           last_wheel_spin?: string | null;
           theme_mode?: string;

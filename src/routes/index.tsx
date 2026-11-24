@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Heart, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { toast } from "sonner";
 import { InviteButton } from "@/components/cupido/invite-button";
-import { CommunityDemoFeed } from "@/components/cupido/community-demo-feed";
 import { PeopleSuggestions } from "@/components/cupido/people-suggestions";
 import { ProfileCard, type CupidoProfile } from "@/components/cupido/profile-card";
 import { StoryFeed } from "@/components/cupido/story-feed";
@@ -278,7 +277,7 @@ function CupidoHome() {
       <section className="relative overflow-hidden rounded-[2rem] border border-pink-500/25 bg-gradient-to-br from-pink-600/20 via-fuchsia-600/10 to-transparent p-8 sm:p-12">
         <div className="relative z-10 max-w-2xl">
           <span className="inline-flex items-center gap-2 rounded-full border border-pink-400/40 bg-black/20 px-3 py-1 text-xs text-pink-200">
-            <Sparkles className="h-3.5 w-3.5" /> Perfiles reales y comunidad demo identificada
+            <Sparkles className="h-3.5 w-3.5" /> Conexiones reales, perfiles auténticos
           </span>
           <h1 className="mt-5 font-display text-4xl leading-tight text-white sm:text-5xl">
             Encuentra a tu persona en <span className="text-pink-300">{BRAND}</span>
@@ -336,9 +335,6 @@ function CupidoHome() {
           </div>
           <div className="mb-7">
             <WallFeed />
-          </div>
-          <div className="mb-7">
-            <CommunityDemoFeed title="Comunidad Cupido" />
           </div>
           {profilesQuery.isLoading ? (
             <p className="text-sm text-muted-foreground">Cargando perfiles reales…</p>

@@ -42,6 +42,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/cupido/notification-bell";
 import { supabase } from "@/integrations/supabase/client";
@@ -55,6 +56,7 @@ import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { blockUser, reportUser } from "@/lib/safety";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
+import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
 import {
   CALL_COSTS,
   callErrorMessage,
@@ -193,6 +195,13 @@ function ChatPage() {
   const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [giftBalanceInsufficient, setGiftBalanceInsufficient] = useState(false);
+  const giftPurchasePanelOpen = Boolean(giftOpen && pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account));
+  const closeGiftPanel = () => {
+    setGiftOpen(false);
+    setPendingGiftPurchase(null);
+    setGiftBalanceInsufficient(false);
+  };
+  useAndroidBackDismiss(giftPurchasePanelOpen, closeGiftPanel);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const mobileBannerSuppressed = useRef(false);
@@ -1459,26 +1468,27 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={giftOpen} onOpenChange={(open) => {
-        setGiftOpen(open);
-        if (!open) {
-          setPendingGiftPurchase(null);
-          setGiftBalanceInsufficient(false);
-        }
+      <Sheet open={giftOpen} onOpenChange={(open) => {
+        if (open) setGiftOpen(true);
+        else closeGiftPanel();
       }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+        <SheetContent side="bottom" className="flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-zinc-950 p-0 text-white">
+          <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
+            <div className="flex items-center justify-between gap-3">
+            <SheetTitle className="flex min-w-0 items-center gap-2 text-white">
               {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
                 <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
               ) : (
                 <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
               )}
-            </DialogTitle>
-            <DialogDescription className="flex items-center gap-1.5">
+            </SheetTitle>
+            {pendingGiftPurchase && <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel}><ArrowLeft className="size-4" /> Volver</Button>}
+            </div>
+            <SheetDescription className="flex items-center gap-1.5">
               <CoinIcon className="size-4" /> Tienes {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pt-3 pb-10">
           <GiftGrid
             onSelect={selectGift}
             disabled={sendGift.isPending || account.loading || account.balanceUnavailable || !activeConversation?.other}
@@ -1521,19 +1531,13 @@ function ChatPage() {
                 ) : (
                   <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
                 )}
-                {!account.isGranLiga && pack?.id !== "gran-liga-100" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300/30 bg-amber-400/[0.06] p-3">
-                    <p className="text-sm font-semibold text-amber-100">Diamante Gran Liga ? 1.000.000 monedas ? US$100</p>
-                    {paypalConfig.data?.configured && paypalConfig.data.clientId ? <PayPalCheckoutButtons clientId={paypalConfig.data.clientId} packageId="gran-liga-100" onSuccess={(credits) => { account.addPurchasedCredits(credits); void account.refresh(); toast.success("Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."); }} onError={(message) => toast.error(message)} onCancel={(message) => toast.info(message)} /> : <p className="text-xs text-amber-100/80">Activa PayPal Business en /admin para confirmar el pago y acreditar Gran Liga autom?ticamente.</p>}
-                  </div>
-                )}
                 <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
-                <Button type="button" variant="ghost" className="w-full" onClick={() => setPendingGiftPurchase(null)}>Volver a los regalos</Button>
               </section>
             );
           })()}
-        </DialogContent>
-      </Dialog>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 
