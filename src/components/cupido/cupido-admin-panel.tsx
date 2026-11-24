@@ -499,17 +499,20 @@ export function CupidoAdminPanel() {
             withdrawals.data!.map((row) => (
               <div
                 key={row.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                className="w-full max-w-full overflow-x-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 break-words">
                   <p className="text-sm font-medium text-white">
                     US${Number(row.amount).toFixed(2)} · {row.method}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {countryFlag(row.country_code)} {countryName(row.country_code)} · {row.account_details}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {countryFlag(row.country_code)} {countryName(row.country_code)}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-white/80">
+                    Destino: {row.account_details}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"
                     disabled={reviewWithdrawal.isPending}

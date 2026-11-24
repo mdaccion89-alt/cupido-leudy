@@ -222,22 +222,51 @@ export const MIN_WITHDRAWAL = 20;
 export const GRAN_LIGA_MIN_WITHDRAWAL = 20;
 
 export const WITHDRAWAL_METHODS: Record<string, readonly string[]> = {
-  DO: ["PayPal", "Zelle", "Transferencia bancaria"],
-  US: ["PayPal", "Zelle", "Cash App"],
-  MX: ["PayPal", "SPEI", "OXXO"],
-  CO: ["PayPal", "Nequi", "PSE"],
-  ES: ["PayPal", "Bizum", "Transferencia bancaria"],
-  AR: ["PayPal", "MercadoPago"],
-  CL: ["PayPal", "Transferencia bancaria"],
-  PE: ["PayPal", "Yape"],
-  VE: ["PayPal", "Zelle"],
-  BR: ["PayPal", "PIX"],
-  FR: ["PayPal", "Transferencia bancaria"],
-  IT: ["PayPal", "Transferencia bancaria"],
-  GB: ["PayPal", "Transferencia bancaria"],
+  DO: ["PayPal", "Payoneer", "Zelle", "Transferencia bancaria / Banco RD", "Binance / USDT"],
+  US: ["PayPal", "Payoneer", "Zelle", "Cash App", "Binance / USDT"],
+  MX: ["PayPal", "Payoneer", "SPEI", "OXXO", "Binance / USDT"],
+  CO: ["PayPal", "Payoneer", "Nequi", "PSE", "Binance / USDT"],
+  ES: ["PayPal", "Payoneer", "Bizum", "Transferencia bancaria", "Binance / USDT"],
+  AR: ["PayPal", "Payoneer", "MercadoPago", "Binance / USDT"],
+  CL: ["PayPal", "Payoneer", "Transferencia bancaria", "Binance / USDT"],
+  PE: ["PayPal", "Payoneer", "Yape", "Binance / USDT"],
+  VE: ["PayPal", "Payoneer", "Zelle", "Binance / USDT"],
+  BR: ["PayPal", "Payoneer", "PIX", "Binance / USDT"],
+  FR: ["PayPal", "Payoneer", "Transferencia bancaria", "Binance / USDT"],
+  IT: ["PayPal", "Payoneer", "Transferencia bancaria", "Binance / USDT"],
+  GB: ["PayPal", "Payoneer", "Transferencia bancaria", "Binance / USDT"],
 };
 export function withdrawalMethods(countryCode: string): readonly string[] {
-  return WITHDRAWAL_METHODS[countryCode.toUpperCase()] ?? ["PayPal", "Transferencia bancaria"];
+  return WITHDRAWAL_METHODS[countryCode.toUpperCase()] ?? ["PayPal", "Payoneer", "Transferencia bancaria", "Binance / USDT"];
+}
+
+export type WithdrawalDestinationKind = "email" | "email-or-phone" | "bank" | "crypto" | "generic";
+
+function normalizedWithdrawalMethod(method: string): string {
+  return method.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+}
+
+export function withdrawalDestinationKind(method: string): WithdrawalDestinationKind {
+  const normalized = normalizedWithdrawalMethod(method);
+  if (/(paypal|payoneer)/.test(normalized)) return "email";
+  if (normalized.includes("zelle")) return "email-or-phone";
+  if (/(transferencia bancaria|bank transfer|wire transfer|banco rd|bank rd)/.test(normalized)) return "bank";
+  if (/(binance|usdt|crypto|cripto|wallet|billetera)/.test(normalized)) return "crypto";
+  return "generic";
+}
+
+export function isValidWithdrawalEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value.trim());
+}
+
+export function isValidWithdrawalPhone(value: string): boolean {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 10 && digits.length <= 15 && /^[+\d().\s-]+$/.test(trimmed);
+}
+
+export function isValidCryptoWithdrawalDestination(value: string): boolean {
+  return /^[A-Za-z0-9._:-]{6,128}$/.test(value.trim());
 }
 
 export const COUNTRIES: ReadonlyArray<readonly [string, string]> = [

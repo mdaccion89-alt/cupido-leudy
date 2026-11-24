@@ -29,6 +29,10 @@ import {
   countryFlag,
   countryName,
   giftErrorMessage,
+  isValidCryptoWithdrawalDestination,
+  isValidWithdrawalEmail,
+  isValidWithdrawalPhone,
+  withdrawalDestinationKind,
   withdrawalMethods,
   type Gift as GiftItem,
 } from "@/lib/cupido";
@@ -63,6 +67,16 @@ function StorePage() {
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
   const [accountDetails, setAccountDetails] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [bankAccountHolder, setBankAccountHolder] = useState("");
+  const destinationKind = withdrawalDestinationKind(method);
+  const resetWithdrawalDestination = () => {
+    setAccountDetails("");
+    setBankName("");
+    setBankAccountNumber("");
+    setBankAccountHolder("");
+  };
   const closeCheckoutSheet = () => {
     setSelectedCheckoutPackageId(null);
     setCheckoutForGift(false);
@@ -247,9 +261,26 @@ function StorePage() {
   const withdraw = useMutation({
     mutationFn: async () => {
       const value = Number(amount);
-      if (!accountDetails.trim()) throw new Error("Escribe los datos de tu cuenta.");
-      if (method.trim().toLowerCase() === "paypal" && !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(accountDetails.trim())) {
-        throw new Error("Ingresa un correo electrónico de PayPal válido");
+      let destination = accountDetails.trim();
+      if (destinationKind === "email" && !isValidWithdrawalEmail(destination)) {
+        throw new Error(method.toLowerCase().includes("payoneer")
+          ? "Ingresa un correo electrónico válido para Payoneer."
+          : "Ingresa un correo electrónico de PayPal válido.");
+      }
+      if (destinationKind === "email-or-phone" && !isValidWithdrawalEmail(destination) && !isValidWithdrawalPhone(destination)) {
+        throw new Error("Para Zelle, ingresa un correo válido o un teléfono con código de país.");
+      }
+      if (destinationKind === "bank") {
+        if (!bankName.trim() || !bankAccountNumber.trim() || !bankAccountHolder.trim()) {
+          throw new Error("Completa el nombre del banco, número de cuenta y titular.");
+        }
+        destination = `Banco: ${bankName.trim()}\nTitular: ${bankAccountHolder.trim()}\nNúmero de cuenta: ${bankAccountNumber.trim()}`;
+      } else if (destinationKind === "crypto" && !isValidCryptoWithdrawalDestination(destination)) {
+        throw new Error("Ingresa un ID de Binance o una dirección de billetera válida, sin espacios.");
+      } else if (destinationKind === "generic" && !destination) {
+        throw new Error(`Ingresa el correo, teléfono o identificador de destino de ${method}.`);
+      } else if (!destination) {
+        throw new Error("Completa los datos de destino del retiro.");
       }
       if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error(`El mínimo es US$${minimumWithdrawal}.`);
       if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-7) throw new Error("El monto debe tener como máximo dos decimales.");
@@ -258,12 +289,12 @@ function StorePage() {
         _amount: value,
         _country_code: country,
         _method: method,
-        _account_details: accountDetails.trim(),
+        _account_details: destination,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      setAccountDetails("");
+      resetWithdrawalDestination();
       void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
       void queryClient.invalidateQueries({ queryKey: ["cupido-withdrawals", viewerId] });
       toast.success("Solicitud de retiro enviada. El Admin Supremo la revisará.");
@@ -271,6 +302,11 @@ function StorePage() {
     onError: (error) => {
       const message = readableErrorMessage(error, "No se pudo solicitar el retiro.");
       if (message.includes("INVALID_PAYPAL_EMAIL")) toast.error("Ingresa un correo electrónico de PayPal válido");
+      else if (message.includes("INVALID_DESTINATION_EMAIL")) toast.error("Ingresa un correo electrónico válido para el método seleccionado.");
+      else if (message.includes("INVALID_ZELLE_DESTINATION")) toast.error("Para Zelle, ingresa un correo válido o un teléfono con código de país.");
+      else if (message.includes("BANK_DESTINATION_REQUIRED")) toast.error("Completa banco, titular y número de cuenta para la transferencia.");
+      else if (message.includes("INVALID_CRYPTO_DESTINATION")) toast.error("Ingresa un ID de Binance o una dirección de billetera válida, sin espacios.");
+      else if (message.includes("WITHDRAWAL_DESTINATION_TOO_LONG")) toast.error("Los datos de destino son demasiado largos. Revísalos e inténtalo de nuevo.");
       else if (message.includes("INSUFFICIENT_WITHDRAWABLE_BALANCE")) toast.error("Tu saldo retirable ya no alcanza para ese monto. Actualiza el saldo e inténtalo de nuevo.");
       else if (message.includes("MINIMUM_WITHDRAWAL_USD_20")) toast.error("El monto mínimo de retiro es US$20.");
       else if (message.includes("INVALID_WITHDRAWAL_AMOUNT")) toast.error("El monto debe ser válido y tener como máximo dos decimales.");
@@ -501,6 +537,7 @@ function StorePage() {
                 onValueChange={(value) => {
                   setCountry(value);
                   setMethod(withdrawalMethods(value)[0] ?? "PayPal");
+                  resetWithdrawalDestination();
                 }}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -513,7 +550,7 @@ function StorePage() {
             </div>
             <div className="space-y-2">
               <Label>Método</Label>
-              <Select value={method} onValueChange={setMethod}>
+              <Select value={method} onValueChange={(value) => { setMethod(value); resetWithdrawalDestination(); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {withdrawalMethods(country).map((item) => (
@@ -524,15 +561,43 @@ function StorePage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Cuenta o teléfono</Label>
-              <Input
-                value={accountDetails}
-                onChange={(event) => setAccountDetails(event.target.value)}
-                placeholder="Correo PayPal, cuenta o teléfono"
-                maxLength={200}
-              />
-            </div>
+            {destinationKind === "bank" ? (
+              <div className="grid gap-3 sm:col-span-2 sm:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Nombre del banco</Label>
+                  <Input value={bankName} onChange={(event) => setBankName(event.target.value)} placeholder="Banco" maxLength={100} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Número de cuenta</Label>
+                  <Input value={bankAccountNumber} onChange={(event) => setBankAccountNumber(event.target.value)} placeholder="Cuenta o IBAN" maxLength={100} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Nombre del titular</Label>
+                  <Input value={bankAccountHolder} onChange={(event) => setBankAccountHolder(event.target.value)} placeholder="Como aparece en el banco" maxLength={120} />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>
+                  {destinationKind === "email" ? (method.toLowerCase().includes("payoneer") ? "Correo electrónico de Payoneer" : "Correo electrónico de PayPal")
+                    : destinationKind === "email-or-phone" ? "Correo o teléfono de Zelle"
+                      : destinationKind === "crypto" ? "ID de Binance o dirección de billetera USDT"
+                        : `Destino de ${method}`}
+                </Label>
+                <Input
+                  value={accountDetails}
+                  onChange={(event) => setAccountDetails(event.target.value)}
+                  placeholder={destinationKind === "email" ? "usuario@dominio.com"
+                    : destinationKind === "email-or-phone" ? "usuario@dominio.com o +1 555 123 4567"
+                      : destinationKind === "crypto" ? "ID de Binance o wallet address"
+                        : "Correo, teléfono o identificador de destino"}
+                  autoCapitalize="none"
+                  autoComplete={destinationKind === "email" || destinationKind === "email-or-phone" ? "email" : "off"}
+                  maxLength={200}
+                />
+                {destinationKind === "crypto" && <p className="text-xs text-muted-foreground">Revisa la red y la dirección antes de enviar la solicitud.</p>}
+              </div>
+            )}
           </div>
           <Button className="mt-4" disabled={withdraw.isPending} onClick={() => withdraw.mutate()}>
             {withdraw.isPending ? <Loader2 className="animate-spin" /> : <Wallet />} Solicitar retiro
