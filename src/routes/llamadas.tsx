@@ -108,13 +108,18 @@ function CallsPage() {
     queryKey: ["cupido-my-verification", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("creator_profiles")
-        .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin")
-        .eq("id", viewerId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      const [creator, profile] = await Promise.all([
+        supabase.from("creator_profiles")
+          .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin")
+          .eq("id", viewerId!).maybeSingle(),
+        supabase.from("profiles").select("is_verified,verification_status").eq("id", viewerId!).maybeSingle(),
+      ]);
+      if (creator.error) throw creator.error;
+      if (profile.error) throw profile.error;
+      return {
+        ...creator.data,
+        is_verified_blue: Boolean(creator.data?.is_verified_blue || profile.data?.is_verified || profile.data?.verification_status === "approved"),
+      };
     },
   });
 
@@ -122,10 +127,13 @@ function CallsPage() {
     queryKey: ["cupido-live-rooms", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
+      const { error: staleError } = await supabase.rpc("cupido_end_stale_lives");
+      if (staleError) console.warn("[llamadas] No se pudieron finalizar salas sin heartbeat.", staleError.message);
       const { data: rooms, error } = await supabase
         .from("cupido_live_rooms")
-        .select("id,host_id,title,viewer_count")
+        .select("id,host_id,title,viewer_count,last_heartbeat_at")
         .eq("is_live", true)
+        .gt("last_heartbeat_at", new Date(Date.now() - 35_000).toISOString())
         .order("created_at", { ascending: false })
         .limit(12);
       if (error) throw error;
@@ -155,6 +163,12 @@ function CallsPage() {
       .channel(("cupido-live-list") + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-live-rooms", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles", filter: `id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-my-verification", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-my-verification", viewerId] });
       })
       .subscribe();
     return () => {
@@ -254,7 +268,7 @@ function CallsPage() {
     if (match) void navigate({ to: "/chat", search: { userId: match.id, startVideo: true, roulette: true } });
   };
 
-  const canHostLive = Boolean(account.isSupremeAdmin || account.isGranLiga || myProfile.data?.is_gran_liga || myProfile.data?.is_official || myProfile.data?.is_super_admin || myProfile.data?.is_verified_blue);
+  const canHostLive = Boolean(account.isSupremeAdmin || myProfile.data?.is_verified_blue);
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-10 sm:px-6">

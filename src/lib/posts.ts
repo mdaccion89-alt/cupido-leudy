@@ -23,6 +23,7 @@ export type FeedPost = {
   comments_count: number;
   saves_count: number;
   views_count: number;
+  boosted_views: number;
   shares_count: number;
   created_at: string;
   display_name: string;
@@ -78,6 +79,7 @@ type AnyRow = Record<string, any> & {
   comments_count?: any;
   saves_count?: any;
   views_count?: any;
+  boosted_views?: any;
   shares_count?: any;
   created_at?: any;
   display_name?: any;
@@ -104,7 +106,7 @@ export function databaseErrorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,hide_likes,hide_comments,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,hide_likes,hide_comments,likes_count,dislikes_count,comments_count,saves_count,views_count,boosted_views,shares_count,created_at";
 const LEGACY_POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
 
 function isMissingVisibilityColumn(error: unknown): boolean {
@@ -133,10 +135,10 @@ export function displayedLikeCount(post?: FeedPost | null): number {
 }
 
 export function displayedMetrics(post?: FeedPost | null): { likes: string; views: string } {
-  const realViews = Math.max(0, Number(post?.views_count) || 0);
+  const allVisibleViews = Math.max(0, Number(post?.views_count) || 0) + Math.max(0, Number(post?.boosted_views) || 0);
   return {
     likes: formatCount(displayedLikeCount(post)),
-    views: formatCount(realViews),
+    views: formatCount(allVisibleViews),
   };
 }
 
@@ -304,6 +306,7 @@ export async function fetchFeed(options: {
       comments_count: Boolean(row["hide_comments"]) ? 0 : Number(row.comments_count) || engagement.comments.get(row.id) || 0,
       saves_count: Number(row.saves_count) || 0,
       views_count: Number(row.views_count) || 0,
+      boosted_views: Number(row.boosted_views) || 0,
       shares_count: Number(row.shares_count) || 0,
       created_at: row.created_at ?? new Date().toISOString(),
       display_name: creator?.display_name ?? "Miembro de Cupido",

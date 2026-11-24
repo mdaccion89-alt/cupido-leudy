@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { VerifiedBadge } from "@/components/cupido/verified-badge";
 import { VerificationVideoPreview } from "@/components/cupido/verification-video-preview";
+import { AdminBoostedViewsEditor } from "@/components/cupido/admin-boosted-views-editor";
 import { supabase } from "@/integrations/supabase/client";
 import { countryFlag, countryName } from "@/lib/cupido";
 import { useAuth } from "@/lib/auth-context";
@@ -110,6 +111,32 @@ export function CupidoAdminPanel() {
     },
   });
 
+  const adminVideos = useQuery({
+    queryKey: ["cupido-admin", "boosted-videos"],
+    enabled: canManagePaypal,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cupido_posts")
+        .select("id,user_id,caption,views_count,boosted_views,created_at")
+        .eq("kind", "video")
+        .order("created_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      const authorIds = [...new Set((data ?? []).map((row) => row.user_id))];
+      const authors = authorIds.length
+        ? await supabase.from("cupido_public_profiles").select("id,display_name").in("id", authorIds)
+        : { data: [], error: null };
+      if (authors.error) throw authors.error;
+      const names = new Map((authors.data ?? []).map((row) => [row.id, row.display_name]));
+      return (data ?? []).map((row) => ({ ...row, author_name: names.get(row.user_id) ?? "Miembro de Cupido" }));
+    },
+  });
+  const [adminVideoSearch, setAdminVideoSearch] = useState("");
+  const filteredAdminVideos = (adminVideos.data ?? []).filter((video) => {
+    const query = adminVideoSearch.trim().toLocaleLowerCase();
+    return !query || `${video.author_name} ${video.caption ?? ""}`.toLocaleLowerCase().includes(query);
+  });
+
   const saveAdSettings = useMutation({
     mutationFn: async (enabled: boolean) => {
       const { data, error } = await supabase.from("site_settings").update({ ads_enabled: enabled }).eq("id", 1).select("ads_enabled").single();
@@ -184,6 +211,9 @@ export function CupidoAdminPanel() {
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_face_verification_videos" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verification-videos"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_posts" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "boosted-videos"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_withdrawals" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "withdrawals"] });
@@ -440,6 +470,35 @@ export function CupidoAdminPanel() {
           </div>
         </section>
       )}
+      {canManagePaypal && <section className="rounded-3xl border border-amber-300/20 bg-amber-500/[0.05] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg text-white">Editar / sumar vistas de impulso</h2>
+            <p className="text-xs text-muted-foreground">El contador público suma vistas reales e impulsadas; el impulso no cuenta para monetización.</p>
+          </div>
+          <Input value={adminVideoSearch} onChange={(event) => setAdminVideoSearch(event.target.value)} placeholder="Buscar por creador o descripción" className="h-10 w-full sm:max-w-xs" aria-label="Buscar video para editar vistas" />
+        </div>
+        {adminVideos.isError && <p role="alert" className="mt-3 text-sm text-rose-200">{adminVideos.error instanceof Error ? adminVideos.error.message : "No se pudo cargar el catálogo de videos."}</p>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {filteredAdminVideos.map((video) => (
+            <article key={video.id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <p className="truncate text-sm font-semibold text-white">{video.author_name}</p>
+              <p className="mt-1 line-clamp-2 min-h-8 break-words text-xs text-white/60">{video.caption || "Video sin descripción"}</p>
+              <p className="mt-2 text-[11px] text-white/75">{Number(video.views_count ?? 0).toLocaleString("es")} reales + {Number(video.boosted_views ?? 0).toLocaleString("es")} impulso</p>
+              <AdminBoostedViewsEditor
+                postId={video.id}
+                boostedViews={Number(video.boosted_views ?? 0)}
+                className="mt-2"
+                onSaved={() => {
+                  void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "boosted-videos"] });
+                  void queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] });
+                }}
+              />
+            </article>
+          ))}
+          {!adminVideos.isLoading && !filteredAdminVideos.length && <p className="col-span-full py-5 text-center text-sm text-muted-foreground">No hay videos que coincidan.</p>}
+        </div>
+      </section>}
       <section className="rounded-3xl border border-sky-400/20 bg-sky-500/[0.06] p-5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-5 text-sky-300" />

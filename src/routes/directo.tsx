@@ -69,13 +69,19 @@ function DirectPage() {
     queryKey: ["cupido-direct-profile", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("creator_profiles")
-        .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin,verification_status")
-        .eq("id", viewerId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      const [creator, profile] = await Promise.all([
+        supabase.from("creator_profiles")
+          .select("display_name,is_verified_blue,is_gran_liga,is_official,is_super_admin,verification_status")
+          .eq("id", viewerId!).maybeSingle(),
+        supabase.from("profiles").select("is_verified,verification_status").eq("id", viewerId!).maybeSingle(),
+      ]);
+      if (creator.error) throw creator.error;
+      if (profile.error) throw profile.error;
+      return {
+        ...creator.data,
+        is_verified_blue: Boolean(creator.data?.is_verified_blue || profile.data?.is_verified || creator.data?.verification_status === "approved" || profile.data?.verification_status === "approved"),
+        verification_status: creator.data?.verification_status ?? profile.data?.verification_status ?? "none",
+      };
     },
   });
 
@@ -84,10 +90,13 @@ function DirectPage() {
     queryFn: async (): Promise<StreamRow[]> => {
       try {
         const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
+        const { error: staleError } = await supabase.rpc("cupido_end_stale_lives");
+        if (staleError) console.warn("[directo] No se pudieron finalizar salas sin heartbeat.", staleError.message);
         const { data: liveRows, error } = await supabase
           .from("cupido_live_rooms")
-          .select("id,host_id,title,viewer_count,created_at,is_live,premium_coins,premium_minutes,premium_ends_at")
+          .select("id,host_id,title,viewer_count,created_at,is_live,last_heartbeat_at,premium_coins,premium_minutes,premium_ends_at")
           .eq("is_live", true)
+          .gt("last_heartbeat_at", new Date(Date.now() - 35_000).toISOString())
           .neq("host_id", viewerId ?? "00000000-0000-0000-0000-000000000000")
           .order("created_at", { ascending: false });
         if (error) {
@@ -140,6 +149,12 @@ function DirectPage() {
       .channel((channelName) + "-" + crypto.randomUUID())
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_live_rooms" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-direct-streams"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles", filter: `id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-direct-profile", viewerId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `id=eq.${viewerId ?? "00000000-0000-0000-0000-000000000000"}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-direct-profile", viewerId] });
       })
       .subscribe();
     return () => {
@@ -233,15 +248,16 @@ function DirectPage() {
     setActive({ roomId: stream.id, hostId: stream.host_id, hostName: stream.host_name, hostAvatar: stream.host_avatar, hostIsGranLiga: stream.is_gran_liga, role: "viewer" });
   };
 
-  const canHost = Boolean(account.isSupremeAdmin || account.isGranLiga || profile.data?.is_gran_liga || profile.data?.is_official || profile.data?.is_super_admin || profile.data?.is_verified_blue);
+  const canHost = Boolean(account.isSupremeAdmin || profile.data?.is_verified_blue);
 
   const submitFaceVideo = async (video: Blob) => {
     if (!viewerId) throw new Error("Inicia sesión para solicitar la insignia.");
     if (video.size < 1 || video.size > 20 * 1024 * 1024) throw new Error("El video debe pesar menos de 20 MB.");
-    const extension = video.type.includes("mp4") ? "mp4" : "webm";
+    const contentType = video.type.split(";")[0]?.trim().toLowerCase() || "video/webm";
+    const extension = contentType === "video/mp4" ? "mp4" : "webm";
     const path = `${viewerId}/verification/${Date.now()}.${extension}`;
     const { error: uploadError } = await supabase.storage.from("cupido-private").upload(path, video, {
-      contentType: video.type || "video/webm",
+      contentType,
       upsert: false,
     });
     if (uploadError) throw uploadError;

@@ -479,11 +479,25 @@ export function LiveRoom({
   useEffect(() => {
     if (role !== "host") return;
     const sendHeartbeat = () => {
-      void supabase.rpc("cupido_live_heartbeat", { _room: roomId });
+      void supabase.rpc("cupido_live_heartbeat", { _room: roomId }).then(({ error }) => {
+        if (error) console.warn("[live] No se pudo enviar el heartbeat de la sala.", error.message);
+      });
     };
     sendHeartbeat();
     const heartbeat = window.setInterval(sendHeartbeat, 15_000);
     return () => window.clearInterval(heartbeat);
+  }, [role, roomId]);
+
+  useEffect(() => {
+    if (role !== "host") return;
+    const closeHostRoomOnPageExit = () => {
+      liveTransportCleanupRef.current?.();
+      void supabase.rpc("cupido_end_live_room", { _id: roomId }).then(({ error }) => {
+        if (error) console.warn("[live] El servidor cerrará la sala al vencer su heartbeat.", error.message);
+      });
+    };
+    window.addEventListener("pagehide", closeHostRoomOnPageExit);
+    return () => window.removeEventListener("pagehide", closeHostRoomOnPageExit);
   }, [role, roomId]);
 
   const sendSignal = useCallback(

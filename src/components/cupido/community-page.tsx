@@ -129,7 +129,9 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
   const activeLives = useQuery({
     queryKey: ["cupido-discovery-live-streams"],
     queryFn: async () => {
-      let query = supabase.from("cupido_live_rooms").select("id,host_id,viewer_count").eq("is_live", true).order("created_at", { ascending: false }).limit(40);
+      const { error: staleError } = await supabase.rpc("cupido_end_stale_lives");
+      if (staleError) console.warn("[comunidad] No se pudieron finalizar salas sin heartbeat.", staleError.message);
+      let query = supabase.from("cupido_live_rooms").select("id,host_id,viewer_count,last_heartbeat_at").eq("is_live", true).gt("last_heartbeat_at", new Date(Date.now() - 35_000).toISOString()).order("created_at", { ascending: false }).limit(40);
       if (viewerId) query = query.neq("host_id", viewerId);
       const { data, error } = await query;
       if (error) {

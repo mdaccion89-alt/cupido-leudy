@@ -6,6 +6,7 @@ import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
 import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
+import { AdminBoostedViewsEditor } from "@/components/cupido/admin-boosted-views-editor";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { MentionInput } from "@/components/cupido/mention-input";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import {
   addComment,
   databaseErrorMessage,
   displayedLikeCount,
+  displayedMetrics,
   fetchComments,
   fetchFeed,
   formatCount,
@@ -610,21 +612,12 @@ export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikT
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-white hover:bg-white/10">
                         <input type="checkbox" checked={post.hide_comments} onChange={(event) => void savePostVisibility(post, "hide_comments", event.target.checked)} /> Ocultar / desactivar comentarios
                       </label>
-                      {isSupremeAdmin && <div className="mt-1 border-t border-white/10 px-2 pt-2">
-                        <label className="mb-1 block text-[11px] text-white/70" htmlFor={`admin-views-${post.id}`}>Editar contador de vistas</label>
-                        <div className="flex gap-2">
-                          <input id={`admin-views-${post.id}`} type="number" min="0" step="1" defaultValue={post.views_count} className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2 text-xs text-white" />
-                          <button type="button" className="rounded-lg bg-amber-400 px-2.5 text-xs font-semibold text-black" onClick={async (event) => {
-                            const count = Number(event.currentTarget.parentElement?.querySelector("input")?.value ?? post.views_count);
-                            if (!Number.isSafeInteger(count) || count < 0) { toast.error("Ingresa un número de vistas válido."); return; }
-                            const rpc = (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> }).rpc;
-                            const { error } = await rpc("cupido_admin_set_post_views", { _post_id: post.id, _views_count: count });
-                            if (error) { toast.error(error.message || "No se pudieron actualizar las vistas."); return; }
-                            toast.success("Vistas actualizadas en tiempo real.");
-                            await queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] });
-                          }}>Guardar</button>
-                        </div>
-                      </div>}
+                      {isSupremeAdmin && <AdminBoostedViewsEditor
+                        postId={post.id}
+                        boostedViews={post.boosted_views}
+                        className="mt-1 border-t border-white/10 px-2 pt-2"
+                        onSaved={() => { void queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }); }}
+                      />}
                     </div>
                   </details>
                 )}
@@ -632,6 +625,12 @@ export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikT
                   <details className="relative">
                     <summary aria-label="Opciones de seguridad del video" className="flex size-12 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur"><MoreHorizontal className="size-6" /></summary>
                     <div className="absolute bottom-0 right-14 z-30 flex min-w-40 flex-col gap-1 rounded-xl border border-white/15 bg-zinc-950 p-1 shadow-xl">
+                      {isSupremeAdmin && <AdminBoostedViewsEditor
+                        postId={post.id}
+                        boostedViews={post.boosted_views}
+                        className="border-b border-white/10 p-2"
+                        onSaved={() => { void queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }); }}
+                      />}
                       <button type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-white/10" onClick={() => void reportUser(post.user_id, "Video reportado desde el reproductor", post.id).then(() => toast.success("Reporte enviado al equipo de moderación.")).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo enviar el reporte.")))}><Flag className="size-4" /> Reportar video</button>
                       <button type="button" className="flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-rose-200 hover:bg-white/10" onClick={() => void blockUser(post.user_id).then(async () => { toast.success("Usuario bloqueado. Sus videos se ocultarán."); await queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }); }).catch((error: unknown) => toast.error(errorMessage(error, "No se pudo bloquear al usuario.")))}><Ban className="size-4" /> Bloquear usuario</button>
                     </div>
@@ -653,7 +652,7 @@ export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikT
                   </p>
                 )}
                 <p className="mt-2 text-[11px] text-white/60">{new Date(post.created_at).toLocaleDateString("es")}</p>
-                <p className="mt-1 text-[11px] font-medium text-white/75">{formatCount(post.views_count)} reproducciones</p>
+                <p className="mt-1 text-[11px] font-medium text-white/75">{displayedMetrics(post).views} reproducciones</p>
                 <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/70"><span aria-hidden="true">♫</span> Audio original · {post.display_name}</p>
               </div>
             </section>

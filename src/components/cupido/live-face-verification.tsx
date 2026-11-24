@@ -244,7 +244,10 @@ export function FaceVideoVerification({ onComplete }: { onComplete: (video: Blob
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      const mimeType = ["video/webm;codecs=vp8", "video/webm", "video/mp4"].find((type) => MediaRecorder.isTypeSupported(type));
+      const mimeTypes = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp8", "video/webm"];
+      const mimeType = mimeTypes.find((type) => {
+        try { return MediaRecorder.isTypeSupported(type); } catch { return false; }
+      });
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recorderRef.current = recorder;
       chunksRef.current = [];
@@ -252,7 +255,8 @@ export function FaceVideoVerification({ onComplete }: { onComplete: (video: Blob
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        const clip = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        const actualType = (recorder.mimeType || mimeType || "video/webm").split(";")[0]?.trim() || "video/webm";
+        const clip = new Blob(chunksRef.current, { type: actualType });
         stopStream();
         setRecording(false);
         if (!clip.size) {

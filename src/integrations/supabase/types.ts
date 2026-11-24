@@ -1032,6 +1032,7 @@ export type Database = {
         host_id: string;
         id: string;
         is_live: boolean;
+        last_heartbeat_at: string;
         premium_coins: number;
         premium_minutes: number;
         premium_ends_at: string | null;
@@ -1045,6 +1046,7 @@ export type Database = {
         host_id: string;
         id?: string;
         is_live?: boolean;
+        last_heartbeat_at?: string;
         premium_coins?: number;
         premium_minutes?: number;
         premium_ends_at?: string | null;
@@ -1058,6 +1060,7 @@ export type Database = {
         host_id?: string;
         id?: string;
         is_live?: boolean;
+        last_heartbeat_at?: string;
         premium_coins?: number;
         premium_minutes?: number;
         premium_ends_at?: string | null;
@@ -1278,6 +1281,7 @@ export type Database = {
         shares_count: number;
         user_id: string;
         views_count: number;
+        boosted_views: number;
       };
       Insert: {
         caption?: string;
@@ -1296,6 +1300,7 @@ export type Database = {
         shares_count?: number;
         user_id: string;
         views_count?: number;
+        boosted_views?: number;
       };
       Update: {
         caption?: string;
@@ -1314,6 +1319,7 @@ export type Database = {
         shares_count?: number;
         user_id?: string;
         views_count?: number;
+        boosted_views?: number;
       };
       Relationships: [];
     };
@@ -1454,6 +1460,8 @@ export type Database = {
       };
     };
     Functions: {
+      cupido_admin_adjust_post_boosted_views: { Args: { _mode: string; _post_id: string; _views: number }; Returns: number };
+      cupido_start_premium_live: { Args: { _coins: number; _minutes: number; _title: string }; Returns: string };
       cupido_count_followers: { Args: { _following: string }; Returns: number };
       cupido_end_stale_lives: { Args: never; Returns: number };
       cupido_live_heartbeat: { Args: { _room: string }; Returns: boolean };

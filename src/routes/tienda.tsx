@@ -363,15 +363,15 @@ function StorePage() {
         </div>
       </header>
 
-      {siteSettings.ads_enabled && !account.isInfiniteCreditsAdmin && (
+      {!account.isInfiniteCreditsAdmin && (
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-400/[0.10] to-pink-500/[0.07] p-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-amber-100">Monedas gratis</h2>
-            <p className="mt-1 text-xs text-white/65">Un video voluntario acredita {15} monedas para regalos. Máximo 5 al día.</p>
+            <p className="mt-1 text-xs text-white/65">{siteSettings.ads_enabled ? "Un video voluntario acredita 15 monedas para regalos. Máximo 5 al día." : "Los anuncios están pausados temporalmente por el administrador."}</p>
           </div>
           <Button
             type="button"
-            disabled={!areAdsEnabled()}
+            disabled={!siteSettings.ads_enabled || !areAdsEnabled()}
             onClick={() => setAdRewardOpen(true)}
             className="h-auto min-h-10 w-full whitespace-normal rounded-xl bg-amber-400 px-4 py-2 text-center text-xs font-bold text-amber-950 hover:bg-amber-300 sm:w-auto"
           >
