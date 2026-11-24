@@ -521,6 +521,7 @@ function ProfilePage() {
   const verificationStatus = privateProfile?.verification_status ?? creator?.verification_status;
   const verified = Boolean(
     privateProfile?.is_verified ||
+    extraField(privateProfile, "verified") === true ||
     privateProfile?.verification_status === "approved" ||
     creator?.is_verified_blue ||
     creator?.verification_status === "approved",
@@ -701,9 +702,11 @@ function ProfilePage() {
 
           {own && !isAdmin && (
             <div className="mt-4">
-              {creator?.verification_status === "pending" ? (
+              {verified ? (
+                <p className="rounded-xl border border-sky-300/25 bg-sky-500/10 p-4 text-sm font-medium text-sky-100">Cuenta verificada con Insignia Azul</p>
+              ) : creator?.verification_status === "pending" ? (
                 <p className="rounded-xl border border-amber-300/20 bg-amber-500/10 p-4 text-sm text-amber-100">Solicitud de insignia: En aprobación.</p>
-              ) : !verified ? (
+              ) : (
                 <>
                   {!verificationEligible && <p className="mb-3 rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">Completa al menos 6 de estos 7 datos: foto, nombre completo, fecha de nacimiento (18+), país, teléfono, biografía y encuesta. La biografía puede quedar vacía.</p>}
                   <Button type="button" onClick={() => setVerificationOpen(true)} disabled={!verificationEligible}>
@@ -716,7 +719,7 @@ function ProfilePage() {
                     </DialogContent>
                   </Dialog>
                 </>
-              ) : null}
+              )}
             </div>
           )}
           <LegalLinks className="mt-5 justify-start" />

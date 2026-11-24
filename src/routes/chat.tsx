@@ -42,7 +42,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { NotificationBell } from "@/components/cupido/notification-bell";
 import { supabase } from "@/integrations/supabase/client";
@@ -1468,28 +1467,33 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <Sheet open={giftOpen} onOpenChange={(open) => {
+      <Dialog open={giftOpen} onOpenChange={(open) => {
         if (open) setGiftOpen(true);
         else closeGiftPanel();
       }}>
-        <SheetContent side="bottom" overlayClassName="z-[90] bg-black/45" className="z-[100] flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-zinc-950 p-0 text-white">
-          <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
+        <DialogContent
+          hideCloseButton
+          overlayClassName="z-[9998] bg-black/80 backdrop-blur-sm"
+          className="fixed inset-0 left-0 top-0 z-[9999] flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center overflow-hidden border-0 bg-black/0 p-3 text-white shadow-none sm:rounded-none"
+        >
+          <div className="flex max-h-[82dvh] min-h-0 w-full max-w-md flex-col overflow-hidden rounded-3xl border border-pink-400/30 bg-zinc-950 shadow-2xl">
+          <DialogHeader className="shrink-0 border-b border-white/10 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
-              <SheetTitle className="flex min-w-0 items-center gap-2 text-white">
+              <DialogTitle className="flex min-w-0 items-center gap-2 text-white">
                 {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
                   <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
                 ) : (
                   <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
                 )}
-              </SheetTitle>
+              </DialogTitle>
               <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel} aria-label="Volver al chat">
                 <ArrowLeft className="size-4" /> Volver
               </Button>
             </div>
-            <SheetDescription className="flex items-center gap-1.5">
+            <DialogDescription className="flex items-center gap-1.5">
               <CoinIcon className="size-4" /> Tienes {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
           <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+2rem)] [touch-action:pan-y]">
           <GiftGrid
             onSelect={selectGift}
@@ -1538,8 +1542,9 @@ function ChatPage() {
             );
           })()}
           </div>
-        </SheetContent>
-      </Sheet>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 

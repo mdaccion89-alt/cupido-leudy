@@ -111,6 +111,6 @@ export async function saveAvatarDirect(id: string, url: string, moderation: "app
   if (!profilesWritten || !creatorWritten) throw new Error("No se pudo guardar la foto.");
 }
 
-export function extraField(row: unknown, key: "age" | "gender" | "avatar_url" | "bio"): Cell | undefined {
+export function extraField(row: unknown, key: "age" | "gender" | "avatar_url" | "bio" | "verified"): Cell | undefined {
   return row && typeof row === "object" ? (row as Row)[key] : undefined;
 }
