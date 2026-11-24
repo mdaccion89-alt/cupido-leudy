@@ -322,6 +322,7 @@ export function LiveRoom({
   const pkStreamIdRef = useRef<string | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  const liveTransportCleanupRef = useRef<(() => void) | null>(null);
   const pendingIceRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const pendingJoinsRef = useRef<string[]>([]);
   const [ready, setReady] = useState(false);
@@ -587,8 +588,8 @@ export function LiveRoom({
 
   useEffect(() => {
     let disposed = false;
-    let presenceChannel: ReturnType<typeof supabase.channel> | null = null;
     let reconnectTimer: number | null = null;
+    const liveChannels: Array<ReturnType<typeof supabase.channel>> = [];
 
     const clearReconnectTimer = () => {
       if (reconnectTimer === null) return;
@@ -699,6 +700,7 @@ export function LiveRoom({
         },
       )
       .subscribe();
+    liveChannels.push(roomChannel);
 
     const giftChannel = supabase
       .channel(`cupido-live-gifts-${roomId}`, { config: { broadcast: { self: false } } })
@@ -753,6 +755,7 @@ export function LiveRoom({
         if (typeof value.stream_id === "string") guestStreamIdRef.current = value.stream_id;
       })
       .subscribe();
+    liveChannels.push(giftChannel);
 
     void (async () => {
       // The discovery/list Presence observer uses this topic too. Supabase reuses
@@ -761,7 +764,7 @@ export function LiveRoom({
       if (disposed) return;
 
       const channel = supabase.channel(`cupido-live-presence-${roomId}`, { config: { presence: { key: viewerId } } });
-      presenceChannel = channel;
+      liveChannels.push(channel);
       channel
         .on("presence", { event: "join" }, (payload) => {
           const joined = (payload.newPresences ?? []) as unknown as PresenceMeta[];
@@ -880,23 +883,36 @@ export function LiveRoom({
         },
       )
       .subscribe();
+    liveChannels.push(signalsChannel);
 
-    return () => {
+    const cleanupLiveTransport = () => {
+      if (disposed) return;
       disposed = true;
       clearReconnectTimer();
-      void supabase.from("cupido_live_viewers").delete().eq("room_id", roomId).eq("user_id", viewerId).then(() => undefined);
-      localStreamRef.current?.getTracks().forEach((track) => track.stop());
-      pkCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      if (role === "viewer") {
+        void supabase.from("cupido_live_viewers").delete().eq("room_id", roomId).eq("user_id", viewerId).then(() => undefined);
+      }
+      [localStreamRef.current, guestCameraStreamRef.current, pkCameraStreamRef.current].forEach((stream) => {
+        stream?.getTracks().forEach((track) => track.stop());
+      });
+      localStreamRef.current = null;
+      guestCameraStreamRef.current = null;
       pkCameraStreamRef.current = null;
+      [localVideoRef.current, remoteVideoRef.current, guestLocalVideoRef.current, guestRemoteVideoRef.current, pkLocalVideoRef.current, pkRemoteVideoRef.current].forEach((video) => {
+        if (video) video.srcObject = null;
+      });
       peersRef.current.forEach((peer) => peer.close());
       peersRef.current.clear();
-      void supabase.removeChannel(roomChannel);
-      void supabase.removeChannel(giftChannel);
-      if (presenceChannel) void supabase.removeChannel(presenceChannel);
-      void supabase.removeChannel(signalsChannel);
+      liveChannels.splice(0).forEach((channel) => { void supabase.removeChannel(channel); });
       if (giftAnimationTimerRef.current !== null) window.clearTimeout(giftAnimationTimerRef.current);
       if (highValueGiftTimerRef.current !== null) window.clearTimeout(highValueGiftTimerRef.current);
       if (entryNoticeTimerRef.current !== null) window.clearTimeout(entryNoticeTimerRef.current);
+    };
+    liveTransportCleanupRef.current = cleanupLiveTransport;
+
+    return () => {
+      cleanupLiveTransport();
+      if (liveTransportCleanupRef.current === cleanupLiveTransport) liveTransportCleanupRef.current = null;
     };
   }, [roomId, hostId, viewerId, role, initialStream, createHostPeer, queryClient, sendSignal]);
 
@@ -1481,26 +1497,16 @@ export function LiveRoom({
     if (endingLiveRef.current) return;
     endingLiveRef.current = true;
     setEndingLive(true);
-    [localStreamRef.current, guestCameraStreamRef.current, pkCameraStreamRef.current].forEach((stream) => {
-      stream?.getTracks().forEach((track) => track.stop());
-    });
-    localStreamRef.current = null;
-    guestCameraStreamRef.current = null;
-    pkCameraStreamRef.current = null;
-    [localVideoRef.current, guestLocalVideoRef.current, pkLocalVideoRef.current].forEach((video) => {
-      if (video) video.srcObject = null;
-    });
-
     try {
+      setConfirmEndLiveOpen(false);
+      liveTransportCleanupRef.current?.();
+      onEndedRef.current();
       const { error } = await supabase.rpc("cupido_end_live_room", { _id: roomId });
       if (error) throw error;
-      peersRef.current.forEach((peer) => peer.close());
-      peersRef.current.clear();
-      setConfirmEndLiveOpen(false);
-      onEndedRef.current();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast.error(message || "No se pudo confirmar el cierre del Live. Inténtalo de nuevo.");
+    } finally {
       endingLiveRef.current = false;
       setEndingLive(false);
     }
@@ -1508,13 +1514,23 @@ export function LiveRoom({
 
   useEffect(() => {
     const handleBack = (event: Event) => {
+      if (role === "host") {
+        if (confirmEndLiveOpen) {
+          event.preventDefault();
+          setConfirmEndLiveOpen(false);
+          return;
+        }
+        if (giftCheckoutOpen || giftPanelOpen || guestToolsOpen || rouletteOpen || moderationOpen || clubOpen || rankingOpen) return;
+        event.preventDefault();
+        setConfirmEndLiveOpen(true);
+        return;
+      }
       event.preventDefault();
-      if (role === "host") toast.info('El Live sigue activo. Usa "Finalizar Live" y confirma para terminarlo.');
-      else exitLive();
+      exitLive();
     };
     window.addEventListener("cupido:android-back", handleBack);
     return () => window.removeEventListener("cupido:android-back", handleBack);
-  }, [role]);
+  }, [clubOpen, confirmEndLiveOpen, giftCheckoutOpen, giftPanelOpen, guestToolsOpen, moderationOpen, rankingOpen, role, rouletteOpen]);
 
   const reportHost = async () => {
     try {
@@ -1770,15 +1786,15 @@ export function LiveRoom({
               <RefreshCw className="size-4" />
             </Button>
           )}
-          {!cleanView && role === "host" && <Button
-            type="button"
-            variant="destructive"
-            disabled={endingLive}
-            onClick={() => setConfirmEndLiveOpen(true)}
-            aria-label="Finalizar Live"
-            className="absolute right-2 top-[calc(env(safe-area-inset-top)+3rem)] z-30 h-8 gap-1.5 rounded-full px-2.5 text-[11px] font-semibold shadow-lg"
-          ><PhoneOff className="size-3.5" />Finalizar</Button>}
         </div>
+        {role === "host" && <Button
+          type="button"
+          variant="destructive"
+          disabled={endingLive}
+          onClick={() => setConfirmEndLiveOpen(true)}
+          aria-label="Finalizar Live"
+          className="absolute right-2 top-[calc(env(safe-area-inset-top)+3rem)] z-50 h-9 min-w-11 touch-manipulation gap-1.5 rounded-full px-3 text-xs font-semibold shadow-lg !pointer-events-auto"
+        ><PhoneOff className="size-3.5" />Finalizar</Button>}
         {!cleanView && <div className={`absolute right-2 z-20 flex flex-col gap-1.5 ${role === "host" ? "top-[calc(env(safe-area-inset-top)+6rem)]" : "top-[calc(env(safe-area-inset-top)+3.5rem)]"}`}>
           <Button type="button" variant="outline" size="icon" onClick={sendLiveHeart} aria-label="Enviar corazón en vivo" className="size-8 rounded-full border-pink-300/50 bg-pink-600/75 p-0 text-white"><Heart className="size-3.5 fill-current" /></Button>
           <Button variant={visibleMicMuted ? "destructive" : "outline"} size="icon" onClick={toggleMicrophone} aria-label={visibleMicMuted ? "Activar micrófono" : "Silenciar micrófono"} className="size-8 rounded-full border-white/30 bg-black/45 p-0 text-white">
@@ -2041,7 +2057,7 @@ export function LiveRoom({
       </DialogContent>
     </Dialog>
     <Dialog open={confirmEndLiveOpen} onOpenChange={setConfirmEndLiveOpen}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-3xl border-white/10 bg-zinc-950 text-white">
+      <DialogContent overlayClassName="z-[9998] bg-black/80 backdrop-blur-sm" className="z-[9999] w-[calc(100%-2rem)] max-w-sm rounded-3xl border-white/10 bg-zinc-950 text-white">
         <DialogHeader>
           <DialogTitle>¿Finalizar este Live?</DialogTitle>
           <DialogDescription className="text-zinc-300">La transmisión terminará para todos los espectadores y dejará de aparecer en En Directo.</DialogDescription>
