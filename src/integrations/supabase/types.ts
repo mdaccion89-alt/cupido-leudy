@@ -1377,6 +1377,8 @@ export type Database = {
         amount: number;
         country_code: string;
         created_at: string;
+        daily_request_number: number;
+        delivery_priority: string;
         id: string;
         method: string;
         reviewed_at: string | null;
@@ -1388,6 +1390,8 @@ export type Database = {
         amount: number;
         country_code: string;
         created_at?: string;
+        daily_request_number?: number;
+        delivery_priority?: string;
         id?: string;
         method: string;
         reviewed_at?: string | null;
@@ -1399,6 +1403,8 @@ export type Database = {
         amount?: number;
         country_code?: string;
         created_at?: string;
+        daily_request_number?: number;
+        delivery_priority?: string;
         id?: string;
         method?: string;
         reviewed_at?: string | null;

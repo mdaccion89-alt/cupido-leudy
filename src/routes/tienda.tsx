@@ -63,7 +63,7 @@ function StorePage() {
   const [pendingGift, setPendingGift] = useState<GiftItem | null>(null);
   const [selectedCheckoutPackageId, setSelectedCheckoutPackageId] = useState<string | null>(null);
   const [checkoutForGift, setCheckoutForGift] = useState(false);
-  const [amount, setAmount] = useState("20");
+  const [amount, setAmount] = useState("0.01");
   const [country, setCountry] = useState("DO");
   const [method, setMethod] = useState("PayPal");
   const [accountDetails, setAccountDetails] = useState("");
@@ -103,15 +103,7 @@ function StorePage() {
     queryKey: ["cupido-wallet", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("withdrawable_balance")
-        .eq("id", viewerId!)
-        .maybeSingle();
-      if (error && error.code !== "42703" && error.code !== "PGRST204") throw error;
-      if (!error && data) return Number(data.withdrawable_balance ?? 0);
-
-      // Read the canonical ledger until the profile mirror migration is applied.
+      // Only the atomic USD ledger is withdrawable; coins and credits are separate.
       const ledger = await supabase.from("cupido_balances").select("balance").eq("user_id", viewerId!).maybeSingle();
       if (ledger.error) throw ledger.error;
       return Number(ledger.data?.balance ?? 0);
@@ -149,6 +141,15 @@ function StorePage() {
       return data ?? [];
     },
   });
+
+  const utcToday = new Date().toISOString().slice(0, 10);
+  const hasWithdrawalToday = (withdrawals.data ?? []).some((item) => item.created_at.slice(0, 10) === utcToday);
+  const withdrawalPriority = hasWithdrawalToday ? "additional_1_2_days" : "same_day";
+  const withdrawalPriorityLabel = (priority: string | null | undefined) => priority === "additional_1_2_days"
+    ? "⏳ Retiros adicionales del día: entrega estimada de 1 a 2 días"
+    : priority === "same_day"
+      ? "⚡ Primer retiro: se procesa y paga hoy mismo"
+      : "La prioridad quedó guardada; consulta el historial del retiro.";
 
   const paypalConfig = useQuery({
     queryKey: ["paypal-checkout-config"],
@@ -282,22 +283,29 @@ function StorePage() {
       } else if (!destination) {
         throw new Error("Completa los datos de destino del retiro.");
       }
-      if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error(`El mínimo es US$${minimumWithdrawal}.`);
+      if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error("MINIMUM_WITHDRAWAL_USD_0_01");
       if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-7) throw new Error("El monto debe tener como máximo dos decimales.");
       if (value > (wallet.data ?? 0)) throw new Error("No tienes saldo suficiente.");
-      const { error } = await supabase.rpc("cupido_request_withdrawal", {
+      const { data: withdrawalId, error } = await supabase.rpc("cupido_request_withdrawal", {
         _amount: value,
         _country_code: country,
         _method: method,
         _account_details: destination,
       });
       if (error) throw error;
+      if (!withdrawalId) throw new Error("No se recibió la confirmación del retiro.");
+      const saved = await supabase.from("cupido_withdrawals").select("delivery_priority").eq("id", withdrawalId).single();
+      if (saved.error) {
+        console.warn("[withdrawal] Request accepted; its priority will be visible in history.", saved.error);
+        return null;
+      }
+      return saved.data.delivery_priority;
     },
-    onSuccess: () => {
+    onSuccess: (priority) => {
       resetWithdrawalDestination();
       void queryClient.invalidateQueries({ queryKey: ["cupido-wallet", viewerId] });
       void queryClient.invalidateQueries({ queryKey: ["cupido-withdrawals", viewerId] });
-      toast.success("Solicitud de retiro enviada. El Admin Supremo la revisará.");
+      toast.success("Solicitud de retiro enviada.", { description: withdrawalPriorityLabel(priority) });
     },
     onError: (error) => {
       const message = readableErrorMessage(error, "No se pudo solicitar el retiro.");
@@ -308,7 +316,7 @@ function StorePage() {
       else if (message.includes("INVALID_CRYPTO_DESTINATION")) toast.error("Ingresa un ID de Binance o una dirección de billetera válida, sin espacios.");
       else if (message.includes("WITHDRAWAL_DESTINATION_TOO_LONG")) toast.error("Los datos de destino son demasiado largos. Revísalos e inténtalo de nuevo.");
       else if (message.includes("INSUFFICIENT_WITHDRAWABLE_BALANCE")) toast.error("Tu saldo retirable ya no alcanza para ese monto. Actualiza el saldo e inténtalo de nuevo.");
-      else if (message.includes("MINIMUM_WITHDRAWAL_USD_20")) toast.error("El monto mínimo de retiro es US$20.");
+      else if (message.includes("MINIMUM_WITHDRAWAL_USD_0_01")) toast.error("El monto mínimo de retiro es US$0.01.");
       else if (message.includes("INVALID_WITHDRAWAL_AMOUNT")) toast.error("El monto debe ser válido y tener como máximo dos decimales.");
       else toast.error(message);
     },
@@ -519,6 +527,12 @@ function StorePage() {
             </p>
             <p className="text-xs text-emerald-100/60">Mínimo de retiro: US${minimumWithdrawal}</p>
           </div>
+          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">Las monedas y los bonos sirven para regalar. Solo el saldo real en dólares se puede retirar.</p>
+          <p className="mb-4 rounded-xl border border-amber-300/20 bg-amber-400/[0.06] px-3 py-2 text-xs leading-relaxed text-amber-100" aria-live="polite">
+            {withdrawals.isLoading || withdrawals.isError
+              ? "La prioridad final se confirma al registrar la solicitud."
+              : withdrawalPriorityLabel(withdrawalPriority)}
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>Monto (USD)</Label>
@@ -624,6 +638,7 @@ function StorePage() {
                   <p className="text-xs text-muted-foreground">
                     {item.method} · {countryName(item.country_code)}
                   </p>
+                  <p className="mt-1 text-xs text-amber-200">{withdrawalPriorityLabel(item.delivery_priority)}</p>
                 </div>
                 <Badge variant={item.status === "pagado" || item.status === "approved" ? "default" : item.status === "rejected" ? "destructive" : "secondary"}>
                   {item.status === "pagado" || item.status === "approved" ? "Pagado" : item.status === "rejected" ? "Rechazado" : "Pendiente"}

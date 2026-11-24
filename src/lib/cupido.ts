@@ -19,7 +19,7 @@ Trata a los demás con respeto. Están prohibidos el acoso, la discriminación, 
 Las notas de voz son gratis. Las Llamadas en Vivo (Hot / Café) consumen monedas brillantes: Café 50, Hot 100. Los Lives solo pueden ser transmitidos por perfiles con Insignia Azul. No grabes ni compartas conversaciones privadas sin permiso.
 
 5. Créditos, regalos y retiros
-Los paquetes empiezan en 5,000 monedas brillantes. Hay 99 regalos virtuales y cada uno convierte su valor en saldo retirable para quien lo recibe, también durante un Live. El saldo mínimo de retiro es US$20 y se paga al método disponible en tu país. Los pagos se procesan con PayPal (saldo o tarjeta). Los retiros son revisados por el Admin Supremo.
+Las monedas compradas y las 500 monedas de bienvenida sirven para enviar regalos; no son dinero ni se pueden retirar. Las monedas de bienvenida se desbloquean para regalar después de una compra real. El saldo retirable contiene únicamente ganancias reales acreditadas por regalos elegibles o monetización. El mínimo de retiro es US$0.01 y se paga por un método disponible en tu país. Los retiros son revisados por el Admin Supremo.
 
 6. Seguridad
 Nunca compartas contraseñas, códigos ni datos bancarios en el chat. Cupido Leudy jamás te pedirá dinero por fuera de PayPal. Reporta cualquier sospecha al Escudo Cupido.
@@ -225,8 +225,8 @@ export type Gift = {
   imageIndex: number;
 };
 
-export const MIN_WITHDRAWAL = 20;
-export const GRAN_LIGA_MIN_WITHDRAWAL = 20;
+export const MIN_WITHDRAWAL = 0.01;
+export const GRAN_LIGA_MIN_WITHDRAWAL = 0.01;
 
 export const WITHDRAWAL_METHODS: Record<string, readonly string[]> = {
   DO: ["PayPal", "Payoneer", "Zelle", "Transferencia bancaria / Banco RD", "Binance / USDT"],

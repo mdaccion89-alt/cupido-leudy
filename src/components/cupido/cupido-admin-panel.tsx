@@ -52,6 +52,8 @@ type WithdrawalRow = {
   account_details: string;
   status: string;
   created_at: string;
+  daily_request_number: number;
+  delivery_priority: string;
 };
 
 type GiftRow = {
@@ -161,7 +163,7 @@ export function CupidoAdminPanel() {
       try {
         const { data, error } = await supabase
           .from("cupido_withdrawals")
-          .select("id,user_id,amount,country_code,method,account_details,status,created_at")
+          .select("id,user_id,amount,country_code,method,account_details,status,created_at,daily_request_number,delivery_priority")
           .eq("status", "pending")
           .order("created_at", { ascending: false });
         if (error) throw error;
@@ -507,6 +509,11 @@ export function CupidoAdminPanel() {
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {countryFlag(row.country_code)} {countryName(row.country_code)}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-amber-200">
+                    {row.delivery_priority === "additional_1_2_days"
+                      ? `⏳ Retiros adicionales del día: entrega estimada de 1 a 2 días · solicitud ${row.daily_request_number}`
+                      : "⚡ Primer retiro: se procesa y paga hoy mismo"}
                   </p>
                   <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-relaxed text-white/80">
                     Destino: {row.account_details}
