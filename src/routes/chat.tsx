@@ -195,13 +195,12 @@ function ChatPage() {
   const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [giftBalanceInsufficient, setGiftBalanceInsufficient] = useState(false);
-  const giftPurchasePanelOpen = Boolean(giftOpen && pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account));
   const closeGiftPanel = () => {
     setGiftOpen(false);
     setPendingGiftPurchase(null);
     setGiftBalanceInsufficient(false);
   };
-  useAndroidBackDismiss(giftPurchasePanelOpen, closeGiftPanel);
+  useAndroidBackDismiss(giftOpen, closeGiftPanel);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const mobileBannerSuppressed = useRef(false);
@@ -1472,23 +1471,25 @@ function ChatPage() {
         if (open) setGiftOpen(true);
         else closeGiftPanel();
       }}>
-        <SheetContent side="bottom" className="flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-zinc-950 p-0 text-white">
+        <SheetContent side="bottom" overlayClassName="z-[90] bg-black/45" className="z-[100] flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-zinc-950 p-0 text-white">
           <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
             <div className="flex items-center justify-between gap-3">
-            <SheetTitle className="flex min-w-0 items-center gap-2 text-white">
-              {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
-                <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
-              ) : (
-                <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
-              )}
-            </SheetTitle>
-            {pendingGiftPurchase && <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel}><ArrowLeft className="size-4" /> Volver</Button>}
+              <SheetTitle className="flex min-w-0 items-center gap-2 text-white">
+                {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
+                  <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
+                ) : (
+                  <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
+                )}
+              </SheetTitle>
+              <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel} aria-label="Volver al chat">
+                <ArrowLeft className="size-4" /> Volver
+              </Button>
             </div>
             <SheetDescription className="flex items-center gap-1.5">
               <CoinIcon className="size-4" /> Tienes {account.loading ? "..." : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas brillantes. Cada regalo suma saldo retirable a quien lo recibe.
             </SheetDescription>
           </SheetHeader>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 pt-3 pb-10">
+          <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+2rem)] [touch-action:pan-y]">
           <GiftGrid
             onSelect={selectGift}
             disabled={sendGift.isPending || account.loading || account.balanceUnavailable || !activeConversation?.other}

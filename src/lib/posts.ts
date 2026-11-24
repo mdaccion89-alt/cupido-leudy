@@ -588,7 +588,7 @@ export async function sharePost(post: FeedPost): Promise<"shared" | "copied"> {
   const viewerId = await currentUserId();
   if (viewerId) {
     const countResult = await db.rpc("cupido_register_post_share", { _post: post.id });
-    if (countResult.error) throw countResult.error;
+    if (countResult.error) console.warn("[posts] El enlace se compartió, pero no se pudo actualizar el contador.", countResult.error);
   }
   return result;
 }

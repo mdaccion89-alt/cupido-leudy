@@ -22,10 +22,16 @@ export function useAndroidBackDismiss(open: boolean, onBack: () => void) {
       dismissedByPopstate = true;
       onBackRef.current();
     };
+    const handleNativeBack = (event: Event) => {
+      event.preventDefault();
+      onBackRef.current();
+    };
     window.addEventListener("popstate", handlePopState);
+    window.addEventListener("cupido:android-back", handleNativeBack);
 
     return () => {
       window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("cupido:android-back", handleNativeBack);
       const currentState = window.history.state;
       if (!dismissedByPopstate && currentState && typeof currentState === "object" && marker in currentState) {
         window.history.back();

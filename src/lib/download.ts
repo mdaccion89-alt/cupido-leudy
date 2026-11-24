@@ -1,6 +1,11 @@
 export function downloadBlob(blob: Blob, filename: string) {
+  if (typeof URL.createObjectURL !== "function") throw new Error("Este navegador no permite descargar archivos temporales.");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
+  if (!("download" in a)) {
+    URL.revokeObjectURL(url);
+    throw new Error("Este navegador no permite descargar archivos desde la aplicación.");
+  }
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);

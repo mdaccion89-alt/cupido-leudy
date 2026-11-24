@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "rea
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Bookmark, Download, Flag, Heart, Loader2, MessageCircle, MoreHorizontal, Pause, Play, Send, Share2, Volume2, VolumeX, X } from "lucide-react";
+import { Browser } from "@capacitor/browser";
+import { Capacitor } from "@capacitor/core";
 import { toast } from "sonner";
 import { RichPostText } from "@/components/cupido/rich-post-text";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
@@ -12,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { blockUser, reportUser } from "@/lib/safety";
 import { useAuth } from "@/lib/auth-context";
 import { mediaFilterCss } from "@/lib/media-filters";
-import { deliverFile, safeFilename } from "@/lib/download";
+import { downloadBlob, safeFilename } from "@/lib/download";
 import {
   addComment,
   databaseErrorMessage,
@@ -99,6 +101,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const [likedLocal, setLikedLocal] = useState<Record<string, boolean>>({});
   const [savedLocal, setSavedLocal] = useState<Record<string, boolean>>({});
   const [playFeedback, setPlayFeedback] = useState<{ postId: string; playing: boolean } | null>(null);
+  const [downloadState, setDownloadState] = useState<{ postId: string; progress: number | null } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
 
   const feed = useQuery({
@@ -314,7 +317,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       setSavedLocal((current) => ({ ...current, [post.id]: !savedIds.has(post.id) }));
     },
     onSuccess: async (next, post) => {
-      toast.success(next ? "Guardado en Guardados 🔖" : "Quitado de Guardados");
+      toast.success(next ? "Video guardado" : "Video quitado de Guardados");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
         queryClient.invalidateQueries({ queryKey: ["cupido-media"] }),
@@ -450,16 +453,50 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   };
 
   const downloadVideo = async (post: FeedPost) => {
+    if (downloadState) return;
+    setDownloadState({ postId: post.id, progress: null });
+    toast.info("Descargando video...");
     try {
       const response = await fetch(post.media_url);
       if (!response.ok) throw new Error("No se pudo descargar el archivo.");
-      const blob = await response.blob();
-      const extension = /\.(mp4|webm|mov|m4v)(?:\?|$)/i.exec(post.media_url)?.[1]?.toLowerCase() ?? "mp4";
-      await deliverFile(blob, safeFilename(post.title || post.caption || "video-cupido", extension));
-      toast.success("Video descargado ⬇️");
+      const contentType = response.headers.get("content-type") || "video/mp4";
+      const totalBytes = Number(response.headers.get("content-length")) || 0;
+      let blob: Blob;
+      if (response.body) {
+        const reader = response.body.getReader();
+        const chunks: BlobPart[] = [];
+        let receivedBytes = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value as BlobPart);
+            receivedBytes += value.byteLength;
+            if (totalBytes > 0) setDownloadState({ postId: post.id, progress: Math.min(99, Math.round((receivedBytes / totalBytes) * 100)) });
+          }
+        }
+        blob = new Blob(chunks, { type: contentType });
+      } else {
+        blob = await response.blob();
+      }
+      if (!blob.size) throw new Error("El archivo descargado está vacío.");
+      const extensionFromUrl = /\.(mp4|webm|mov|m4v|3gp|mkv)(?:[?#]|$)/i.exec(post.media_url)?.[1]?.toLowerCase();
+      const extensionFromType = contentType.includes("webm") ? "webm" : contentType.includes("quicktime") ? "mov" : "mp4";
+      const extension = extensionFromUrl ?? extensionFromType;
+      downloadBlob(blob, safeFilename(post.title || post.caption || "video-cupido", extension));
+      toast.success("Video descargado");
     } catch (error) {
-      toast.error(errorMessage(error, "No se pudo descargar. Se abrirá el video."));
-      window.open(post.media_url, "_blank", "noopener,noreferrer");
+      console.warn("[videos] Descarga como archivo no disponible; se abre el enlace directo.", error);
+      toast.info("Abriendo el video en el navegador para descargarlo.");
+      try {
+        if (Capacitor.isNativePlatform()) await Browser.open({ url: post.media_url });
+        else if (!window.open(post.media_url, "_blank", "noopener,noreferrer")) window.location.assign(post.media_url);
+      } catch {
+        window.open(post.media_url, "_blank", "noopener,noreferrer");
+        toast.error(errorMessage(error, "No se pudo abrir el video para descargarlo."));
+      }
+    } finally {
+      setDownloadState(null);
     }
   };
 
@@ -540,8 +577,13 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 <ActionButton label="Compartir" count={post.shares_count} onClick={() => setSharePostId(post.id)}>
                   <Share2 className="size-6" />
                 </ActionButton>
-                <ActionButton label="Descargar" onClick={() => void downloadVideo(post)}>
-                  <Download className="size-6" />
+                <ActionButton
+                  label={downloadState?.postId === post.id ? "Descargando video" : "Descargar"}
+                  count={downloadState?.postId === post.id ? downloadState.progress === null ? "Descargando…" : `${downloadState.progress}%` : undefined}
+                  disabled={Boolean(downloadState)}
+                  onClick={() => void downloadVideo(post)}
+                >
+                  {downloadState?.postId === post.id ? <Loader2 className="size-6 animate-spin" /> : <Download className="size-6" />}
                 </ActionButton>
                 {viewerId && viewerId === post.user_id && (
                   <details className="relative">
@@ -677,9 +719,12 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
             </section>
             <section className="border-t border-white/10 pt-3">
               <Button variant="outline" className="w-full" onClick={() => {
-                if (shareTarget) void sharePost(shareTarget).then(() => setSharePostId(null)).catch((error: unknown) => {
+                if (shareTarget) void sharePost(shareTarget).then((result) => {
+                  toast.success(result === "copied" ? "Enlace copiado para compartir" : "Video compartido.");
+                  setSharePostId(null);
+                }).catch((error: unknown) => {
                   if (error instanceof DOMException && error.name === "AbortError") return;
-                  toast.error("No se pudo compartir el enlace.");
+                  toast.error(errorMessage(error, "No se pudo compartir el enlace."));
                 });
               }}>
                 <Share2 className="mr-2 size-4" /> Compartir o copiar enlace
