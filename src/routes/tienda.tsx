@@ -247,9 +247,13 @@ function StorePage() {
   const withdraw = useMutation({
     mutationFn: async () => {
       const value = Number(amount);
-      if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error(`El mínimo es US$${minimumWithdrawal}.`);
-      if (value > (wallet.data ?? 0)) throw new Error("No tienes saldo suficiente.");
       if (!accountDetails.trim()) throw new Error("Escribe los datos de tu cuenta.");
+      if (method.trim().toLowerCase() === "paypal" && !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(accountDetails.trim())) {
+        throw new Error("Ingresa un correo electrónico de PayPal válido");
+      }
+      if (!Number.isFinite(value) || value < minimumWithdrawal) throw new Error(`El mínimo es US$${minimumWithdrawal}.`);
+      if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-7) throw new Error("El monto debe tener como máximo dos decimales.");
+      if (value > (wallet.data ?? 0)) throw new Error("No tienes saldo suficiente.");
       const { error } = await supabase.rpc("cupido_request_withdrawal", {
         _amount: value,
         _country_code: country,
@@ -264,7 +268,14 @@ function StorePage() {
       void queryClient.invalidateQueries({ queryKey: ["cupido-withdrawals", viewerId] });
       toast.success("Solicitud de retiro enviada. El Admin Supremo la revisará.");
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo solicitar el retiro."),
+    onError: (error) => {
+      const message = readableErrorMessage(error, "No se pudo solicitar el retiro.");
+      if (message.includes("INVALID_PAYPAL_EMAIL")) toast.error("Ingresa un correo electrónico de PayPal válido");
+      else if (message.includes("INSUFFICIENT_WITHDRAWABLE_BALANCE")) toast.error("Tu saldo retirable ya no alcanza para ese monto. Actualiza el saldo e inténtalo de nuevo.");
+      else if (message.includes("MINIMUM_WITHDRAWAL_USD_20")) toast.error("El monto mínimo de retiro es US$20.");
+      else if (message.includes("INVALID_WITHDRAWAL_AMOUNT")) toast.error("El monto debe ser válido y tener como máximo dos decimales.");
+      else toast.error(message);
+    },
   });
 
   if (authLoading) {

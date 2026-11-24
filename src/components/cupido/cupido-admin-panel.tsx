@@ -147,6 +147,9 @@ export function CupidoAdminPanel() {
       .on("postgres_changes", { event: "*", schema: "public", table: "cupido_face_verification_videos" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "verification-videos"] });
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_withdrawals" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "withdrawals"] });
+      })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient]);
@@ -165,7 +168,7 @@ export function CupidoAdminPanel() {
         return (data ?? []) as WithdrawalRow[];
       } catch (error) {
         console.warn("[admin] No se pudieron cargar los retiros pendientes.", error);
-        return [];
+        throw error;
       }
     },
   });
@@ -486,7 +489,11 @@ export function CupidoAdminPanel() {
           </div>
         </div>
         <div className="mt-4 space-y-3">
-          {(withdrawals.data ?? []).length === 0 ? (
+          {withdrawals.isLoading ? (
+            <p className="text-sm text-muted-foreground">Cargando retiros pendientes…</p>
+          ) : withdrawals.isError ? (
+            <p role="alert" className="text-sm text-rose-300">No se pudieron cargar los retiros. Revisa los permisos y el esquema de Supabase.</p>
+          ) : (withdrawals.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay retiros pendientes.</p>
           ) : (
             withdrawals.data!.map((row) => (

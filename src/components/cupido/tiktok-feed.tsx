@@ -26,6 +26,7 @@ import {
   toggleCommentLike,
   togglePostLike,
   togglePostSave,
+  updatePostVisibility,
   type FeedPost,
   type PostComment,
 } from "@/lib/posts";
@@ -123,9 +124,16 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
 
   const comments = useQuery({
     queryKey: ["cupido-post-comments", commentsPostId],
-    enabled: Boolean(commentsPostId),
+    enabled: Boolean(commentsPostId) && !posts.find((post) => post.id === commentsPostId)?.hide_comments,
     queryFn: () => fetchComments(commentsPostId!),
   });
+
+  useEffect(() => {
+    if (commentsPostId && posts.find((post) => post.id === commentsPostId)?.hide_comments) {
+      setCommentsPostId(null);
+      setReplyTarget(null);
+    }
+  }, [commentsPostId, posts]);
 
   const sharePeople = useQuery({
     queryKey: ["cupido-tiktok-share-people", viewerId],
@@ -345,6 +353,22 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
     onError: (error) => toast.error(errorMessage(error, "No se pudo actualizar el seguidor.")),
   });
 
+  const savePostVisibility = async (post: FeedPost, field: "hide_likes" | "hide_comments", enabled: boolean) => {
+    if (!viewerId || post.user_id !== viewerId) return;
+    try {
+      await updatePostVisibility(post.id, viewerId, field, enabled);
+      toast.success(field === "hide_likes"
+        ? enabled ? "El recuento de Me gusta está oculto para otras personas." : "El recuento de Me gusta vuelve a ser visible."
+        : enabled ? "Los comentarios se desactivaron en esta publicación." : "Los comentarios se activaron de nuevo.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-media"] }),
+      ]);
+    } catch (error) {
+      toast.error(errorMessage(error, "No se pudo guardar la opción de la publicación."));
+    }
+  };
+
   const submitComment = async (parentCommentId: string | null = null) => {
     const value = parentCommentId ? replyText : commentText;
     if (!value.trim() || !commentsPostId) return;
@@ -498,15 +522,15 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                     </button>
                   )}
                 </div>
-                <ActionButton label="Me gusta" count={likeCount} active={isLiked} onClick={() => {
+                <ActionButton label="Me gusta" count={post.hide_likes && post.user_id !== viewerId ? undefined : likeCount} active={isLiked} onClick={() => {
                   if (!viewerId) { toast.error("Inicia sesión para dar me gusta."); return; }
                   likeMutation.mutate(post);
                 }}>
                   <Heart className={`size-6 ${isLiked ? "fill-pink-500 text-pink-500" : ""}`} />
                 </ActionButton>
-                <ActionButton label="Comentarios" count={post.comments_count} onClick={() => setCommentsPostId(post.id)}>
+                {!post.hide_comments && <ActionButton label="Comentarios" count={post.comments_count} onClick={() => setCommentsPostId(post.id)}>
                   <MessageCircle className="size-6 fill-white/10" />
-                </ActionButton>
+                </ActionButton>}
                 <ActionButton label="Guardar" count={isSaved ? "Guardado" : "Guardar"} active={isSaved} onClick={() => {
                   if (!viewerId) { toast.error("Inicia sesión para guardar videos."); return; }
                   saveMutation.mutate(post);
@@ -519,6 +543,19 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 <ActionButton label="Descargar" onClick={() => void downloadVideo(post)}>
                   <Download className="size-6" />
                 </ActionButton>
+                {viewerId && viewerId === post.user_id && (
+                  <details className="relative">
+                    <summary aria-label="Opciones de la publicación" className="flex size-12 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur"><MoreHorizontal className="size-6" /></summary>
+                    <div className="absolute bottom-0 right-14 z-30 flex min-w-56 flex-col gap-1 rounded-xl border border-white/15 bg-zinc-950 p-2 shadow-xl">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-white hover:bg-white/10">
+                        <input type="checkbox" checked={post.hide_likes} onChange={(event) => void savePostVisibility(post, "hide_likes", event.target.checked)} /> Ocultar recuento de Me gusta
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-white hover:bg-white/10">
+                        <input type="checkbox" checked={post.hide_comments} onChange={(event) => void savePostVisibility(post, "hide_comments", event.target.checked)} /> Ocultar / desactivar comentarios
+                      </label>
+                    </div>
+                  </details>
+                )}
                 {viewerId && viewerId !== post.user_id && (
                   <details className="relative">
                     <summary aria-label="Opciones de seguridad del video" className="flex size-12 cursor-pointer list-none items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur"><MoreHorizontal className="size-6" /></summary>
@@ -592,7 +629,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
         </div>
       )}
 
-      {commentsPostId && (
+      {commentsPostId && !posts.find((post) => post.id === commentsPostId)?.hide_comments && (
         <div className="absolute inset-0 z-40 flex items-end" role="dialog" aria-label="Comentarios del video">
           <button type="button" aria-label="Cerrar comentarios" className="absolute inset-0 bg-black/60" onClick={() => { setCommentsPostId(null); setReplyTarget(null); }} />
           <div className="relative flex h-[75dvh] w-full flex-col rounded-t-3xl border-t border-white/15 bg-zinc-950 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">

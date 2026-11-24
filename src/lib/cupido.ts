@@ -218,7 +218,7 @@ export const GIFTS = GIFT_CATALOG.map(([name, emoji, credits], imageIndex) => ({
 
 export type Gift = (typeof GIFTS)[number];
 
-export const MIN_WITHDRAWAL = 50;
+export const MIN_WITHDRAWAL = 20;
 export const GRAN_LIGA_MIN_WITHDRAWAL = 20;
 
 export const WITHDRAWAL_METHODS: Record<string, readonly string[]> = {

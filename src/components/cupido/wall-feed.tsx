@@ -71,6 +71,8 @@ export function WallFeed({
   const fileRef = useRef<HTMLInputElement>(null);
   const [caption, setCaption] = useState("");
   const [title, setTitle] = useState("");
+  const [hideLikes, setHideLikes] = useState(false);
+  const [hideComments, setHideComments] = useState(false);
   const [mediaFilter, setMediaFilter] = useState<MediaFilterId>("normal");
   const [emojiOverlay, setEmojiOverlay] = useState<string[]>([]);
   const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
@@ -274,10 +276,12 @@ export function WallFeed({
     if (!caption.trim() && !emojiOverlay.length) return;
     setUploading(true);
     try {
-      await createPost({ userId: viewerId, caption, title, kind: "text", filterName: mediaFilter, emojiOverlay: serializeEmojiOverlay(emojiOverlay) });
+      await createPost({ userId: viewerId, caption, title, kind: "text", filterName: mediaFilter, emojiOverlay: serializeEmojiOverlay(emojiOverlay), hideLikes, hideComments });
       setCaption("");
       setTitle("");
       setEmojiOverlay([]);
+      setHideLikes(false);
+      setHideComments(false);
       toast.success("Publicación compartida en el muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -347,11 +351,13 @@ export function WallFeed({
       const { data: publicData } = supabase.storage.from(uploadedBucket).getPublicUrl(path);
       const url = publicData?.publicUrl ?? "";
       if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
-      await createPost({ userId: viewerId, caption, title, url, isVideo, filterName: filter, emojiOverlay: serializeEmojiOverlay(emojiOverlay) });
+      await createPost({ userId: viewerId, caption, title, url, isVideo, filterName: filter, emojiOverlay: serializeEmojiOverlay(emojiOverlay), hideLikes, hideComments });
       setCaption("");
       setTitle("");
       setDraft(null);
       setEmojiOverlay([]);
+      setHideLikes(false);
+      setHideComments(false);
       toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
       await invalidateFeed();
       void queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
@@ -376,8 +382,12 @@ export function WallFeed({
   return (
     <div className="space-y-5 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-0">
       {!hideUpload && galleryOnly && (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+        <div className="flex flex-col items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-zinc-300">Agrega una foto a tu galería</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-300">
+            <label className="flex items-center gap-2"><input type="checkbox" checked={hideLikes} onChange={(event) => setHideLikes(event.target.checked)} />Ocultar recuento de Me gusta</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={hideComments} onChange={(event) => setHideComments(event.target.checked)} />Ocultar / desactivar comentarios</label>
+          </div>
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => void handlePick(event.target.files?.[0] ?? null)} />
           <Button type="button" onClick={() => fileRef.current?.click()} disabled={uploading || !viewerId} className="gap-2 rounded-xl"><Plus className="size-4" /> Agregar foto</Button>
         </div>
@@ -398,6 +408,10 @@ export function WallFeed({
             <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder="Título opcional" className="h-9 rounded-md border border-input bg-transparent px-3 text-sm" />
             <MentionInput value={caption} onChange={setCaption} placeholder={videoOnly ? "Describe tu video…" : "Escribe una publicación o describe tu foto o video… Usa @ para mencionar y # para etiquetar."} className="min-h-20 w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm" />
             {!draft && <EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} />}
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-zinc-300">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={hideLikes} onChange={(event) => setHideLikes(event.target.checked)} />Ocultar recuento de Me gusta</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={hideComments} onChange={(event) => setHideComments(event.target.checked)} />Ocultar / desactivar comentarios</label>
+            </div>
           </div>
           <input
             ref={fileRef}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bookmark, Flag, Heart, Image as ImageIcon, Megaphone, MessageCircle, Pin, Play, Send, Share2, ThumbsDown, Trash2 } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bookmark, Flag, Heart, Image as ImageIcon, Megaphone, MessageCircle, MoreHorizontal, Pin, Play, Send, Share2, ThumbsDown, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +24,7 @@ import {
   registerPostView,
   reportComment,
   toggleCommentLike,
+  updatePostVisibility,
   type FeedPost,
   type PostComment,
 } from "@/lib/posts";
@@ -88,6 +89,25 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
   const authorEmail = safeText(media?.email) || undefined;
   const canManage = media.user_id === currentUserId || isSupremePost(session?.user.email, adminStatus.data?.isSuperAdmin);
   const canPromote = media.user_id === currentUserId && Boolean(adminStatus.data?.isGranLiga) && !media.is_promoted;
+  const canViewLikeCount = !media.hide_likes || media.user_id === currentUserId;
+
+  const visibilityMutation = useMutation({
+    mutationFn: async ({ field, enabled }: { field: "hide_likes" | "hide_comments"; enabled: boolean }) => {
+      if (!currentUserId || media.user_id !== currentUserId) throw new Error("Solo el autor puede cambiar estas opciones.");
+      await updatePostVisibility(postId, currentUserId, field, enabled);
+    },
+    onSuccess: async (_result, { field, enabled }) => {
+      toast.success(field === "hide_likes"
+        ? enabled ? "El recuento de Me gusta está oculto para otras personas." : "El recuento de Me gusta vuelve a ser visible."
+        : enabled ? "Los comentarios se desactivaron en esta publicación." : "Los comentarios se activaron de nuevo.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["cupido-media"] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] }),
+      ]);
+    },
+    onError: (error) => toast.error(databaseErrorMessage(error, "No se pudo guardar la opción de la publicación.")),
+  });
 
   const promotePost = async () => {
     const { error } = await supabase.rpc("cupido_promote_post", { _post: postId });
@@ -182,9 +202,13 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
 
   const comments = useQuery({
     queryKey: ["cupido-post-comments", postId],
-    enabled: commentsOpen && Boolean(postId),
+    enabled: commentsOpen && Boolean(postId) && !media.hide_comments,
     queryFn: () => fetchComments(postId),
   });
+
+  useEffect(() => {
+    if (media.hide_comments) setCommentsOpen(false);
+  }, [media.hide_comments]);
 
   const submitComment = async (parentCommentId: string | null = null) => {
     const value = parentCommentId ? replyText : commentText;
@@ -314,7 +338,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             <p className="line-clamp-2 text-xs text-muted-foreground">{media.kind === "text" ? "Publicación de la comunidad" : caption || "Momento en Cupido Leudy ❤️"}</p>
           </div>
           <div className="shrink-0 text-right text-xs text-pink-200">
-            <p className="font-semibold">{metrics.likes} ❤️</p>
+            {canViewLikeCount && <p className="font-semibold">{metrics.likes} ❤️</p>}
             <p className="text-muted-foreground">{metrics.views} 👁️</p>
           </div>
         </div>
@@ -362,7 +386,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           >
             <Bookmark className={`size-3.5 ${saved ? "fill-white" : ""}`} /> 🔖 {saved ? "Guardado" : "Guardar"}
           </Button>
-          <Button
+          {!media.hide_comments && <Button
             variant="outline"
             size="sm"
             onClick={() => setCommentsOpen((value) => !value)}
@@ -370,7 +394,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
             aria-label="Comentarios"
           >
             <MessageCircle className="size-3.5" /> 💬 {Math.max(0, Number(media.comments_count) || 0)}
-          </Button>
+          </Button>}
           <Button variant="outline" size="sm" onClick={() => setShareOpen(true)} className="col-span-2 gap-1" aria-label="Compartir">
             <Share2 className="size-3.5" /> ↗️ Compartir {formatCount(Number(media.shares_count) || 0)}
           </Button>
@@ -378,6 +402,19 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
 
         {canManage && (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-white/10 pt-3">
+            {media.user_id === currentUserId && <details className="relative">
+              <summary className="flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-white/10 px-3 text-xs text-white hover:bg-white/5"><MoreHorizontal className="size-4" /> Opciones</summary>
+              <div className="absolute left-0 top-full z-30 mt-2 flex w-64 flex-col gap-3 rounded-xl border border-white/10 bg-zinc-950 p-3 shadow-xl">
+                <label className="flex cursor-pointer items-start gap-2 text-xs text-zinc-200">
+                  <input type="checkbox" className="mt-0.5" checked={media.hide_likes} disabled={visibilityMutation.isPending} onChange={(event) => visibilityMutation.mutate({ field: "hide_likes", enabled: event.target.checked })} />
+                  <span>Ocultar recuento de Me gusta</span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-xs text-zinc-200">
+                  <input type="checkbox" className="mt-0.5" checked={media.hide_comments} disabled={visibilityMutation.isPending} onChange={(event) => visibilityMutation.mutate({ field: "hide_comments", enabled: event.target.checked })} />
+                  <span>Ocultar / desactivar comentarios</span>
+                </label>
+              </div>
+            </details>}
             <Button variant="outline" size="sm" onClick={() => { setEditTitle(media.title); setEditCaption(media.caption); setEditFilter(media.filter_name); setEditEmojiOverlay(parseEmojiOverlay(media.emoji_overlay)); setEditOpen(true); }}>Editar</Button>
             <Button variant="outline" size="sm" onClick={onPin}><Pin className="mr-1 size-3.5" />{media.is_pinned ? "Desfijar" : "Fijar en perfil"}</Button>
             {canPromote && <Button variant="outline" size="sm" onClick={() => void promotePost()}><Megaphone className="mr-1 size-3.5" />Promocionar · 500</Button>}
@@ -386,7 +423,7 @@ export function MediaCard({ media, liked, disliked, saved, onLike, onDislike, on
           </div>
         )}
 
-        {commentsOpen && (
+        {commentsOpen && !media.hide_comments && (
           <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
             <p className="mb-2 text-xs font-medium text-white">Comentarios</p>
             <div className="max-h-40 space-y-2 overflow-y-auto">

@@ -15,6 +15,8 @@ export type FeedPost = {
   title: string;
   is_pinned: boolean;
   shared_post_id: string | null;
+  hide_likes: boolean;
+  hide_comments: boolean;
   shared_post: { id: string; user_id: string; title: string; caption: string; media_url: string; kind: "photo" | "video" | "text"; display_name: string; avatar_url: string } | null;
   likes_count: number;
   dislikes_count: number;
@@ -102,7 +104,15 @@ export function databaseErrorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
-const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,hide_likes,hide_comments,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+const LEGACY_POST_COLUMNS = "id,user_id,media_path,kind,caption,title,filter_name,emoji_overlay,is_pinned,is_promoted,shared_post_id,likes_count,dislikes_count,comments_count,saves_count,views_count,shares_count,created_at";
+
+function isMissingVisibilityColumn(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown; message?: unknown; details?: unknown };
+  const text = `${String(value.message ?? "")} ${String(value.details ?? "")}`.toLowerCase();
+  return value.code === "42703" || value.code === "PGRST204" || (text.includes("hide_likes") || text.includes("hide_comments")) && (text.includes("column") || text.includes("schema cache"));
+}
 
 export function isSupremePost(email?: string | null, isSuperAdmin?: boolean | null): boolean {
   return Boolean(isSuperAdmin) || email?.toLowerCase() === SUPREME_ADMIN_EMAIL;
@@ -170,17 +180,21 @@ async function selectPosts(
     if (!likedIds.length) return [];
   }
 
-  let query = db.from("cupido_posts").select(POST_COLUMNS).order("is_pinned", { ascending: false }).order("is_promoted", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
-  if (onlyUserId) query = query.eq("user_id", onlyUserId);
-  if (photoOnly) query = query.eq("kind", "photo");
-  if (onlyPostId) query = query.eq("id", onlyPostId);
-  if (onlyUserIds) query = query.in("user_id", onlyUserIds);
-  if (savedIds) query = query.in("id", savedIds);
-  if (likedIds) query = query.in("id", likedIds);
-  if (searchTerm?.trim()) query = query.ilike("caption", `%${searchTerm.trim().replace(/[%_]/g, "\\$&")}%`);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as AnyRow[];
+  const runQuery = async (columns: string) => {
+    let query = db.from("cupido_posts").select(columns).order("is_pinned", { ascending: false }).order("is_promoted", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
+    if (onlyUserId) query = query.eq("user_id", onlyUserId);
+    if (photoOnly) query = query.eq("kind", "photo");
+    if (onlyPostId) query = query.eq("id", onlyPostId);
+    if (onlyUserIds) query = query.in("user_id", onlyUserIds);
+    if (savedIds) query = query.in("id", savedIds);
+    if (likedIds) query = query.in("id", likedIds);
+    if (searchTerm?.trim()) query = query.ilike("caption", `%${searchTerm.trim().replace(/[%_]/g, "\\$&")}%`);
+    return query;
+  };
+  let result = await runQuery(POST_COLUMNS);
+  if (result.error && isMissingVisibilityColumn(result.error)) result = await runQuery(LEGACY_POST_COLUMNS);
+  if (result.error) throw result.error;
+  return (result.data ?? []) as AnyRow[];
 }
 
 async function fetchEngagement(postIds: string[], viewerId: string | null) {
@@ -282,10 +296,12 @@ export async function fetchFeed(options: {
       title: String(row.title ?? ""),
       is_pinned: Boolean(row.is_pinned),
       shared_post_id: typeof row.shared_post_id === "string" ? row.shared_post_id : null,
+      hide_likes: Boolean(row["hide_likes"]),
+      hide_comments: Boolean(row["hide_comments"]),
       shared_post: typeof row.shared_post_id === "string" ? sharedMap.get(row.shared_post_id) ?? null : null,
-      likes_count: Number(row.likes_count) || 0,
+      likes_count: !Boolean(row["hide_likes"]) || row.user_id === viewerId ? Number(row.likes_count) || 0 : 0,
       dislikes_count: Number(row.dislikes_count) || 0,
-      comments_count: Number(row.comments_count) || engagement.comments.get(row.id) || 0,
+      comments_count: Boolean(row["hide_comments"]) ? 0 : Number(row.comments_count) || engagement.comments.get(row.id) || 0,
       saves_count: Number(row.saves_count) || 0,
       views_count: Number(row.views_count) || 0,
       shares_count: Number(row.shares_count) || 0,
@@ -303,11 +319,9 @@ export async function fetchFeed(options: {
   return { posts, liked: engagement.liked, disliked: engagement.disliked, saved: engagement.saved };
 }
 
-export async function createPost(input: { userId: string; caption: string; title?: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text"; sharedPostId?: string; filterName?: MediaFilterId; emojiOverlay?: string }): Promise<string> {
+export async function createPost(input: { userId: string; caption: string; title?: string; url?: string; isVideo?: boolean; kind?: "photo" | "video" | "text"; sharedPostId?: string; filterName?: MediaFilterId; emojiOverlay?: string; hideLikes?: boolean; hideComments?: boolean }): Promise<string> {
   const kind = input.kind ?? (input.isVideo ? "video" : "photo");
-  const result = await db
-    .from("cupido_posts")
-    .insert({
+  const values = {
       user_id: input.userId,
       caption: input.caption.trim(),
       title: input.title?.trim() || null,
@@ -316,12 +330,23 @@ export async function createPost(input: { userId: string; caption: string; title
       kind,
       filter_name: input.filterName ?? "normal",
       emoji_overlay: input.emojiOverlay ?? "[]",
-    })
-    .select("id")
-    .maybeSingle();
+      hide_likes: input.hideLikes ?? false,
+      hide_comments: input.hideComments ?? false,
+  };
+  const result = await db.from("cupido_posts").insert(values).select("id").maybeSingle();
   if (result.error) throw result.error;
   if (!result.data?.id) throw new Error("No se pudo guardar la publicación.");
   return String(result.data.id);
+}
+
+export async function updatePostVisibility(
+  postId: string,
+  userId: string,
+  field: "hide_likes" | "hide_comments",
+  enabled: boolean,
+): Promise<void> {
+  const { error } = await db.from("cupido_posts").update({ [field]: enabled }).eq("id", postId).eq("user_id", userId);
+  if (error) throw error;
 }
 
 export async function updatePost(postId: string, title: string, caption: string, filterName?: MediaFilterId, emojiOverlay?: string): Promise<void> {

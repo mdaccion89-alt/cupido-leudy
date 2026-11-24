@@ -1262,6 +1262,8 @@ export type Database = {
         dislikes_count: number;
         id: string;
         is_promoted: boolean;
+        hide_comments: boolean;
+        hide_likes: boolean;
         kind: string;
         likes_count: number;
         media_path: string | null;
@@ -1278,6 +1280,8 @@ export type Database = {
         dislikes_count?: number;
         id?: string;
         is_promoted?: boolean;
+        hide_comments?: boolean;
+        hide_likes?: boolean;
         kind: string;
         likes_count?: number;
         media_path?: string | null;
@@ -1294,6 +1298,8 @@ export type Database = {
         dislikes_count?: number;
         id?: string;
         is_promoted?: boolean;
+        hide_comments?: boolean;
+        hide_likes?: boolean;
         kind?: string;
         likes_count?: number;
         media_path?: string;
