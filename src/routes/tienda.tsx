@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, CreditCard, Gift, Loader2, Wallet } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
 import { PayPalLogo } from "@/components/cupido/paypal-logo";
@@ -18,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
-import { useAccount } from "@/lib/account";
+import { useAccount, useSiteSettings } from "@/lib/account";
 import { CREDIT_PACKAGES, GRAN_LIGA_PACKAGE_ID } from "@/lib/credits";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import {
@@ -40,6 +41,7 @@ import { capturePaypalOrder } from "@/lib/payments.functions";
 import { readableErrorMessage } from "@/lib/cupido";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
+import { areAdsEnabled } from "@/lib/admob";
 
 export const Route = createFileRoute("/tienda")({
   validateSearch: (search: { userId?: string; token?: string }) => search,
@@ -54,6 +56,8 @@ function StorePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const account = useAccount();
+  const siteSettings = useSiteSettings();
+  const [adRewardOpen, setAdRewardOpen] = useState(false);
   const minimumWithdrawal = account.isGranLiga ? GRAN_LIGA_MIN_WITHDRAWAL : MIN_WITHDRAWAL;
   const captureOrder = useServerFn(capturePaypalOrder);
   const capturedRef = useRef<string | null>(null);
@@ -359,6 +363,23 @@ function StorePage() {
         </div>
       </header>
 
+      {siteSettings.ads_enabled && !account.isInfiniteCreditsAdmin && (
+        <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-400/[0.10] to-pink-500/[0.07] p-4">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-amber-100">Monedas gratis</h2>
+            <p className="mt-1 text-xs text-white/65">Un video voluntario acredita {15} monedas para regalos. Máximo 5 al día.</p>
+          </div>
+          <Button
+            type="button"
+            disabled={!areAdsEnabled()}
+            onClick={() => setAdRewardOpen(true)}
+            className="h-auto min-h-10 w-full whitespace-normal rounded-xl bg-amber-400 px-4 py-2 text-center text-xs font-bold text-amber-950 hover:bg-amber-300 sm:w-auto"
+          >
+            <Play className="size-4 shrink-0 fill-current" /> Ver video y ganar 15 monedas gratis
+          </Button>
+        </section>
+      )}
+
       {captureRetry && (
         <section role="alert" className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-amber-100">{captureRetry.message}</p>
@@ -655,6 +676,7 @@ function StorePage() {
       <p className="mt-6 flex items-center gap-1 text-xs text-muted-foreground">
         <Gift className="h-3.5 w-3.5" /> Los regalos recibidos se guardan como saldo retirable en tu cuenta.
       </p>
+      <AdRewardDialog open={adRewardOpen} onOpenChange={setAdRewardOpen} />
     </main>
   );
 }

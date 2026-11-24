@@ -100,6 +100,42 @@ export function CupidoAdminPanel() {
     void queryClient.invalidateQueries({ queryKey: ["paypal-checkout-config"] });
   };
 
+  const adSettings = useQuery({
+    queryKey: ["cupido-admin", "ad-settings"],
+    enabled: canManagePaypal,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("site_settings").select("ads_enabled").eq("id", 1).single();
+      if (error) throw error;
+      return data.ads_enabled;
+    },
+  });
+
+  const saveAdSettings = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const { data, error } = await supabase.from("site_settings").update({ ads_enabled: enabled }).eq("id", 1).select("ads_enabled").single();
+      if (error) throw error;
+      return data.ads_enabled;
+    },
+    onSuccess: (enabled) => {
+      queryClient.setQueryData(["cupido-admin", "ad-settings"], enabled);
+      void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      toast.success(enabled ? "Anuncios activados." : "Anuncios pausados en toda la app.");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar el estado de los anuncios."),
+  });
+
+  useEffect(() => {
+    if (!canManagePaypal) return;
+    const channel = supabase
+      .channel(`cupido-admin-ad-settings-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings", filter: "id=eq.1" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "ad-settings"] });
+        void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [canManagePaypal, queryClient]);
+
   const verifications = useQuery({
     queryKey: ["cupido-admin", "verifications"],
     queryFn: async () => {
@@ -323,6 +359,31 @@ export function CupidoAdminPanel() {
 
   return (
     <div className="space-y-6">
+      {canManagePaypal && (
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-sky-300/25 bg-gradient-to-br from-sky-500/[0.08] to-white/[0.03] p-5 shadow-lg shadow-sky-950/15">
+          <div className="min-w-0">
+            <h2 className="font-display text-lg text-white">Google AdMob</h2>
+            <p className="mt-1 text-xs text-muted-foreground">El interruptor pausa o activa banners, intersticiales y videos recompensados para todos en tiempo real.</p>
+            {adSettings.isError && <p role="alert" className="mt-2 break-words text-xs text-red-300">{adSettings.error instanceof Error ? adSettings.error.message : "No se pudo leer la configuración de anuncios."}</p>}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`text-sm font-semibold ${adSettings.data ? "text-emerald-200" : "text-amber-200"}`}>
+              {adSettings.isLoading ? "Cargando…" : adSettings.data ? "Anuncios activos" : "Anuncios pausados"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-label="Activar o pausar anuncios de Google AdMob"
+              aria-checked={adSettings.data ?? false}
+              disabled={adSettings.isLoading || saveAdSettings.isPending || adSettings.isError}
+              onClick={() => saveAdSettings.mutate(!(adSettings.data ?? false))}
+              className={`relative h-7 w-12 rounded-full border transition disabled:cursor-not-allowed disabled:opacity-50 ${adSettings.data ? "border-emerald-300/60 bg-emerald-500/70" : "border-white/20 bg-zinc-700"}`}
+            >
+              <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform ${adSettings.data ? "translate-x-6" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+        </section>
+      )}
       {canManagePaypal && (
         <section id="cupido-paypal-live-settings" className="rounded-3xl border border-emerald-300/30 bg-gradient-to-br from-emerald-500/[0.08] to-white/[0.03] p-5 shadow-lg shadow-emerald-950/15">
           <div className="flex flex-wrap items-center justify-between gap-3">

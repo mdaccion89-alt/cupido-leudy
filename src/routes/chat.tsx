@@ -204,7 +204,7 @@ function ChatPage() {
   };
   useAndroidBackDismiss(giftOpen, closeGiftPanel);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [mobileShowChat, setMobileShowChat] = useState(Boolean(searchUserId));
   const mobileBannerSuppressed = useRef(false);
   const [text, setText] = useState("");
   const [replyTarget, setReplyTarget] = useState<{ id: string; body: string; sender_id: string } | null>(null);
@@ -1152,7 +1152,6 @@ function ChatPage() {
               </button>
             ))}
           </nav>
-          {isNativeAds() && <div aria-label="Anuncio de AdMob" className="h-[52px] w-full shrink-0" />}
           <Button
             type="button"
             onClick={() => {
@@ -1170,7 +1169,7 @@ function ChatPage() {
       </div>
 
       <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-3xl border border-border bg-card lg:grid-cols-[320px_1fr]">
-        <aside className={`${mobileShowChat ? "hidden" : "flex"} h-full min-h-0 min-w-0 flex-col overflow-y-auto border-b border-border md:flex lg:border-b-0 lg:border-r`}>
+        <aside className={`${mobileShowChat ? "hidden" : "flex pb-[calc(11rem+env(safe-area-inset-bottom))]"} h-full min-h-0 min-w-0 flex-col overflow-y-auto border-b border-border md:flex lg:border-b-0 lg:border-r`}>
 
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
           {conversations.isError && (

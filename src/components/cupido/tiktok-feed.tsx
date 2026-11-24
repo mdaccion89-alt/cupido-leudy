@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { blockUser, reportUser } from "@/lib/safety";
 import { useAuth } from "@/lib/auth-context";
 import { mediaFilterCss } from "@/lib/media-filters";
+import { maybeShowInterstitialAd } from "@/lib/admob";
 import { downloadBlob, safeFilename } from "@/lib/download";
 import {
   addComment,
@@ -114,6 +115,13 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const currentPost = posts[currentIndex] ?? null;
   const likedIds = feed.data?.liked ?? new Set<string>();
   const savedIds = feed.data?.saved ?? new Set<string>();
+
+  const previousInterstitialIndex = useRef<number | null>(null);
+  useEffect(() => {
+    const previous = previousInterstitialIndex.current;
+    previousInterstitialIndex.current = currentIndex;
+    if (previous !== null && previous !== currentIndex) void maybeShowInterstitialAd();
+  }, [currentIndex]);
 
   const following = useQuery({
     queryKey: ["cupido-tiktok-follows", viewerId],

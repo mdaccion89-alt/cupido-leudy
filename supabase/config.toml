@@ -1,1 +1,4 @@
 project_id = "grlypsxivgxrvahnjoay"
+
+[functions.admob-ssv]
+verify_jwt = false

@@ -33,11 +33,22 @@ export function useAccount() {
       const { error: refreshError } = await supabase.rpc("refresh_my_credits");
       if (refreshError) throw refreshError;
       const [credits, roles, profile, privateProfile, coinMirror, capturedOrders] = await Promise.all([
-        supabase
-          .from("user_credits")
-          .select("balance,daily_reset_at")
-          .eq("user_id", userId!)
-          .maybeSingle(),
+        (async () => {
+          const result = await supabase
+            .from("user_credits")
+            .select("balance,ad_reward_balance,daily_reset_at")
+            .eq("user_id", userId!)
+            .maybeSingle();
+          if (result.error?.code === "42703" || result.error?.code === "PGRST204") {
+            const fallback = await supabase
+              .from("user_credits")
+              .select("balance,daily_reset_at")
+              .eq("user_id", userId!)
+              .maybeSingle();
+            return { data: fallback.data, error: fallback.error, adRewardBalance: 0 };
+          }
+          return { data: result.data, error: result.error, adRewardBalance: Number(result.data?.ad_reward_balance ?? 0) };
+        })(),
         supabase.from("user_roles").select("role").eq("user_id", userId!),
         supabase
           .from("creator_profiles")
@@ -68,6 +79,7 @@ export function useAccount() {
           credits.data?.balance ??
           0,
         nextReset: credits.data?.daily_reset_at ?? null,
+        adRewardBalance: credits.adRewardBalance,
         isAdmin: (roles.data ?? []).some((r) => r.role === "admin" || r.role === "admin_supremo"),
         isSupremeAdmin: isImmediateAdmin || (roles.data ?? []).some((r) => r.role === "admin_supremo"),
         isOfficial: Boolean(profile.data?.is_official),
@@ -84,6 +96,7 @@ export function useAccount() {
     balance: isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
     balanceUnavailable: query.isError && !query.data,
     nextReset: query.data?.nextReset ?? null,
+    adRewardBalance: isImmediateAdmin ? Infinity : (query.data?.adRewardBalance ?? 0),
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
     isInfiniteCreditsAdmin: isImmediateAdmin,
     isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
@@ -117,6 +130,7 @@ export const DEFAULT_SETTINGS: PublicSettings = {
   videos_enabled: false,
   purchases_enabled: true,
   gallery_enabled: true,
+  ads_enabled: true,
   theme_preset: "cafe",
 };
 

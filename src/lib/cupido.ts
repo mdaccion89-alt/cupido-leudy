@@ -43,6 +43,7 @@ export const FREE_GIFT_MAX_CREDITS = 500;
 
 type SpendingAccount = {
   balance: number;
+  adRewardBalance?: number;
   hasPurchased: boolean;
   isAdmin: boolean;
   isInfiniteCreditsAdmin?: boolean;
@@ -52,8 +53,9 @@ type SpendingAccount = {
 
 export function canSendGift(gift: { credits: number; id?: string }, account: SpendingAccount): boolean {
   if (account.isInfiniteCreditsAdmin === true) return true;
-  if (account.hasPurchased !== true) return false;
   if (gift.id === "gran-liga-diamond" && !account.isGranLiga) return false;
+  // A first purchase still unlocks welcome credits; before that, only verified AdMob credits can fund a gift.
+  if (account.hasPurchased !== true) return (account.adRewardBalance ?? 0) >= gift.credits;
   return account.balance >= gift.credits;
 }
 

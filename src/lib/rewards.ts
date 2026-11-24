@@ -1,5 +1,5 @@
 export const DAILY_REWARDS = [10, 20, 30, 40, 100] as const;
-export const AD_REWARD = 25;
+export const AD_REWARD = 15;
 export const AD_LIMIT = 5;
 
 export const DAY_MS = 24 * 60 * 60 * 1000;

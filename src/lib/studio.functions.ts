@@ -423,6 +423,7 @@ export type PublicSettings = {
   videos_enabled: boolean;
   purchases_enabled: boolean;
   gallery_enabled: boolean;
+  ads_enabled: boolean;
   theme_preset: "cafe" | "dark" | "rosa" | "neon";
 };
 
@@ -453,6 +454,7 @@ export const getSiteSettings = createServerFn({ method: "GET" }).handler(
       videos_enabled: data?.videos_enabled ?? false,
       purchases_enabled: data?.purchases_enabled ?? true,
       gallery_enabled: data?.gallery_enabled ?? true,
+      ads_enabled: data?.ads_enabled ?? true,
       theme_preset: (["cafe", "dark", "rosa", "neon"] as const).includes(data?.theme_preset as "cafe" | "dark" | "rosa" | "neon")
         ? data!.theme_preset as PublicSettings["theme_preset"]
         : "cafe",

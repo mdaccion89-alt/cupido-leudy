@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import {
@@ -21,7 +21,7 @@ import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { WeeklyRankingProvider } from "@/components/cupido/weekly-ranking";
 import { Toaster } from "@/components/ui/sonner";
-import { hideFeedBanner, initializeAdMob, showFeedBanner } from "@/lib/admob";
+import { hideFeedBanner, initializeAdMob, maybeShowInterstitialAd, setAdsEnabled, showFeedBanner } from "@/lib/admob";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { supabase } from "@/integrations/supabase/client";
 import { siteSettingsQuery } from "@/lib/account";
@@ -197,20 +197,45 @@ function ReferralTracker() {
 
 function AdController() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const queryClient = useQueryClient();
+  const settings = useQuery(siteSettingsQuery);
+  const previousPath = useRef<string | null>(null);
 
   useEffect(() => {
     void initializeAdMob();
   }, []);
 
   useEffect(() => {
-    const placement = pathname.startsWith("/chat") || pathname.startsWith("/mensajes")
+    setAdsEnabled(settings.data?.ads_enabled === true);
+  }, [settings.data?.ads_enabled]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("cupido-admob-site-settings")
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "site_settings", filter: "id=eq.1" }, () => {
+        void queryClient.invalidateQueries({ queryKey: siteSettingsQuery.queryKey });
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
+
+  useEffect(() => {
+    const previous = previousPath.current;
+    previousPath.current = pathname;
+    const placement = pathname === "/chat" || pathname === "/mensajes"
       ? "messages"
-      : pathname.startsWith("/descubrir")
+      : pathname === "/descubrir"
         ? "discover"
         : null;
-    if (placement) void showFeedBanner(placement);
+    if (settings.data?.ads_enabled !== true) void hideFeedBanner();
+    else if (placement) void showFeedBanner(placement);
     else void hideFeedBanner();
-  }, [pathname]);
+
+    const canShowBetweenRoutes = (path: string) => !["/directo", "/live", "/tienda", "/retiro", "/chat", "/admin", "/auth"].some((blocked) => path === blocked || path.startsWith(`${blocked}/`));
+    if (previous && previous !== pathname && settings.data?.ads_enabled === true && canShowBetweenRoutes(previous) && canShowBetweenRoutes(pathname)) {
+      void maybeShowInterstitialAd();
+    }
+  }, [pathname, settings.data?.ads_enabled]);
 
   useEffect(
     () => () => {

@@ -601,6 +601,7 @@ export type Database = {
       site_settings: {
         Row: {
           accent_color: string;
+          ads_enabled: boolean;
           app_logo_url: string;
           banner_image_url: string;
           banner_text: string;
@@ -621,6 +622,7 @@ export type Database = {
         };
         Insert: {
           accent_color?: string;
+          ads_enabled?: boolean;
           app_logo_url?: string;
           banner_image_url?: string;
           banner_text?: string;
@@ -641,6 +643,7 @@ export type Database = {
         };
         Update: {
           accent_color?: string;
+          ads_enabled?: boolean;
           app_logo_url?: string;
           banner_image_url?: string;
           banner_text?: string;
@@ -786,18 +789,21 @@ export type Database = {
       };
       user_credits: {
         Row: {
+          ad_reward_balance: number;
           balance: number;
           daily_reset_at: string;
           updated_at: string;
           user_id: string;
         };
         Insert: {
+          ad_reward_balance?: number;
           balance?: number;
           daily_reset_at?: string;
           updated_at?: string;
           user_id: string;
         };
         Update: {
+          ad_reward_balance?: number;
           balance?: number;
           daily_reset_at?: string;
           updated_at?: string;
@@ -1453,6 +1459,10 @@ export type Database = {
       cupido_live_heartbeat: { Args: { _room: string }; Returns: boolean };
       cupido_claim_daily_reward: { Args: never; Returns: Json };
       cupido_claim_ad_reward: { Args: { _user_id: string }; Returns: Json };
+      cupido_admob_start_reward_session: { Args: { _user_id: string }; Returns: Json };
+      cupido_admob_cancel_reward_session: { Args: { _user_id: string; _session_id: string }; Returns: boolean };
+      cupido_admob_reward_status: { Args: { _user_id: string; _session_id: string }; Returns: Json };
+      cupido_admob_confirm_reward: { Args: { _session_id: string; _user_id: string; _transaction_id: string; _reward_amount: number }; Returns: Json };
       cupido_get_my_gift_balance: { Args: never; Returns: number };
       cupido_get_live_earnings: {
         Args: { _room: string };
