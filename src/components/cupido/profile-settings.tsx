@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Crown, Link2, LogOut, Moon, ShieldCheck, Sun, Trash2, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
-import { getSavedAccounts, switchSavedAccount, useAuth } from "@/lib/auth-context";
+import { forgetSavedAccount, getSavedAccounts, switchSavedAccount, useAuth } from "@/lib/auth-context";
 import { updateCupidoSoundPreference } from "@/lib/cupido-sounds";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { deleteOwnCupidoAccount } from "@/lib/admin.functions";
 
 type ProfileSettingsProps = { email?: string | null | undefined; phone?: string | null | undefined };
 type Preferences = { theme_mode: "dark" | "light"; notifications_enabled: boolean; sound_enabled: boolean };
@@ -18,8 +22,13 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const deleteAccountServer = useServerFn(deleteOwnCupidoAccount);
   const userId = session?.user.id ?? null;
   const [busy, setBusy] = useState(false);
+  const [deleteIntroOpen, setDeleteIntroOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [savedAccounts, setSavedAccounts] = useState(getSavedAccounts);
@@ -98,6 +107,27 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
     await navigate({ to: "/auth", search: { ref: "" } });
   };
 
+  const permanentlyDeleteAccount = async () => {
+    if (!userId || deleteConfirmation !== "ELIMINAR") return;
+    setDeletingAccount(true);
+    try {
+      await deleteAccountServer();
+      forgetSavedAccount(userId);
+      await supabase.removeAllChannels();
+      queryClient.clear();
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) console.warn("[account] La cuenta se eliminó, pero no se pudo limpiar la sesión local.", error.message);
+      setDeleteConfirmOpen(false);
+      toast.success("Tu cuenta y los datos asociados fueron eliminados.");
+      await navigate({ to: "/eliminar-cuenta" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDeletingAccount(false);
+      setDeleteConfirmation("");
+    }
+  };
+
   const selectSavedAccount = async (savedUserId: string) => {
     setSwitchingAccount(true);
     queryClient.clear();
@@ -160,6 +190,40 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
         </Button>
         <Button variant="outline" onClick={() => void leaveAccount(true)}><LogOut className="size-4" /> Cambiar de cuenta</Button>
       </div>
+      <div className="mt-5 rounded-xl border border-rose-400/25 bg-rose-950/20 p-3">
+        <p className="text-sm font-semibold text-rose-100">Zona de cuenta</p>
+        <p className="mt-1 text-xs leading-relaxed text-rose-100/70">Puedes eliminar permanentemente tu cuenta y el contenido y datos asociados.</p>
+        <Button variant="destructive" className="mt-3 min-h-11 w-full whitespace-normal text-center sm:w-auto" onClick={() => setDeleteIntroOpen(true)}>
+          <Trash2 className="size-4 shrink-0" /> Eliminar mi cuenta y datos
+        </Button>
+      </div>
+      <AlertDialog open={deleteIntroOpen} onOpenChange={setDeleteIntroOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar tu cuenta?</AlertDialogTitle>
+            <AlertDialogDescription>Se borrarán tu perfil, publicaciones, historias, mensajes, archivos subidos y datos asociados. Esta acción es permanente y cerrará tu sesión.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Conservar cuenta</AlertDialogCancel>
+            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-700" onClick={(event) => { event.preventDefault(); setDeleteIntroOpen(false); setDeleteConfirmOpen(true); }}>Continuar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => { setDeleteConfirmOpen(open); if (!open) setDeleteConfirmation(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirma la eliminación permanente</AlertDialogTitle>
+            <AlertDialogDescription>Para confirmar por segunda vez, escribe <strong>ELIMINAR</strong>. No podrás recuperar tu cuenta ni sus datos.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input autoComplete="off" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value.trim().toUpperCase())} placeholder="Escribe ELIMINAR" aria-label="Escribe ELIMINAR para confirmar" />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAccount}>Cancelar</AlertDialogCancel>
+            <Button variant="destructive" disabled={deletingAccount || deleteConfirmation !== "ELIMINAR"} onClick={() => void permanentlyDeleteAccount()}>
+              {deletingAccount ? "Eliminando cuenta…" : "Eliminar cuenta y datos"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog open={accountPickerOpen} onOpenChange={setAccountPickerOpen}>
         <DialogContent>
           <DialogHeader>

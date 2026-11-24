@@ -58,6 +58,15 @@ export function getSavedAccounts(): SavedAccountChoice[] {
   return readSavedSessions().map(({ user_id, email, last_used_at }) => ({ user_id, email, last_used_at }));
 }
 
+export function forgetSavedAccount(userId: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(readSavedSessions().filter((entry) => entry.user_id !== userId)));
+  } catch {
+    // Account removal should continue even when browser storage is unavailable.
+  }
+}
+
 export async function switchSavedAccount(userId: string): Promise<void> {
   const saved = readSavedSessions().find((entry) => entry.user_id === userId);
   if (!saved) throw new Error("No encontramos esa cuenta guardada en este dispositivo.");

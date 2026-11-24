@@ -53,7 +53,7 @@ import { hideFeedBanner, isNativeAds, showFeedBanner } from "@/lib/admob";
 import { loadPaypalClientId } from "@/lib/paypal-public";
 import { getPaypalCheckoutConfig } from "@/lib/payments.functions";
 import { notifyUser, SUPREME_ADMIN_EMAIL } from "@/lib/posts";
-import { blockUser, reportUser } from "@/lib/safety";
+import { blockUser, fetchBlockedUserIds, reportUser } from "@/lib/safety";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
@@ -303,6 +303,7 @@ function ChatPage() {
     queryKey: ["cupido-conversations", viewerId],
     enabled: Boolean(viewerId),
     queryFn: async () => {
+      const blockedIds = new Set(await fetchBlockedUserIds(viewerId));
       const { data, error } = await supabase
         .from("cupido_conversations")
         .select("id,participant_a,participant_b,created_at")
@@ -328,7 +329,7 @@ function ChatPage() {
       return (data ?? []).map<ConversationRow>((row) => {
         const otherId = row.participant_a === viewerId ? row.participant_b : row.participant_a;
         return { ...row, other: map.get(otherId) ?? null };
-      });
+      }).filter((row) => !row.other || !blockedIds.has(row.other.id));
     },
   });
 
@@ -1028,6 +1029,37 @@ function ChatPage() {
     }
   };
 
+  const reportConversationUser = async () => {
+    const target = activeConversation?.other;
+    if (!target) return;
+    try {
+      await reportUser(target.id, "Usuario reportado desde un chat privado.");
+      toast.success("Reporte enviado al equipo de moderación.");
+    } catch (error) {
+      toast.error(actionErrorMessage(error, "No se pudo enviar el reporte."));
+    }
+  };
+
+  const blockConversationUser = async () => {
+    const target = activeConversation?.other;
+    if (!target) return;
+    try {
+      await blockUser(target.id);
+      setActiveId(null);
+      setMobileShowChat(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["cupido-conversations", viewerId] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-messages"] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-chat-unread", viewerId] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-media"] }),
+        queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] }),
+      ]);
+      toast.success("Usuario bloqueado. Sus mensajes y publicaciones se ocultaron.");
+    } catch (error) {
+      toast.error(actionErrorMessage(error, "No se pudo bloquear al usuario."));
+    }
+  };
+
   const sendGift = useMutation({
     mutationFn: async (gift: GiftItem) => {
       if (!activeId || !viewerId) throw new Error("Abre una conversación antes de enviar un regalo.");
@@ -1328,6 +1360,12 @@ function ChatPage() {
                 >
                   <Video /> Video · {privateCallPrice.data ?? CALL_COSTS.cafe}/min
                 </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => void reportConversationUser()} aria-label="Reportar usuario del chat">
+                  <Flag className="size-4" /> <span>Reportar</span>
+                </Button>
+                <Button type="button" size="sm" variant="destructive" onClick={() => void blockConversationUser()} aria-label="Bloquear usuario del chat">
+                  <Ban className="size-4" /> <span>Bloquear</span>
+                </Button>
               </header>
 
               <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -1371,6 +1409,7 @@ function ChatPage() {
                           {mine && <span className="ml-1 font-semibold text-sky-200">{message.read_at ? "Visto ✓✓" : "✓"}</span>}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-white/10 pt-1">
+                          {!mine && <button type="button" className="rounded px-1 text-[10px] text-rose-200/80 hover:text-rose-100" onClick={() => { const snippet = message.body || (message.audio_path ? "Nota de voz" : message.media_path ? "Imagen" : "Contenido del mensaje"); void reportUser(message.sender_id, `Mensaje reportado desde chat: ${snippet.slice(0, 300)} (id ${message.id})`).then(() => toast.success("Reporte de mensaje enviado al equipo de moderación.")).catch((error: unknown) => toast.error(actionErrorMessage(error, "No se pudo reportar el mensaje."))); }}><Flag className="inline size-3" /> Reportar</button>}
                           <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setReplyTarget({ id: message.id, body: message.body || (message.audio_path ? "Nota de voz" : "Foto"), sender_id: message.sender_id })} aria-label="Responder citando este mensaje"><Reply className="inline size-3" /> Responder</button>
                           {message.body && !chatGift && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void navigator.clipboard.writeText(message.body).then(() => toast.success("Mensaje copiado."), () => toast.error("No se pudo copiar."))}><Copy className="inline size-3" /> Copiar</button>}
                           {mine && message.body && !chatGift && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => { setEditingMessage({ id: message.id, body: message.body }); setText(message.body); setReplyTarget(null); }}><Pencil className="inline size-3" /> Editar</button>}

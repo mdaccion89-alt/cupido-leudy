@@ -360,6 +360,28 @@ const CUPIDO_USER_REFERENCES: Array<[table: string, column: string]> = [
   ["cupido_follower_count_events", "user_id"],
   ["cupido_live_access", "user_id"],
   ["cupido_live_moderation_log", "host_id"],
+  ["cupido_live_guest_sessions", "guest_id"],
+  ["cupido_live_guest_sessions", "invited_by"],
+  ["cupido_creator_clubs", "creator_id"],
+  ["cupido_creator_club_subscriptions", "creator_id"],
+  ["cupido_creator_club_subscriptions", "fan_id"],
+  ["cupido_live_roulette_configs", "host_id"],
+  ["cupido_live_roulette_spins", "spun_by"],
+  ["cupido_live_room_moderators", "moderator_id"],
+  ["cupido_live_room_moderators", "appointed_by"],
+  ["cupido_live_room_mutes", "user_id"],
+  ["cupido_live_room_mutes", "muted_by"],
+  ["cupido_live_pk_battles", "host_id"],
+  ["cupido_live_pk_battles", "challenger_id"],
+  ["cupido_live_pk_battles", "winner_id"],
+  ["cupido_live_treasures", "host_id"],
+  ["cupido_live_treasure_claims", "user_id"],
+  ["cupido_matches", "user_low"],
+  ["cupido_matches", "user_high"],
+  ["cupido_user_avatar_frames", "user_id"],
+  ["cupido_equipped_avatar_frames", "user_id"],
+  ["cupido_system_inbox_messages", "user_id"],
+  ["cupido_admob_reward_sessions", "user_id"],
   ["cupido_login_metadata", "user_id"],
   ["cupido_support_tickets", "user_id"],
   ["cupido_terms_acceptance", "user_id"],
@@ -377,6 +399,77 @@ const CUPIDO_USER_REFERENCES: Array<[table: string, column: string]> = [
 ];
 
 const OPTIONAL_USER_REFERENCE_ERRORS = new Set(["PGRST204", "PGRST205", "42P01", "42703"]);
+
+type StorageListEntry = { name: string; id: string | null };
+type StorageClient = {
+  from: (bucket: string) => {
+    list: (path: string, options: { limit: number; offset: number }) => Promise<{ data: StorageListEntry[] | null; error: { message: string; statusCode?: string } | null }>;
+    remove: (paths: string[]) => Promise<{ error: { message: string } | null }>;
+  };
+};
+
+async function removeCupidoUserFiles(serviceClient: SupabaseClient<Database>, userId: string): Promise<void> {
+  const storage = serviceClient.storage as unknown as StorageClient;
+  const dataClient = serviceClient as unknown as { from: (table: string) => any };
+  const { data: conversations, error: conversationError } = await dataClient.from("cupido_conversations")
+    .select("id").or(`participant_a.eq.${userId},participant_b.eq.${userId}`);
+  if (conversationError && !OPTIONAL_USER_REFERENCE_ERRORS.has(conversationError.code ?? "")) {
+    throw new Error(`No se pudieron preparar los archivos del chat: ${conversationError.message}`);
+  }
+
+  const prefixesByBucket = new Map<string, string[]>([
+    ["media", [userId]],
+    ["cupido-media", [userId]],
+    ["uploads", [userId]],
+    ["cupido-private", [userId]],
+    ["songs", [userId]],
+    ["cupido-chat-media", (conversations ?? []).map((row: { id: string }) => `${row.id}/${userId}`)],
+    ["cupido-voice", (conversations ?? []).map((row: { id: string }) => `${row.id}/${userId}`)],
+  ]);
+
+  const readPrefix = async (bucket: string, prefix: string): Promise<string[]> => {
+    const files: string[] = [];
+    const walk = async (path: string, depth: number): Promise<void> => {
+      if (depth > 12) throw new Error(`La carpeta ${bucket}/${path} tiene demasiados niveles.`);
+      for (let offset = 0; ; offset += 100) {
+        const { data, error } = await storage.from(bucket).list(path, { limit: 100, offset });
+        if (error) {
+          if (error.statusCode === "404" && error.message.toLowerCase().includes("bucket")) return;
+          throw new Error(`No se pudieron revisar los archivos de ${bucket}/${path}: ${error.message}`);
+        }
+        const entries = data ?? [];
+        for (const entry of entries) {
+          const childPath = `${path}/${entry.name}`;
+          if (entry.id === null) await walk(childPath, depth + 1);
+          else files.push(childPath);
+        }
+        if (entries.length < 100) break;
+      }
+    };
+    await walk(prefix, 0);
+    return files;
+  };
+
+  for (const [bucket, prefixes] of prefixesByBucket) {
+    const files = (await Promise.all(prefixes.map((prefix) => readPrefix(bucket, prefix)))).flat();
+    for (let offset = 0; offset < files.length; offset += 100) {
+      const { error } = await storage.from(bucket).remove(files.slice(offset, offset + 100));
+      if (error) throw new Error(`No se pudieron eliminar archivos de ${bucket}: ${error.message}`);
+    }
+  }
+}
+
+async function deleteCupidoUserAndData(serviceClient: SupabaseClient<Database>, userId: string): Promise<void> {
+  await removeCupidoUserFiles(serviceClient, userId);
+  const cleanupDb = serviceClient as unknown as UserCleanupClient;
+  for (const [table, column] of CUPIDO_USER_REFERENCES) {
+    const { error } = await cleanupDb.from(table).delete().eq(column, userId);
+    if (!error || OPTIONAL_USER_REFERENCE_ERRORS.has(error.code ?? "")) continue;
+    throw new Error(`No se pudo limpiar ${table}.${column}: ${error.message}`);
+  }
+  const { error } = await serviceClient.auth.admin.deleteUser(userId);
+  if (error) throw new Error(`No se pudo eliminar la cuenta: ${error.message}`);
+}
 
 export const adminDeleteCupidoUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -403,14 +496,26 @@ export const adminDeleteCupidoUser = createServerFn({ method: "POST" })
       throw new Error(`No se pudo eliminar la cuenta: ${reason}`);
     }
 
-    const cleanupDb = serviceClient as unknown as UserCleanupClient;
-    for (const [table, column] of CUPIDO_USER_REFERENCES) {
-      const { error } = await cleanupDb.from(table).delete().eq(column, data.userId);
-      if (!error || OPTIONAL_USER_REFERENCE_ERRORS.has(error.code ?? "")) continue;
-      throw new Error(`No se pudo limpiar ${table}.${column}: ${error.message}`);
+    await deleteCupidoUserAndData(serviceClient, data.userId);
+    return { ok: true };
+  });
+
+export const deleteOwnCupidoAccount = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<{ ok: true }> => {
+    const userId = context.userId;
+    if (!userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      throw new Error("Inicia sesión de nuevo para confirmar la eliminación de tu cuenta.");
     }
 
-    const { error } = await serviceClient.auth.admin.deleteUser(data.userId);
-    if (error) throw new Error(`No se pudo eliminar la cuenta: ${error.message}`);
+    let serviceClient: SupabaseClient<Database>;
+    try {
+      serviceClient = getSupabaseServiceClient();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "clave segura no disponible";
+      throw new Error(`No se pudo eliminar la cuenta: ${reason}`);
+    }
+
+    await deleteCupidoUserAndData(serviceClient, userId);
     return { ok: true };
   });

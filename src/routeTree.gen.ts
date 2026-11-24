@@ -17,6 +17,7 @@ import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
 import { Route as DescubrirRouteImport } from './routes/descubrir'
 import { Route as DirectoRouteImport } from './routes/directo'
+import { Route as EliminarCuentaRouteImport } from './routes/eliminar-cuenta'
 import { Route as HistoriaRouteImport } from './routes/historia'
 import { Route as LegalRouteImport } from './routes/legal'
 import { Route as LlamadasRouteImport } from './routes/llamadas'
@@ -64,6 +65,11 @@ const DescubrirRoute = DescubrirRouteImport.update({
 const DirectoRoute = DirectoRouteImport.update({
   id: '/directo',
   path: '/directo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EliminarCuentaRoute = EliminarCuentaRouteImport.update({
+  id: '/eliminar-cuenta',
+  path: '/eliminar-cuenta',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoriaRoute = HistoriaRouteImport.update({
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/comunidad': typeof ComunidadRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
+  '/eliminar-cuenta': typeof EliminarCuentaRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/comunidad': typeof ComunidadRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
+  '/eliminar-cuenta': typeof EliminarCuentaRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/comunidad': typeof ComunidadRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
+  '/eliminar-cuenta': typeof EliminarCuentaRoute
   '/historia': typeof HistoriaRoute
   '/legal': typeof LegalRoute
   '/llamadas': typeof LlamadasRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/descubrir'
     | '/directo'
+    | '/eliminar-cuenta'
     | '/historia'
     | '/legal'
     | '/llamadas'
@@ -191,6 +201,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/descubrir'
     | '/directo'
+    | '/eliminar-cuenta'
     | '/historia'
     | '/legal'
     | '/llamadas'
@@ -209,6 +220,7 @@ export interface FileRouteTypes {
     | '/comunidad'
     | '/descubrir'
     | '/directo'
+    | '/eliminar-cuenta'
     | '/historia'
     | '/legal'
     | '/llamadas'
@@ -228,6 +240,7 @@ export interface RootRouteChildren {
   ComunidadRoute: typeof ComunidadRoute
   DescubrirRoute: typeof DescubrirRoute
   DirectoRoute: typeof DirectoRoute
+  EliminarCuentaRoute: typeof EliminarCuentaRoute
   HistoriaRoute: typeof HistoriaRoute
   LegalRoute: typeof LegalRoute
   LlamadasRoute: typeof LlamadasRoute
@@ -294,6 +307,13 @@ declare module '@tanstack/react-router' {
       path: '/directo'
       fullPath: '/directo'
       preLoaderRoute: typeof DirectoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/eliminar-cuenta': {
+      id: '/eliminar-cuenta'
+      path: '/eliminar-cuenta'
+      fullPath: '/eliminar-cuenta'
+      preLoaderRoute: typeof EliminarCuentaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/historia': {
@@ -364,6 +384,7 @@ const rootRouteChildren: RootRouteChildren = {
   ComunidadRoute: ComunidadRoute,
   DescubrirRoute: DescubrirRoute,
   DirectoRoute: DirectoRoute,
+  EliminarCuentaRoute: EliminarCuentaRoute,
   HistoriaRoute: HistoriaRoute,
   LegalRoute: LegalRoute,
   LlamadasRoute: LlamadasRoute,
