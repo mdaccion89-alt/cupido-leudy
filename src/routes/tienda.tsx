@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
+import { CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { PayPalCheckoutScreen } from "@/components/cupido/paypal-checkout-screen";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAccount, useSiteSettings } from "@/lib/account";
@@ -499,23 +499,12 @@ function StorePage() {
         </p>
       </section>
 
-      <Sheet open={Boolean(selectedCheckoutPackageId)} onOpenChange={(open) => {
-        if (!open) closeCheckoutSheet();
-      }}>
-        <SheetContent side="bottom" className="flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-white/10 bg-zinc-950 p-0 text-white">
-          <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
-            <div className="flex items-center justify-between gap-3">
-              <SheetTitle className="text-white">Pago seguro</SheetTitle>
-              <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeCheckoutSheet}>
-                <ArrowLeft className="size-4" /> Volver
-              </Button>
-            </div>
-            <SheetDescription>
+      <PayPalCheckoutScreen open={Boolean(selectedCheckoutPackageId)} onBack={closeCheckoutSheet}>
+          <section className="space-y-4 pb-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
               {selectedCheckoutPackage ? `${selectedCheckoutPackage.credits.toLocaleString("es")} monedas · US$${selectedCheckoutPackage.price}` : "Paga con PayPal o tarjeta."}
               {checkoutForGift && pendingGift ? ` Después de confirmar, enviaremos ${pendingGift.name}.` : " Los campos de tarjeta se pueden recorrer dentro de esta ventana."}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-4 pb-8 [padding-bottom:calc(env(safe-area-inset-bottom)+2rem)]">
+            </div>
             {selectedCheckoutPackage && paypalConfig.data?.configured && paypalConfig.data.clientId ? (
               <PayPalCheckoutButtons
                 key={selectedCheckoutPackage.id}
@@ -529,11 +518,10 @@ function StorePage() {
             ) : paypalConfig.isLoading ? (
               <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
             ) : (
-              <p className="text-center text-sm text-amber-100/80">Configura PayPal Business Live en /admin para habilitar pagos seguros con PayPal o tarjeta.</p>
+              <p className="rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900">Configura PayPal Business Live en /admin para habilitar pagos seguros con PayPal o tarjeta.</p>
             )}
-          </div>
-        </SheetContent>
-      </Sheet>
+          </section>
+      </PayPalCheckoutScreen>
 
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">

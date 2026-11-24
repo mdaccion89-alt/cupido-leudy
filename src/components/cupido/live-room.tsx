@@ -6,6 +6,7 @@ import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
+import { PayPalCheckoutScreen } from "@/components/cupido/paypal-checkout-screen";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -381,8 +382,6 @@ export function LiveRoom({
 
   useAndroidBackDismiss(giftCheckoutOpen, () => {
     setGiftCheckoutOpen(false);
-    setGiftPanelOpen(false);
-    setPendingGiftPurchase(null);
   });
 
   useEffect(() => {
@@ -1887,7 +1886,7 @@ export function LiveRoom({
             <SheetContent side="bottom" className="z-[90] flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border-pink-400/30 bg-[#160b12] p-0 text-white shadow-2xl">
               <SheetHeader className="shrink-0 border-b border-white/10 px-4 py-3 pr-12 text-left">
                 <div className="flex items-start gap-2">
-                  {giftCheckoutOpen && <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={() => { setGiftCheckoutOpen(false); setGiftPanelOpen(false); setPendingGiftPurchase(null); }} aria-label="Volver al Live"><ArrowLeft className="size-4" /> Volver</Button>}
+                  {giftCheckoutOpen && <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={() => setGiftCheckoutOpen(false)} aria-label="Volver a los regalos"><ArrowLeft className="size-4" /> Volver</Button>}
                   <div className="min-w-0 flex-1">
                     <SheetTitle className="flex items-center gap-2 text-white"><Gift className="size-4 shrink-0 text-pink-300" />{giftCheckoutOpen ? "Pago seguro" : `Regalos para ${hostName}`}</SheetTitle>
                     <SheetDescription className="mt-1 flex items-center gap-1 text-xs">
@@ -1951,22 +1950,7 @@ export function LiveRoom({
                     {paypalConfig.isLoading ? (
                       <p className="flex min-h-16 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando PayPal…</p>
                     ) : paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
-                      <PayPalCheckoutButtons
-                        key={liveCheckoutPackageId}
-                        clientId={paypalConfig.data.clientId}
-                        packageId={liveCheckoutPackageId}
-                        onSuccess={(credits) => {
-                          account.addPurchasedCredits(credits);
-                          void account.refresh().then(() => {
-                            setGiftCheckoutOpen(false);
-                            toast.success(liveCheckoutPackageId === "gran-liga-100"
-                              ? "Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
-                              : `${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase?.name ?? "El regalo"} está listo cuando quieras enviarlo.`);
-                          }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
-                        }}
-                        onError={(message) => toast.error(message)}
-                        onCancel={(message) => toast.info(message)}
-                      />
+                      <p className="rounded-xl border border-white/10 bg-white/[0.04] p-3 text-center text-sm text-white/75">Checkout seguro abierto. Puedes volver aquí después del pago para enviar el regalo.</p>
                     ) : (
                       <p className="text-center text-sm text-amber-100/80">PayPal Business Live no está configurado para completar el pago seguro.</p>
                     )}
@@ -1976,6 +1960,33 @@ export function LiveRoom({
             </SheetContent>
           </Sheet>
         )}
+        <PayPalCheckoutScreen open={giftCheckoutOpen && giftPanelOpen && role === "viewer" && Boolean(liveCheckoutPackageId)} onBack={() => setGiftCheckoutOpen(false)}>
+          {liveCheckoutPackage && paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
+            <section className="space-y-4">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <p className="font-semibold text-zinc-900">{liveCheckoutPackage.label}</p>
+                <p className="mt-1 text-sm text-zinc-700">{liveCheckoutPackage.credits.toLocaleString("es")} monedas · US${liveCheckoutPackage.price}</p>
+                {pendingGiftPurchase && <p className="mt-1 text-sm text-zinc-600">Después del pago podrás enviar {pendingGiftPurchase.name}.</p>}
+              </div>
+              <PayPalCheckoutButtons
+                key={`live-paypal-${liveCheckoutPackageId}`}
+                clientId={paypalConfig.data.clientId}
+                packageId={liveCheckoutPackageId}
+                onSuccess={(credits) => {
+                  account.addPurchasedCredits(credits);
+                  void account.refresh().then(() => {
+                    setGiftCheckoutOpen(false);
+                    toast.success(liveCheckoutPackageId === "gran-liga-100"
+                      ? "Gran Liga activada: 1.000.000 monedas, insignia VIP y privilegios desbloqueados."
+                      : `${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase?.name ?? "El regalo"} está listo cuando quieras enviarlo.`);
+                  }).catch((error: unknown) => toast.error(error instanceof Error ? error.message : "Se acreditó el pago, pero no se pudo actualizar el saldo."));
+                }}
+                onError={(message) => toast.error(message)}
+                onCancel={(message) => toast.info(message)}
+              />
+            </section>
+          ) : <p className="rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900">PayPal Business Live no está configurado para completar el pago seguro.</p>}
+        </PayPalCheckoutScreen>
         <Sheet open={guestToolsOpen} onOpenChange={setGuestToolsOpen}>
           <SheetContent side="bottom" className="z-[96] max-h-[72dvh] overflow-y-auto overscroll-contain rounded-t-3xl border-sky-300/25 bg-zinc-950 pb-8 text-white">
             <SheetHeader className="text-left"><SheetTitle className="flex items-center gap-2 text-sky-100"><Users className="size-5" /> Herramientas en vivo</SheetTitle><SheetDescription>Acciones de la sala y una silla de invitado en pantalla dividida. Las solicitudes VIP aparecen primero.</SheetDescription></SheetHeader>

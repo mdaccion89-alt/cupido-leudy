@@ -37,6 +37,7 @@ import { CoinIcon } from "@/components/cupido/coin-icon";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
+import { PayPalCheckoutScreen } from "@/components/cupido/paypal-checkout-screen";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -193,15 +194,18 @@ function ChatPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [giftOpen, setGiftOpen] = useState(false);
+  const [paypalCheckoutOpen, setPaypalCheckoutOpen] = useState(false);
   const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [giftBalanceInsufficient, setGiftBalanceInsufficient] = useState(false);
   const closeGiftPanel = () => {
+    setPaypalCheckoutOpen(false);
     setGiftOpen(false);
     setPendingGiftPurchase(null);
     setGiftBalanceInsufficient(false);
   };
-  useAndroidBackDismiss(giftOpen, closeGiftPanel);
+  useAndroidBackDismiss(giftOpen && !paypalCheckoutOpen, closeGiftPanel);
+  useAndroidBackDismiss(giftOpen && paypalCheckoutOpen, () => setPaypalCheckoutOpen(false));
   const [activeId, setActiveId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat] = useState(Boolean(searchUserId));
   const mobileBannerSuppressed = useRef(false);
@@ -1523,17 +1527,9 @@ function ChatPage() {
                 ) : paypalConfig.isLoading ? (
                   <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Preparando compra segura...</p>
                 ) : paypalConfig.data?.configured && paypalConfig.data.clientId && pack ? (
-                  <PayPalCheckoutButtons
-                    clientId={paypalConfig.data.clientId}
-                    packageId={pack.id}
-                    onSuccess={(credits) => {
-                      account.addPurchasedCredits(credits);
-                      void account.refresh();
-                      toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
-                    }}
-                    onError={(message) => toast.error(message)}
-                    onCancel={(message) => toast.info(message)}
-                  />
+                  <Button type="button" className="h-11 w-full rounded-xl bg-amber-400 font-semibold text-zinc-950 hover:bg-amber-300" onClick={() => setPaypalCheckoutOpen(true)}>
+                    <CreditCard className="size-4" /> Pagar con PayPal o tarjeta
+                  </Button>
                 ) : (
                   <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
                 )}
@@ -1545,6 +1541,34 @@ function ChatPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PayPalCheckoutScreen open={paypalCheckoutOpen && giftOpen && Boolean(pendingGiftPurchase)} onBack={() => setPaypalCheckoutOpen(false)}>
+        {pendingGiftPurchase && (() => {
+          const pack = packageForGift(pendingGiftPurchase, account.balance, account.hasPurchased);
+          return (
+            <section className="space-y-4">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <p className="font-semibold text-zinc-900">{pack?.credits.toLocaleString("es")} monedas · US${pack?.price}</p>
+                <p className="mt-1 text-sm text-zinc-600">Después de confirmar podrás enviar {pendingGiftPurchase.name}. El pago se acredita automáticamente.</p>
+              </div>
+              {paypalConfig.data?.configured && paypalConfig.data.clientId && pack ? (
+                <PayPalCheckoutButtons
+                  key={`chat-paypal-${pack.id}`}
+                  clientId={paypalConfig.data.clientId}
+                  packageId={pack.id}
+                  onSuccess={(credits) => {
+                    account.addPurchasedCredits(credits);
+                    void account.refresh();
+                    toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
+                  }}
+                  onError={(message) => toast.error(message)}
+                  onCancel={(message) => toast.info(message)}
+                />
+              ) : <p className="rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900">PayPal no está configurado para completar la compra desde aquí.</p>}
+            </section>
+          );
+        })()}
+      </PayPalCheckoutScreen>
 
       <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 
