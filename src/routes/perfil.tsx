@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { InviteButton } from "@/components/cupido/invite-button";
+import { AvatarFrameShop } from "@/components/cupido/avatar-frame-shop";
 import { FaceSelfieVerification } from "@/components/cupido/live-face-verification";
 import { ImageCropDialog } from "@/components/cupido/image-crop-dialog";
 import { LegalLinks } from "@/components/cupido/legal-links";
@@ -183,12 +184,14 @@ function ProfilePage() {
   const [verificationOpen, setVerificationOpen] = useState(false);
   const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [profileTab, setProfileTab] = useState<"posts" | "saved" | "favorites">("posts");
+  const [frameShopOpen, setFrameShopOpen] = useState(false);
 
   const profile = useQuery({
     queryKey: ["cupido-profile", profileId, viewerId],
     enabled: Boolean(profileId),
     queryFn: async () => {
-      const [creator, privateProfile, follow, friendA, friendB, followerTotal, watchSeconds, followingTotal, postStats] = await Promise.all([
+      const friendsRpc = supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: number | null; error: { message: string } | null }> };
+      const [creator, privateProfile, follow, friendA, friendB, friendTotal, followerTotal, watchSeconds, followingTotal, postStats] = await Promise.all([
         supabase
           .from("cupido_public_profiles")
           .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
@@ -225,6 +228,7 @@ function ProfilePage() {
               .eq("addressee_id", viewerId)
               .maybeSingle()
           : Promise.resolve({ data: null }),
+        friendsRpc.rpc("cupido_get_friend_count", { _user: profileId! }),
         supabase.rpc("cupido_count_followers", { _following: profileId! }),
         viewerId === profileId
           ? supabase.rpc("cupido_get_video_watch_seconds", { _user: profileId! })
@@ -246,6 +250,7 @@ function ProfilePage() {
         following: Boolean(follow.data),
         actualFollowerCount: followerTotal.data ?? 0,
         actualFollowingCount: followingTotal.count ?? 0,
+        friendCount: friendTotal.error ? safeCount(creator.data?.friend_count) : Math.max(0, Number(friendTotal.data ?? 0)),
         profileLikesCount: (postStats.data ?? []).reduce((total, row) => total + (viewerId === profileId || !row.hide_likes ? safeCount(row.likes_count) : 0), 0),
         videoWatchSeconds: watchSeconds.data ?? 0,
         friendStatus: friendA.data?.status ?? friendB.data?.status ?? null,
@@ -286,6 +291,15 @@ function ProfilePage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `following_id=eq.${profileId}` }, () => {
         void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
         void queryClient.invalidateQueries({ queryKey: ["cupido-followers", profileId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-friends", profileId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows", filter: `follower_id=eq.${profileId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-friends", profileId] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "friend_requests" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-profile", profileId] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-friends", profileId] });
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -535,7 +549,7 @@ function ProfilePage() {
   const actualFollowerCount = safeCount(profile.data?.actualFollowerCount);
   const isAdminProfile = isSupremeAdminEmail(profileEmail) || Boolean(creator?.is_super_admin);
   const followers = displayedFollowerCount(actualFollowerCount, profileEmail, isAdminProfile);
-  const friends = safeCount(creator?.friend_count);
+  const friends = safeCount(profile.data?.friendCount);
   const countryForDisplay = safeText(creator?.country_code, safeText(privateProfile?.country_code, "DO")) || "DO";
   const avatarUrl = safeText(creator?.avatar_url).trim();
   const verificationProfile = privateProfile;
@@ -566,14 +580,14 @@ function ProfilePage() {
         <div className="px-4 pb-6 sm:px-6 sm:pb-8">
           <div className="-mt-12 flex flex-col items-center gap-4 text-center sm:flex-row sm:items-end sm:text-left">
             <div className="relative shrink-0">
-              <button type="button" onClick={() => own && avatarInput.current?.click()} disabled={!own || avatarUpload.isPending} aria-label={own ? "Cambiar y encuadrar foto de perfil" : "Foto de perfil"} className={`relative flex size-24 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-pink-500/20 text-2xl font-bold ${profileIsOnline ? "ring-2 ring-emerald-400" : ""} ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""} ${own ? "cursor-pointer" : "cursor-default"}`}>
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
-                ) : (
-                  (displayName || "C").slice(0, 1).toUpperCase()
-                )}
+              <button type="button" onClick={() => own && avatarInput.current?.click()} disabled={!own || avatarUpload.isPending} aria-label={own ? "Cambiar y encuadrar foto de perfil" : "Foto de perfil"} className={`relative flex size-24 items-center justify-center rounded-full bg-pink-500/20 text-2xl font-bold ${profileIsOnline ? "ring-2 ring-emerald-400" : ""} ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""} ${own ? "cursor-pointer" : "cursor-default"}`}>
+                <Avatar userId={profileId} className="size-full border-4 border-background bg-pink-500/20 text-2xl font-bold">
+                  <AvatarImage src={avatarUrl} alt={displayName || "Perfil"} className="object-cover" />
+                  <AvatarFallback>{(displayName || "C").slice(0, 1).toUpperCase()}</AvatarFallback>
+                </Avatar>
                 {own && <span className="absolute bottom-0 right-0 grid size-7 place-items-center rounded-tl-xl bg-pink-500 text-white shadow-lg"><Plus className="size-4" /></span>}
               </button>
+              {own && <Button type="button" size="sm" variant="outline" className="mt-2 h-8 gap-1 rounded-full border-amber-300/30 px-3 text-[10px] text-amber-100" onClick={() => setFrameShopOpen(true)}><Crown className="size-3.5" /> Marcos</Button>}
               {creator?.is_gran_liga && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl drop-shadow-[0_0_9px_rgba(251,191,36,0.95)] animate-bounce" aria-label="Estrella de Gran Liga">⭐</span>}
             </div>
             <div className="w-full min-w-0 pb-1 sm:flex-1">
@@ -994,6 +1008,7 @@ function ProfilePage() {
           </div>
         )}
       </section>
+      {own && viewerId && <AvatarFrameShop open={frameShopOpen} onOpenChange={setFrameShopOpen} userId={viewerId} avatarUrl={avatarUrl} displayName={displayLabel} />}
       <footer className="mt-10 flex justify-center pb-4">
         <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] text-muted-foreground">
           Build v3.0 · {import.meta.env["VITE_BUILD_HASH"] || "local"}

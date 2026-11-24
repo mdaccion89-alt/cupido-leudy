@@ -17,7 +17,9 @@ export function PayPalCheckoutScreen({ open, onBack, children }: PayPalCheckoutS
       role="dialog"
       aria-modal="true"
       aria-label="Pago seguro con PayPal"
-      className="fixed inset-0 z-[10000] h-[100dvh] w-screen overflow-x-hidden overflow-y-auto overscroll-contain bg-white text-zinc-900 [touch-action:pan-y]"
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      className="fixed inset-0 z-[12000] h-[100dvh] w-screen overflow-x-hidden overflow-y-auto overscroll-contain bg-white text-zinc-900 [touch-action:pan-y]"
     >
       <header className="sticky top-0 z-10 shrink-0 border-b border-zinc-200 bg-white/95 pt-[env(safe-area-inset-top)] shadow-sm backdrop-blur">
         <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2">

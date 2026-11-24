@@ -5,6 +5,7 @@ import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
 import { cn } from "@/lib/utils";
 import { useIsWeeklyTopThree } from "@/components/cupido/weekly-ranking";
+import { useEquippedAvatarFrame } from "@/lib/avatar-frames";
 
 type AvatarProps = React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> & { userId?: string | null | undefined };
 const Avatar = React.forwardRef<
@@ -12,11 +13,15 @@ const Avatar = React.forwardRef<
   AvatarProps
 >(({ className, userId, ...props }, ref) => {
   const isWeeklyTopThree = useIsWeeklyTopThree(userId);
+  const avatarFrame = useEquippedAvatarFrame(userId);
   return (
   <AvatarPrimitive.Root
     ref={ref}
     data-weekly-top-three={isWeeklyTopThree || undefined}
-    className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", isWeeklyTopThree && "ring-2 ring-amber-300 ring-offset-1 ring-offset-black animate-pulse", className)}
+    data-avatar-frame={avatarFrame?.frame_id}
+    data-avatar-frame-effect={avatarFrame?.effect}
+    style={avatarFrame ? { "--avatar-frame-a": avatarFrame.color_a, "--avatar-frame-b": avatarFrame.color_b } as React.CSSProperties : undefined}
+    className={cn("relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full", avatarFrame && "cupido-avatar-frame-root overflow-visible", isWeeklyTopThree && "ring-2 ring-amber-300 ring-offset-1 ring-offset-black animate-pulse", className)}
     {...props}
   />
   );
@@ -29,7 +34,7 @@ const AvatarImage = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AvatarPrimitive.Image
     ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
+    className={cn("relative z-[1] aspect-square h-full w-full rounded-full", className)}
     {...props}
   />
 ));
@@ -42,7 +47,7 @@ const AvatarFallback = React.forwardRef<
   <AvatarPrimitive.Fallback
     ref={ref}
     className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-muted",
+      "relative z-[1] flex h-full w-full items-center justify-center rounded-full bg-muted",
       className,
     )}
     {...props}

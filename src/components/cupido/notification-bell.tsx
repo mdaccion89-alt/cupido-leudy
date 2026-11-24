@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { playCupidoSound } from "@/lib/cupido-sounds";
+import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
 
 type NotificationRow = {
   id: string;
@@ -52,6 +53,7 @@ export function NotificationBell() {
   const viewerId = session?.user.id ?? null;
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  useAndroidBackDismiss(open, () => setOpen(false));
 
   const notifications = useQuery({
     queryKey: ["cupido-notifications", viewerId],
@@ -179,7 +181,7 @@ export function NotificationBell() {
       <PopoverContent align="end" className="w-80 border-border bg-popover p-2 text-popover-foreground shadow-2xl">
         <div className="flex items-center justify-between px-2 py-2">
           <p className="font-display text-sm text-foreground">Notificaciones</p>
-          <span className="text-[11px] text-muted-foreground">{unread} sin leer</span>
+          <div className="flex items-center gap-2"><span className="text-[11px] text-muted-foreground">{unread} sin leer</span><Button type="button" variant="ghost" size="icon" className="size-8 rounded-full" onClick={() => setOpen(false)} aria-label="Cerrar notificaciones"><X className="size-4" /></Button></div>
         </div>
         <div className="max-h-80 space-y-1 overflow-y-auto">
           {!notifications.data?.length && (

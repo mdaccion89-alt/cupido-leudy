@@ -267,6 +267,46 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+.cupido-avatar-frame-root {
+  isolation: isolate;
+  overflow: visible !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--avatar-frame-a) 35%, transparent);
+}
+
+.cupido-avatar-frame-root::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -3px;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: conic-gradient(from 0deg, var(--avatar-frame-a), var(--avatar-frame-b), #fff7, var(--avatar-frame-a));
+  animation: cupido-frame-orbit 4.2s linear infinite;
+  will-change: transform;
+}
+
+.cupido-avatar-frame-root > [data-radix-avatar-image],
+.cupido-avatar-frame-root > [data-radix-avatar-fallback] {
+  position: relative;
+  z-index: 1;
+  border-radius: 9999px;
+}
+
+.cupido-avatar-frame-root[data-avatar-frame-effect="shine"]::before { animation-duration: 5.8s; }
+.cupido-avatar-frame-root[data-avatar-frame-effect="water"]::before { animation-duration: 7s; filter: hue-rotate(22deg) saturate(1.25); }
+.cupido-avatar-frame-root[data-avatar-frame-effect="fire"]::before { animation-duration: 2.1s; filter: saturate(1.45); }
+.cupido-avatar-frame-root[data-avatar-frame-effect="wings"]::before { animation-duration: 6.2s; }
+.cupido-avatar-frame-root[data-avatar-frame-effect="galaxy"]::before { animation-duration: 9s; filter: hue-rotate(45deg); }
+.cupido-avatar-frame-root[data-avatar-frame-effect="diamond"]::before { animation-duration: 3.2s; filter: brightness(1.25); }
+
+@keyframes cupido-frame-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cupido-avatar-frame-root::before { animation-duration: 18s !important; }
+}
+
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 45%, transparent); }
   50% { box-shadow: 0 0 0 14px color-mix(in oklab, var(--primary) 0%, transparent); }

@@ -118,6 +118,8 @@ type ConversationPreview = Pick<ChatMessage, "sender_id" | "body" | "audio_path"
   conversation_id: string;
 };
 
+type WelcomeInboxMessage = { id: string; title: string; body: string; created_at: string };
+
 type CupidoCall = {
   id: string;
   caller_id: string;
@@ -198,7 +200,23 @@ function ChatPage() {
   const [adOpen, setAdOpen] = useState(false);
   const [pendingGiftPurchase, setPendingGiftPurchase] = useState<GiftItem | null>(null);
   const [giftBalanceInsufficient, setGiftBalanceInsufficient] = useState(false);
+  const [selectedChatGift, setSelectedChatGift] = useState<{ gift: GiftItem; mine: boolean; sender: string; recipient: string } | null>(null);
+  const systemInbox = useQuery({
+    queryKey: ["cupido-system-inbox", viewerId],
+    enabled: Boolean(viewerId),
+    queryFn: async () => {
+      const db = supabase as unknown as { from: (table: string) => any };
+      const { data, error } = await db.from("cupido_system_inbox_messages")
+        .select("id,title,body,created_at").eq("user_id", viewerId!).order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as WelcomeInboxMessage[];
+    },
+  });
   const closeGiftPanel = () => {
+    if (paypalCheckoutOpen) {
+      setPaypalCheckoutOpen(false);
+      return;
+    }
     setPaypalCheckoutOpen(false);
     setGiftOpen(false);
     setPendingGiftPurchase(null);
@@ -222,6 +240,7 @@ function ChatPage() {
   const [chatFilter, setChatFilter] = useState<"all" | "online" | "unread" | "following">("all");
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const [chatSearch, setChatSearch] = useState("");
+  const [welcomeExpanded, setWelcomeExpanded] = useState(false);
   const [otherTyping, setOtherTyping] = useState(false);
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [incoming, setIncoming] = useState<{ call: CupidoCall; profile: ChatProfile | null } | null>(null);
@@ -243,6 +262,15 @@ function ChatPage() {
     const timer = window.setInterval(updateTimer, 250);
     return () => window.clearInterval(timer);
   }, [recording]);
+
+  useEffect(() => {
+    if (!viewerId) return;
+    const channel = supabase.channel(`cupido-system-inbox-${viewerId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_system_inbox_messages", filter: `user_id=eq.${viewerId}` }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-system-inbox", viewerId] });
+      }).subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient, viewerId]);
 
   useEffect(() => () => {
     discardRecordingRef.current = true;
@@ -1173,6 +1201,16 @@ function ChatPage() {
 
       <div className="grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-3xl border border-border bg-card lg:grid-cols-[320px_1fr]">
         <aside className={`${mobileShowChat ? "hidden" : "flex pb-[calc(11rem+env(safe-area-inset-bottom))]"} h-full min-h-0 min-w-0 flex-col overflow-y-auto border-b border-border md:flex lg:border-b-0 lg:border-r`}>
+          {systemInbox.data?.map((welcome) => (
+            <section key={welcome.id} className="mx-3 mt-3 rounded-2xl border border-amber-300/25 bg-gradient-to-br from-amber-400/10 via-pink-500/5 to-transparent p-3">
+              <button type="button" onClick={() => setWelcomeExpanded((value) => !value)} aria-expanded={welcomeExpanded} className="flex w-full items-center gap-2 text-left">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-amber-300/15 text-amber-200"><MessageCircle className="size-4" /></span>
+                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-bold text-amber-100">{welcome.title}</span><span className="block text-[10px] text-muted-foreground">Guía oficial · solo para ti</span></span>
+                <span className="text-[10px] text-amber-100">{welcomeExpanded ? "Cerrar" : "Leer"}</span>
+              </button>
+              {welcomeExpanded && <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-white/85">{welcome.body}</p>}
+            </section>
+          ))}
 
           {conversations.isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando…</p>}
           {conversations.isError && (
@@ -1310,11 +1348,17 @@ function ChatPage() {
                       >
                         {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{chatGiftFromBody(quoted.body, giftCatalog)?.name ?? (quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto"))}</p></div>}
                         {chatGift ? (
-                          <div className="animate-in zoom-in-95 duration-300 rounded-xl border border-amber-300/30 bg-gradient-to-br from-amber-500/20 via-pink-500/15 to-transparent px-4 py-3 text-center" aria-label={`${mine ? "Enviaste" : "Te enviaron"} ${chatGift.name}`}>
-                            <span className="block animate-bounce text-4xl">{chatGift.emoji}</span>
-                            <strong className="mt-1 block text-sm">{mine ? "Enviaste" : "Te enviaron"} {chatGift.name}</strong>
-                            <span className="mt-0.5 block text-xs text-amber-200">{chatGift.credits.toLocaleString("es")} monedas brillantes</span>
-                          </div>
+                          <button type="button" onClick={() => setSelectedChatGift({
+                            gift: chatGift,
+                            mine,
+                            sender: mine ? "Tú" : activeConversation.other?.display_name ?? "tu contacto",
+                            recipient: mine ? activeConversation.other?.display_name ?? "tu contacto" : "tú",
+                          })} className="animate-in zoom-in-95 duration-300 w-full rounded-2xl border border-amber-300/35 bg-gradient-to-br from-amber-500/20 via-pink-500/20 to-violet-500/10 px-4 py-3 text-center shadow-[0_8px_30px_rgba(236,72,153,0.14)] transition hover:border-amber-200/60 hover:brightness-110" aria-label={`Ver detalles del regalo ${chatGift.name}`}>
+                            <span className="mx-auto grid size-14 place-items-center rounded-full border border-white/10 bg-black/20 text-4xl drop-shadow-[0_0_16px_rgba(251,191,36,0.45)]">{chatGift.emoji}</span>
+                            <strong className="mt-2 block text-sm">{mine ? "Un detalle de corazón" : "Tienes un regalo especial"}</strong>
+                            <span className="mt-0.5 block text-xs text-amber-100">{chatGift.name} · {chatGift.credits.toLocaleString("es")} monedas</span>
+                            <span className="mt-2 block text-[10px] font-medium text-white/70">Toca para ver los detalles</span>
+                          </button>
                         ) : message.audio_path ? (
                           <VoiceBubble path={message.audio_path} />
                         ) : message.media_path ? (
@@ -1473,10 +1517,11 @@ function ChatPage() {
 
       <Dialog open={giftOpen} onOpenChange={(open) => {
         if (open) setGiftOpen(true);
-        else closeGiftPanel();
+        else if (!paypalCheckoutOpen) closeGiftPanel();
       }}>
         <DialogContent
           hideCloseButton
+          onInteractOutside={(event) => { if (paypalCheckoutOpen) event.preventDefault(); }}
           overlayClassName="z-[9998] bg-black/80 backdrop-blur-sm"
           className="fixed inset-0 left-0 top-0 z-[9999] flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center overflow-hidden border-0 bg-black/0 p-3 text-white shadow-none sm:rounded-none"
         >
@@ -1490,7 +1535,7 @@ function ChatPage() {
                   <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
                 )}
               </DialogTitle>
-              <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel} aria-label="Volver al chat">
+              <Button type="button" variant="ghost" className="h-9 shrink-0 gap-1 px-2 text-white" onClick={closeGiftPanel} aria-label={paypalCheckoutOpen ? "Volver a regalos" : "Volver al chat"}>
                 <ArrowLeft className="size-4" /> Volver
               </Button>
             </div>
@@ -1542,7 +1587,7 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <PayPalCheckoutScreen open={paypalCheckoutOpen && giftOpen && Boolean(pendingGiftPurchase)} onBack={() => setPaypalCheckoutOpen(false)}>
+      <PayPalCheckoutScreen open={paypalCheckoutOpen && Boolean(pendingGiftPurchase)} onBack={() => setPaypalCheckoutOpen(false)}>
         {pendingGiftPurchase && (() => {
           const pack = packageForGift(pendingGiftPurchase, account.balance, account.hasPurchased);
           return (
@@ -1559,6 +1604,7 @@ function ChatPage() {
                   onSuccess={(credits) => {
                     account.addPurchasedCredits(credits);
                     void account.refresh();
+                    setPaypalCheckoutOpen(false);
                     toast.success(`${credits.toLocaleString("es")} monedas acreditadas. ${pendingGiftPurchase.name} está listo cuando quieras enviarlo.`);
                   }}
                   onError={(message) => toast.error(message)}
@@ -1569,6 +1615,23 @@ function ChatPage() {
           );
         })()}
       </PayPalCheckoutScreen>
+
+      <Dialog open={Boolean(selectedChatGift)} onOpenChange={(open) => !open && setSelectedChatGift(null)}>
+        <DialogContent className="max-w-sm overflow-hidden border-amber-300/25 bg-zinc-950 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><span className="text-3xl">{selectedChatGift?.gift.emoji}</span>{selectedChatGift?.gift.name}</DialogTitle>
+            <DialogDescription className="text-white/70">
+              {selectedChatGift?.mine
+                ? `Enviaste ${selectedChatGift.gift.name} (${selectedChatGift.gift.credits.toLocaleString("es")} monedas) a ${selectedChatGift.recipient}. Tu apoyo suma puntos en el ranking VIP.`
+                : `¡Felicidades! Recibiste ${selectedChatGift?.gift.name} de ${selectedChatGift?.sender} por un total de ${selectedChatGift?.gift.credits.toLocaleString("es")} monedas (equivale a US$${selectedChatGift?.gift.cash.toFixed(2)} acreditados en tu saldo retirable).`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-center">
+            <p className="text-xs uppercase tracking-wide text-amber-100/70">{selectedChatGift?.mine ? "Apoyo enviado" : "Ganancia real recibida"}</p>
+            <p className="mt-1 text-xl font-bold text-amber-100">{selectedChatGift?.mine ? selectedChatGift.gift.credits.toLocaleString("es") + " monedas" : "US$" + selectedChatGift?.gift.cash.toFixed(2)}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <AdRewardDialog open={adOpen} onOpenChange={setAdOpen} />
 
