@@ -216,7 +216,14 @@ export const GIFTS = GIFT_CATALOG.map(([name, emoji, credits], imageIndex) => ({
   imageIndex,
 }));
 
-export type Gift = (typeof GIFTS)[number];
+export type Gift = {
+  id: string;
+  name: string;
+  emoji: string;
+  credits: number;
+  cash: number;
+  imageIndex: number;
+};
 
 export const MIN_WITHDRAWAL = 20;
 export const GRAN_LIGA_MIN_WITHDRAWAL = 20;

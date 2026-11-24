@@ -57,6 +57,7 @@ import { blockUser, reportUser } from "@/lib/safety";
 import { playCupidoSound, startCupidoRingtone } from "@/lib/cupido-sounds";
 import { mediaPermissionMessage, requestNativeMediaPermissions } from "@/lib/native-media-permissions";
 import { useAndroidBackDismiss } from "@/hooks/use-android-back-dismiss";
+import { useGiftCatalog } from "@/lib/gift-catalog";
 import {
   CALL_COSTS,
   callErrorMessage,
@@ -171,22 +172,23 @@ function formatConversationTime(timestamp: string): string {
     : date.toLocaleDateString("es", { day: "2-digit", month: "short" });
 }
 
-function conversationPreviewText(message: ConversationPreview | undefined, viewerId: string): string {
+function conversationPreviewText(message: ConversationPreview | undefined, viewerId: string, gifts: readonly GiftItem[] = GIFTS): string {
   if (!message) return "Empieza una conversación";
   if (message.deleted_for_all_at) return "Mensaje eliminado";
-  const gift = chatGiftFromBody(message.body);
+  const gift = chatGiftFromBody(message.body, gifts);
   const content = gift ? `🎁 ${gift.name}` : message.body?.trim() || (message.audio_path ? "Nota de voz" : message.media_path ? "Foto" : "Nuevo mensaje");
   return message.sender_id === viewerId ? `Tú: ${content}` : content;
 }
 
-function chatGiftFromBody(body: string | null | undefined): GiftItem | null {
+function chatGiftFromBody(body: string | null | undefined, gifts: readonly GiftItem[] = GIFTS): GiftItem | null {
   const match = /^\[\[cupido-gift:([a-z0-9-]+)\]\]$/i.exec(body?.trim() ?? "");
-  return match ? GIFTS.find((gift) => gift.id === match[1]) ?? null : null;
+  return match ? gifts.find((gift) => gift.id === match[1]) ?? null : null;
 }
 
 function ChatPage() {
   const { session, loading: authLoading, onlineUserIds } = useAuth();
   const account = useAccount();
+  const giftCatalog = useGiftCatalog();
   const viewerId = session?.user.id ?? null;
   const { userId: searchUserId, startVideo: startVideoOnOpen, roulette, openGift } = Route.useSearch();
   const queryClient = useQueryClient();
@@ -390,7 +392,7 @@ function ChatPage() {
     const term = chatSearch.trim().toLocaleLowerCase();
     const matches = !term ? filteredConversations : filteredConversations.filter((conversation) => {
       const name = conversation.other?.display_name.toLocaleLowerCase() ?? "";
-      const preview = conversationPreviewText(latestMessageByConversation.get(conversation.id), viewerId ?? "").toLocaleLowerCase();
+      const preview = conversationPreviewText(latestMessageByConversation.get(conversation.id), viewerId ?? "", giftCatalog).toLocaleLowerCase();
       return name.includes(term) || preview.includes(term);
     });
     return matches.sort((left, right) => {
@@ -398,7 +400,7 @@ function ChatPage() {
       const rightTime = latestMessageByConversation.get(right.id)?.created_at ?? right.created_at;
       return Date.parse(rightTime) - Date.parse(leftTime);
     });
-  }, [chatSearch, filteredConversations, latestMessageByConversation, viewerId]);
+  }, [chatSearch, filteredConversations, giftCatalog, latestMessageByConversation, viewerId]);
 
   useEffect(() => {
     if (!viewerId || !searchUserId || openedRef.current === searchUserId) return;
@@ -1215,7 +1217,7 @@ function ChatPage() {
                   </span>
                   <span className="mt-1 flex min-w-0 items-center justify-between gap-3">
                     <span className="truncate text-xs text-muted-foreground">
-                      {conversationPreviewText(latest, viewerId ?? "")}
+                      {conversationPreviewText(latest, viewerId ?? "", giftCatalog)}
                     </span>
                     {unreadCount > 0 && <span className="size-2.5 shrink-0 rounded-full bg-rose-500 ring-4 ring-rose-500/10" aria-label="Mensajes sin leer" />}
                   </span>
@@ -1295,7 +1297,7 @@ function ChatPage() {
                 )}
                 {visibleMessages.map((message) => {
                   const mine = message.sender_id === viewerId;
-                  const chatGift = chatGiftFromBody(message.body);
+                  const chatGift = chatGiftFromBody(message.body, giftCatalog);
                   const quoted = message.reply_to_id ? messages.data?.find((item) => item.id === message.reply_to_id) : null;
                   return (
                     <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -1304,7 +1306,7 @@ function ChatPage() {
                           mine ? "bg-pink-600 text-white" : "bg-white/10 text-slate-100"
                         }`}
                       >
-                        {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{chatGiftFromBody(quoted.body)?.name ?? (quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto"))}</p></div>}
+                        {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{chatGiftFromBody(quoted.body, giftCatalog)?.name ?? (quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto"))}</p></div>}
                         {chatGift ? (
                           <div className="animate-in zoom-in-95 duration-300 rounded-xl border border-amber-300/30 bg-gradient-to-br from-amber-500/20 via-pink-500/15 to-transparent px-4 py-3 text-center" aria-label={`${mine ? "Enviaste" : "Te enviaron"} ${chatGift.name}`}>
                             <span className="block animate-bounce text-4xl">{chatGift.emoji}</span>
