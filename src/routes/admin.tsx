@@ -227,6 +227,7 @@ function AdminDashboard() {
     onSuccess: (_result, variables) => {
       toast.success(variables.verified ? "Insignia azul activada." : "Insignia azul retirada.");
       void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile", variables.userId] });
     },
     onError: (error, _variables, context) => {
       if (context?.previousSnapshot) {

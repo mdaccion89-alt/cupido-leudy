@@ -69,18 +69,45 @@ export async function switchSavedAccount(userId: string): Promise<void> {
   if (error) throw error;
 }
 
-function ensureMyProfile(): Promise<void> {
+function ensureMyProfile(userId: string | null): Promise<void> {
+  if (!userId) return Promise.resolve();
   const client = supabase as unknown as {
     rpc: (fn: string) => Promise<{ error: unknown }>;
   };
-  return Promise.resolve()
-    .then(() => client.rpc("ensure_my_profile"))
-    .then(() => client.rpc("cupido_adapt_legacy_profile"))
-    .then(() => client.rpc("cupido_admin_auto_terms"))
-    .then(() => client.rpc("cupido_admin_auto_follow"))
-    .then(() => client.rpc("cupido_sync_my_profile"))
-    .then(() => undefined)
-    .catch(() => undefined);
+  return Promise.resolve().then(async () => {
+    const { data: savedProfile, error: readError } = await supabase
+      .from("profiles")
+      .select("display_name,full_name")
+      .eq("id", userId)
+      .maybeSingle();
+    const savedDisplayName = !readError ? savedProfile?.display_name?.trim() : "";
+    const savedFullName = !readError ? savedProfile?.full_name?.trim() : "";
+
+    await Promise.resolve()
+      .then(() => client.rpc("ensure_my_profile"))
+      .then(() => client.rpc("cupido_adapt_legacy_profile"))
+      .then(() => client.rpc("cupido_admin_auto_terms"))
+      .then(() => client.rpc("cupido_admin_auto_follow"))
+      .then(() => client.rpc("cupido_sync_my_profile"))
+      .catch(() => undefined);
+
+    if (!savedDisplayName && !savedFullName) return;
+    const profileNamePatch = {
+      ...(savedDisplayName ? { display_name: savedDisplayName } : {}),
+      ...(savedFullName ? { full_name: savedFullName } : {}),
+    };
+    const creatorNamePatch = {
+      ...(savedDisplayName ? { display_name: savedDisplayName } : {}),
+      ...(savedFullName ? { full_name: savedFullName } : {}),
+    };
+    const [profileWrite, creatorWrite] = await Promise.all([
+      supabase.from("profiles").update(profileNamePatch).eq("id", userId),
+      supabase.from("creator_profiles").update(creatorNamePatch).eq("id", userId),
+    ]);
+    if (profileWrite.error || creatorWrite.error) {
+      console.warn("[Auth] Se conservaron los nombres guardados, pero no se pudo sincronizar cada proyección.", profileWrite.error ?? creatorWrite.error);
+    }
+  }).catch(() => undefined);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -129,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
       router.invalidate();
       if (event === "SIGNED_OUT") queryClient.removeQueries({ queryKey: ["songs"] });
-      else void ensureMyProfile().then(() => queryClient.invalidateQueries());
+      else void ensureMyProfile(session?.user.id ?? null).then(() => queryClient.invalidateQueries());
     });
     if (Capacitor.isNativePlatform()) {
       void App.addListener("appUrlOpen", ({ url }) => handleNativeAuthUrl(url)).then((listener) => {

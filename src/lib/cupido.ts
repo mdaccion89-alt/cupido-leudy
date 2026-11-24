@@ -62,7 +62,28 @@ export function canStartCall(mode: CallMode, account: SpendingAccount, minutePri
   return account.balance >= minutePrice;
 }
 
-export function giftErrorMessage(message: string, fallback: string): string {
+export function readableErrorMessage(error: unknown, fallback = ""): string {
+  if (typeof error === "string" && error.trim()) return error.trim();
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim() && message !== "[object Object]") return message.trim();
+    if (message !== null && message !== undefined && typeof message !== "object") return String(message);
+  }
+  if (error !== null && error !== undefined) {
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== "{}" && serialized !== "[]") return serialized;
+    } catch {
+      // Return the caller's fallback for circular error objects.
+    }
+    const text = String(error);
+    if (text && text !== "[object Object]") return text;
+  }
+  return fallback;
+}
+
+export function giftErrorMessage(error: unknown, fallback: string): string {
+  const message = readableErrorMessage(error, fallback);
   if (message.includes("GRAN_LIGA_REQUIRED")) return "El Diamante Gran Liga solo puede enviarse desde una cuenta Gran Liga activa.";
   if (message.includes("PURCHASE_REQUIRED")) return "Confirma una recarga real para desbloquear tus monedas y enviar regalos.";
   if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
@@ -75,7 +96,8 @@ export function giftErrorMessage(message: string, fallback: string): string {
   return message || fallback;
 }
 
-export function callErrorMessage(message: string, fallback: string): string {
+export function callErrorMessage(error: unknown, fallback: string): string {
+  const message = readableErrorMessage(error, fallback);
   if (message.includes("PURCHASE_REQUIRED")) return "Las llamadas requieren una recarga real confirmada."
   if (message.includes("INSUFFICIENT")) return "No tienes monedas brillantes suficientes.";
   return message || fallback;

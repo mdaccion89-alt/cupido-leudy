@@ -93,6 +93,8 @@ export async function saveProfileDirect(id: string, values: ProfileValues): Prom
     data: {
       display_name: values.displayName,
       full_name: fullName,
+      name: fullName,
+      username: values.displayName,
     },
   });
   if (authError) throw authError;

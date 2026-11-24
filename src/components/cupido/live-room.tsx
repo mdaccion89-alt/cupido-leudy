@@ -1161,7 +1161,7 @@ export function LiveRoom({
     });
     setSendingGift(false);
     if (error) {
-      toast.error(giftErrorMessage(error?.message ?? "", "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
+      toast.error(giftErrorMessage(error, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
       return;
     }
     await account.refresh();

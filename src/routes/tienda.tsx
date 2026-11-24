@@ -187,7 +187,7 @@ function StorePage() {
 
     },
     onError: (error) =>
-      toast.error(giftErrorMessage(error instanceof Error ? error.message : "", "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez.")),
+      toast.error(giftErrorMessage(error, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez.")),
   });
 
   const pendingGiftPackage = pendingGift

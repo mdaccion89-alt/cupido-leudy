@@ -198,7 +198,7 @@ function ProfilePage() {
         viewerId === profileId
           ? supabase
               .from("profiles")
-              .select("display_name,full_name,email,phone,birth_date,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids,zodiac,smokes,hobbies,survey_completed,hide_followers")
+              .select("display_name,full_name,email,phone,birth_date,country_code,terms_accepted_at,avatar_url,bio,age,gender,looking_for,drinks,has_kids,zodiac,smokes,hobbies,survey_completed,hide_followers,is_verified,verification_status")
               .eq("id", profileId!)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null }),
@@ -248,6 +248,8 @@ function ProfilePage() {
         friendStatus: friendA.data?.status ?? friendB.data?.status ?? null,
       };
     },
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
@@ -516,7 +518,13 @@ function ProfilePage() {
   const isSupremeAdmin = isSupremeAdminEmail(session?.user.email);
   const isAdmin = isSupremeAdmin && own;
   const profileIsOnline = Boolean(profileId && onlineUserIds.includes(profileId));
-  const verified = Boolean(creator?.is_verified_blue);
+  const verificationStatus = privateProfile?.verification_status ?? creator?.verification_status;
+  const verified = Boolean(
+    privateProfile?.is_verified ||
+    privateProfile?.verification_status === "approved" ||
+    creator?.is_verified_blue ||
+    creator?.verification_status === "approved",
+  );
   const profileEmail = safeText(privateProfile?.email) || undefined;
   const officialProfile = Boolean(creator?.is_official || creator?.is_super_admin || isSupremeAdminEmail(profileEmail));
   const displayLabel = displayName || (officialProfile ? "Cupido Leudy Cuenta Oficial" : "Miembro de Cupido");
@@ -583,8 +591,8 @@ function ProfilePage() {
                     <VerifiedBadge verified official className="size-3.5" /> Cuenta Oficial
                   </Badge>
                 )}
-                {creator?.verification_status === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
-                {creator?.verification_status === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
+                {!verified && verificationStatus === "pending" && <Badge variant="secondary">Verificación pendiente</Badge>}
+                {!verified && verificationStatus === "rejected" && <Badge variant="destructive">Verificación rechazada</Badge>}
               </div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {countryFlag(countryForDisplay)} {countryName(countryForDisplay)} ·{" "}

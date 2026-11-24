@@ -230,6 +230,7 @@ export function CupidoAdminPanel() {
     onSuccess: (_data, variables) => {
       toast.success(variables.approve ? "Insignia azul aprobada." : "Verificación rechazada.");
       invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile", variables.userId] });
     },
     onError: (error) => {
       console.error("[admin] No se pudo revisar la verificación.", error);
@@ -239,7 +240,7 @@ export function CupidoAdminPanel() {
   });
 
   const reviewVerificationVideo = useMutation({
-    mutationFn: async ({ requestId, approve }: { requestId: string; approve: boolean }) => {
+    mutationFn: async ({ requestId, userId, approve }: { requestId: string; userId: string; approve: boolean }) => {
       const { error } = await supabase.rpc("cupido_review_face_verification_video", {
         _request: requestId,
         _approve: approve,
@@ -249,6 +250,7 @@ export function CupidoAdminPanel() {
     onSuccess: (_data, variables) => {
       toast.success(variables.approve ? "Insignia azul habilitada y usuario notificado." : "Video rechazado y usuario notificado.");
       invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["cupido-profile", variables.userId] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo revisar el video."),
   });
@@ -392,10 +394,10 @@ export function CupidoAdminPanel() {
               </div>
               <VerificationVideoPreview path={row.video_path} />
               <div className="mt-3 flex gap-2">
-                <Button size="sm" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, approve: true })}>
+                <Button size="sm" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, userId: row.user_id, approve: true })}>
                   <Check className="size-4" /> Aceptar
                 </Button>
-                <Button size="sm" variant="glass" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, approve: false })}>
+                <Button size="sm" variant="glass" className="flex-1" disabled={reviewVerificationVideo.isPending} onClick={() => reviewVerificationVideo.mutate({ requestId: row.id, userId: row.user_id, approve: false })}>
                   <X className="size-4" /> Rechazar
                 </Button>
               </div>

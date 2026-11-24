@@ -60,7 +60,9 @@ import {
   callErrorMessage,
   canSendGift,
   canStartCall,
+  GIFTS,
   giftErrorMessage,
+  readableErrorMessage,
   type Gift as GiftItem,
 } from "@/lib/cupido";
 
@@ -146,16 +148,7 @@ type SignalPayload =
   | { kind: "ice-candidate"; candidate: RTCIceCandidateInit };
 
 function actionErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof (error as { message?: unknown }).message === "string"
-  ) {
-    return (error as { message: string }).message;
-  }
-  return fallback;
+  return readableErrorMessage(error, fallback);
 }
 
 function packageForGift(gift: GiftItem, balance: number, hasPurchased: boolean) {
@@ -174,8 +167,14 @@ function formatConversationTime(timestamp: string): string {
 function conversationPreviewText(message: ConversationPreview | undefined, viewerId: string): string {
   if (!message) return "Empieza una conversación";
   if (message.deleted_for_all_at) return "Mensaje eliminado";
-  const content = message.body?.trim() || (message.audio_path ? "Nota de voz" : message.media_path ? "Foto" : "Nuevo mensaje");
+  const gift = chatGiftFromBody(message.body);
+  const content = gift ? `🎁 ${gift.name}` : message.body?.trim() || (message.audio_path ? "Nota de voz" : message.media_path ? "Foto" : "Nuevo mensaje");
   return message.sender_id === viewerId ? `Tú: ${content}` : content;
+}
+
+function chatGiftFromBody(body: string | null | undefined): GiftItem | null {
+  const match = /^\[\[cupido-gift:([a-z0-9-]+)\]\]$/i.exec(body?.trim() ?? "");
+  return match ? GIFTS.find((gift) => gift.id === match[1]) ?? null : null;
 }
 
 function ChatPage() {
@@ -664,7 +663,7 @@ function ChatPage() {
       void playCupidoSound("message-sent", viewerId);
       void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo enviar el mensaje."),
+    onError: (error) => toast.error(actionErrorMessage(error, "No se pudo enviar el mensaje.")),
   });
 
   const broadcastTyping = (value: string) => {
@@ -712,7 +711,7 @@ function ChatPage() {
       setRecordingSeconds(0);
       toast.success("Nota de voz enviada.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo enviar la nota de voz.");
+      toast.error(actionErrorMessage(error, "No se pudo enviar la nota de voz."));
     } finally {
       setVoiceSending(false);
     }
@@ -931,7 +930,7 @@ function ChatPage() {
     },
     onSuccess: (data) => setCall(data),
     onError: (error) =>
-      toast.error(callErrorMessage(error instanceof Error ? error.message : "", "No se pudo iniciar la llamada.")),
+      toast.error(callErrorMessage(error, "No se pudo iniciar la llamada.")),
   });
 
   useEffect(() => {
@@ -966,7 +965,7 @@ function ChatPage() {
       await reportUser(call.otherId, "Reporte enviado durante una videollamada");
       toast.success("Reporte enviado al equipo de seguridad.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo enviar el reporte.");
+      toast.error(actionErrorMessage(error, "No se pudo enviar el reporte."));
     }
   };
 
@@ -978,12 +977,13 @@ function ChatPage() {
       setCall(null);
       toast.success("Usuario bloqueado y llamada finalizada.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "No se pudo bloquear al usuario.");
+      toast.error(actionErrorMessage(error, "No se pudo bloquear al usuario."));
     }
   };
 
   const sendGift = useMutation({
     mutationFn: async (gift: GiftItem) => {
+      if (!activeId || !viewerId) throw new Error("Abre una conversación antes de enviar un regalo.");
       if (!activeConversation?.other) throw new Error("Elige una conversación.");
       if (!canSendGift(gift, account))
         throw new Error(
@@ -997,20 +997,26 @@ function ChatPage() {
         _room: null,
       });
       if (error) throw error;
-      return activeConversation.other.id;
+      const { error: messageError } = await supabase.from("cupido_messages").insert({
+        conversation_id: activeId,
+        sender_id: viewerId,
+        body: `[[cupido-gift:${gift.id}]]`,
+      });
+      if (messageError) console.error("[chat] El regalo se envió pero no se pudo guardar su mensaje en el chat.", messageError);
+      return { receiverId: activeConversation.other.id, transcriptSaved: !messageError };
     },
-    onSuccess: (receiverId) => {
+    onSuccess: ({ receiverId, transcriptSaved }) => {
       account.refresh();
       setPendingGiftPurchase(null);
       setGiftOpen(false);
       toast.success("Regalo enviado ❤️ Su valor ya es saldo retirable.");
-
+      if (!transcriptSaved) toast.info("El regalo sí se envió; no pudimos mostrarlo en el historial del chat.");
+      void queryClient.invalidateQueries({ queryKey: ["cupido-messages", activeId] });
       void queryClient.invalidateQueries({ queryKey: ["cupido-notifications", receiverId] });
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : String(error ?? "");
       console.error("[chat] No se pudo enviar el regalo.", error);
-      toast.error(giftErrorMessage(message, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
+      toast.error(giftErrorMessage(error, "No se pudo registrar el regalo. Comprueba tu saldo e inténtalo otra vez."));
     },
   });
 
@@ -1264,6 +1270,7 @@ function ChatPage() {
                 )}
                 {visibleMessages.map((message) => {
                   const mine = message.sender_id === viewerId;
+                  const chatGift = chatGiftFromBody(message.body);
                   const quoted = message.reply_to_id ? messages.data?.find((item) => item.id === message.reply_to_id) : null;
                   return (
                     <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -1272,8 +1279,14 @@ function ChatPage() {
                           mine ? "bg-pink-600 text-white" : "bg-white/10 text-slate-100"
                         }`}
                       >
-                        {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto")}</p></div>}
-                        {message.audio_path ? (
+                        {quoted && <div className="mb-2 rounded-md border-l-2 border-pink-200/70 bg-black/15 px-2 py-1 text-xs text-white/70"><span className="font-semibold">{quoted.sender_id === viewerId ? "Tú" : activeConversation.other?.display_name}</span><p className="truncate">{chatGiftFromBody(quoted.body)?.name ?? (quoted.body || (quoted.audio_path ? "Nota de voz" : "Foto"))}</p></div>}
+                        {chatGift ? (
+                          <div className="animate-in zoom-in-95 duration-300 rounded-xl border border-amber-300/30 bg-gradient-to-br from-amber-500/20 via-pink-500/15 to-transparent px-4 py-3 text-center" aria-label={`${mine ? "Enviaste" : "Te enviaron"} ${chatGift.name}`}>
+                            <span className="block animate-bounce text-4xl">{chatGift.emoji}</span>
+                            <strong className="mt-1 block text-sm">{mine ? "Enviaste" : "Te enviaron"} {chatGift.name}</strong>
+                            <span className="mt-0.5 block text-xs text-amber-200">{chatGift.credits.toLocaleString("es")} monedas brillantes</span>
+                          </div>
+                        ) : message.audio_path ? (
                           <VoiceBubble path={message.audio_path} />
                         ) : message.media_path ? (
                           <ChatPhoto path={message.media_path} onOpen={setPhotoViewerUrl} />
@@ -1286,8 +1299,8 @@ function ChatPage() {
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-1 border-t border-white/10 pt-1">
                           <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setReplyTarget({ id: message.id, body: message.body || (message.audio_path ? "Nota de voz" : "Foto"), sender_id: message.sender_id })} aria-label="Responder citando este mensaje"><Reply className="inline size-3" /> Responder</button>
-                          {message.body && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void navigator.clipboard.writeText(message.body).then(() => toast.success("Mensaje copiado."), () => toast.error("No se pudo copiar."))}><Copy className="inline size-3" /> Copiar</button>}
-                          {mine && message.body && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => { setEditingMessage({ id: message.id, body: message.body }); setText(message.body); setReplyTarget(null); }}><Pencil className="inline size-3" /> Editar</button>}
+                          {message.body && !chatGift && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void navigator.clipboard.writeText(message.body).then(() => toast.success("Mensaje copiado."), () => toast.error("No se pudo copiar."))}><Copy className="inline size-3" /> Copiar</button>}
+                          {mine && message.body && !chatGift && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => { setEditingMessage({ id: message.id, body: message.body }); setText(message.body); setReplyTarget(null); }}><Pencil className="inline size-3" /> Editar</button>}
                           {(message.body || message.audio_path || message.media_path) && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => setForwardTarget(message)}><Forward className="inline size-3" /> Reenviar</button>}
                           <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void deleteMessage(message.id, false)}><Trash2 className="inline size-3" /> Eliminar para mí</button>
                           {mine && <button type="button" className="rounded px-1 text-[10px] text-white/70 hover:text-white" onClick={() => void deleteMessage(message.id, true)}><X className="inline size-3" /> Eliminar para todos</button>}
