@@ -273,18 +273,6 @@
   box-shadow: 0 0 14px color-mix(in srgb, var(--avatar-frame-a) 35%, transparent);
 }
 
-.cupido-avatar-frame-root::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  inset: -3px;
-  border-radius: 9999px;
-  pointer-events: none;
-  background: conic-gradient(from 0deg, var(--avatar-frame-a), var(--avatar-frame-b), #fff7, var(--avatar-frame-a));
-  animation: cupido-frame-orbit 4.2s linear infinite;
-  will-change: transform;
-}
-
 .cupido-avatar-frame-root > [data-radix-avatar-image],
 .cupido-avatar-frame-root > [data-radix-avatar-fallback] {
   position: relative;
@@ -292,19 +280,64 @@
   border-radius: 9999px;
 }
 
-.cupido-avatar-frame-root[data-avatar-frame-effect="shine"]::before { animation-duration: 5.8s; }
-.cupido-avatar-frame-root[data-avatar-frame-effect="water"]::before { animation-duration: 7s; filter: hue-rotate(22deg) saturate(1.25); }
-.cupido-avatar-frame-root[data-avatar-frame-effect="fire"]::before { animation-duration: 2.1s; filter: saturate(1.45); }
-.cupido-avatar-frame-root[data-avatar-frame-effect="wings"]::before { animation-duration: 6.2s; }
-.cupido-avatar-frame-root[data-avatar-frame-effect="galaxy"]::before { animation-duration: 9s; filter: hue-rotate(45deg); }
-.cupido-avatar-frame-root[data-avatar-frame-effect="diamond"]::before { animation-duration: 3.2s; filter: brightness(1.25); }
-
-@keyframes cupido-frame-orbit {
-  to { transform: rotate(360deg); }
+.cupido-avatar-ornament {
+  overflow: visible;
+  contain: layout style;
+  transform: translateZ(0);
 }
 
+.cupido-avatar-ornament .af-halo,
+.cupido-avatar-ornament .af-counter-halo,
+.cupido-avatar-ornament .af-orbit,
+.cupido-avatar-ornament .af-floating-gems,
+.cupido-avatar-ornament .af-laurel,
+.cupido-avatar-ornament .af-flutter,
+.cupido-avatar-ornament .af-sway,
+.cupido-avatar-ornament .af-spark,
+.cupido-avatar-ornament .af-shimmer,
+.cupido-avatar-ornament .af-energy,
+.cupido-avatar-ornament .af-glow,
+.cupido-avatar-ornament .af-sparkles {
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+.cupido-avatar-ornament .af-halo { animation: af-rotate 15s linear infinite; }
+.cupido-avatar-ornament .af-counter-halo { animation: af-reverse-rotate 24s linear infinite; }
+.cupido-avatar-ornament .af-orbit,
+.cupido-avatar-ornament .af-floating-gems { animation: af-rotate 18s linear infinite; }
+.cupido-avatar-ornament .af-laurel { animation: af-sway 3.6s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-flutter { animation: af-flutter 1.8s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-sway { animation: af-sway 2.8s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-spark { animation: af-spark 1.5s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-shimmer { animation: af-shimmer 2.4s ease-in-out infinite; }
+.cupido-avatar-ornament .af-energy { animation: af-energy .95s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-glow { animation: af-glow 1.9s ease-in-out infinite alternate; }
+.cupido-avatar-ornament .af-sparkles { animation: af-twinkle 1.25s ease-in-out infinite alternate; }
+
+@keyframes af-rotate { to { transform: rotate(360deg); } }
+@keyframes af-reverse-rotate { to { transform: rotate(-360deg); } }
+@keyframes af-sway { from { transform: rotate(-2deg); } to { transform: rotate(2deg); } }
+@keyframes af-flutter { from { transform: scaleX(.985) rotate(-1deg); } to { transform: scaleX(1.025) rotate(1deg); } }
+@keyframes af-spark { from { opacity: .72; transform: scale(.97); } to { opacity: 1; transform: scale(1.035); } }
+@keyframes af-shimmer { 0%, 100% { opacity: .78; } 50% { opacity: 1; } }
+@keyframes af-energy { from { opacity: .78; transform: scale(.98); } to { opacity: 1; transform: scale(1.04); } }
+@keyframes af-glow { from { opacity: .72; } to { opacity: 1; } }
+@keyframes af-twinkle { from { opacity: .46; } to { opacity: 1; } }
+
 @media (prefers-reduced-motion: reduce) {
-  .cupido-avatar-frame-root::before { animation-duration: 18s !important; }
+  .cupido-avatar-ornament .af-halo { animation-duration: 30s; }
+  .cupido-avatar-ornament .af-counter-halo { animation-duration: 42s; }
+  .cupido-avatar-ornament .af-orbit,
+  .cupido-avatar-ornament .af-floating-gems { animation-duration: 36s; }
+  .cupido-avatar-ornament .af-flutter,
+  .cupido-avatar-ornament .af-sway,
+  .cupido-avatar-ornament .af-spark,
+  .cupido-avatar-ornament .af-shimmer,
+  .cupido-avatar-ornament .af-energy,
+  .cupido-avatar-ornament .af-glow,
+  .cupido-avatar-ornament .af-sparkles { animation-duration: 5s; }
 }
 
 @keyframes pulse-glow {

@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -8,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
-import { useEquippedAvatarFrame } from "@/lib/avatar-frames";
+import { useEquippedAvatarFrame, type EquippedAvatarFrame } from "@/lib/avatar-frames";
 
 type AvatarFrame = {
   id: string;
@@ -17,7 +16,7 @@ type AvatarFrame = {
   coin_cost: number;
   color_a: string;
   color_b: string;
-  effect: string;
+  effect: EquippedAvatarFrame["effect"];
 };
 
 type AvatarFrameShopProps = { open: boolean; onOpenChange: (open: boolean) => void; userId: string; avatarUrl: string; displayName: string };
@@ -110,7 +109,7 @@ export function AvatarFrameShop({ open, onOpenChange, userId, avatarUrl, display
                 const enoughPaidCredits = Boolean(account.hasPurchased && (wallet.data ?? 0) >= frame.coin_cost);
                 return (
                   <article key={frame.id} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-center">
-                    <Avatar userId={userId} className="cupido-avatar-frame-root mx-auto size-14 border border-white/10" style={{ "--avatar-frame-a": frame.color_a, "--avatar-frame-b": frame.color_b } as CSSProperties} data-avatar-frame={frame.id} data-avatar-frame-effect={frame.effect}>
+                    <Avatar userId={userId} previewFrame={{ frame_id: frame.id, color_a: frame.color_a, color_b: frame.color_b, effect: frame.effect }} className="mx-auto size-14 overflow-visible border border-white/10">
                       <AvatarImage src={avatarUrl} alt={displayName} />
                       <AvatarFallback>{displayName.slice(0, 1).toUpperCase()}</AvatarFallback>
                     </Avatar>
