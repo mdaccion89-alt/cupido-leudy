@@ -158,7 +158,6 @@ export function ProfileSettings({ email, phone }: ProfileSettingsProps) {
         <Button variant="outline" onClick={() => { queryClient.clear(); toast.success("Caché local borrada."); }}>
           <Trash2 className="size-4" /> Borrar caché
         </Button>
-        <Button variant="destructive" onClick={() => void leaveAccount(false)}><LogOut className="size-4" /> Cerrar sesión</Button>
         <Button variant="outline" onClick={() => void leaveAccount(true)}><LogOut className="size-4" /> Cambiar de cuenta</Button>
       </div>
       <Dialog open={accountPickerOpen} onOpenChange={setAccountPickerOpen}>

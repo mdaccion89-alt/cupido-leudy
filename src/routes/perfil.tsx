@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Flag, Gift, Heart, Loader2, MessageCircle, Plus, Save, ShieldCheck, Upload, UserPlus, Crown } from "lucide-react";
+import { Ban, Flag, Gift, Grid3X3, Heart, Loader2, MessageCircle, Plus, Save, Share2, ShieldCheck, Upload, UserPlus, Crown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,6 @@ import { InviteButton } from "@/components/cupido/invite-button";
 import { FaceSelfieVerification } from "@/components/cupido/live-face-verification";
 import { ImageCropDialog } from "@/components/cupido/image-crop-dialog";
 import { LegalLinks } from "@/components/cupido/legal-links";
-import { ProfileSettings } from "@/components/cupido/profile-settings";
 import { CupidoGroupInvites, GranLigaGroups } from "@/components/cupido/gran-liga-groups";
 import { CupidoStudioPanel } from "@/components/cupido/cupido-studio-panel";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
@@ -189,7 +188,7 @@ function ProfilePage() {
     queryKey: ["cupido-profile", profileId, viewerId],
     enabled: Boolean(profileId),
     queryFn: async () => {
-      const [creator, privateProfile, follow, friendA, friendB, followerTotal, watchSeconds] = await Promise.all([
+      const [creator, privateProfile, follow, friendA, friendB, followerTotal, watchSeconds, followingTotal, postStats] = await Promise.all([
         supabase
           .from("cupido_public_profiles")
           .select("id,display_name,avatar_url,bio,country_code,age,gender,looking_for,zodiac,smokes,hobbies,survey_completed,drinks,has_kids,is_verified_blue,is_gran_liga,is_super_admin,is_official,is_cupido_active,hide_followers,verification_status,friend_count,follower_count,created_at")
@@ -230,6 +229,8 @@ function ProfilePage() {
         viewerId === profileId
           ? supabase.rpc("cupido_get_video_watch_seconds", { _user: profileId! })
           : Promise.resolve({ data: 0, error: null }),
+        supabase.from("follows").select("following_id", { count: "exact", head: true }).eq("follower_id", profileId!),
+        supabase.from("cupido_posts").select("likes_count,hide_likes").eq("user_id", profileId!).limit(500),
       ]);
       if (creator.error) {
         console.error("[perfil] Falló la consulta del perfil público.", creator.error);
@@ -244,6 +245,8 @@ function ProfilePage() {
         privateProfile: privateProfile.data,
         following: Boolean(follow.data),
         actualFollowerCount: followerTotal.data ?? 0,
+        actualFollowingCount: followingTotal.count ?? 0,
+        profileLikesCount: (postStats.data ?? []).reduce((total, row) => total + (viewerId === profileId || !row.hide_likes ? safeCount(row.likes_count) : 0), 0),
         videoWatchSeconds: watchSeconds.data ?? 0,
         friendStatus: friendA.data?.status ?? friendB.data?.status ?? null,
       };
@@ -550,7 +553,7 @@ function ProfilePage() {
   const publicGender = safeText(extraField(creator, "gender"), safeText(privateProfile?.gender)) || "—";
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8">
+    <main className="mx-auto w-full max-w-4xl overflow-x-hidden px-3 pb-24 pt-4 sm:px-8 sm:pt-8">
       {isSupremeAdmin && (
         <Button asChild className="mb-5 h-14 w-full justify-center gap-3 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-pink-600 text-base font-bold text-white shadow-lg shadow-orange-950/30 hover:brightness-110">
           <Link to="/admin"><ShieldCheck className="size-5" /> Panel Admin Supremo (/admin)</Link>
@@ -560,10 +563,10 @@ function ProfilePage() {
         <div className={`relative h-32 bg-gradient-to-r ${creator?.is_gran_liga ? "animate-pulse from-amber-400/70 via-orange-600/35 to-red-600/30" : "from-pink-600/40 via-fuchsia-600/20 to-transparent"}`}>
           {creator?.is_gran_liga && <span className="absolute bottom-3 right-5 rounded-full border border-amber-200/50 bg-black/50 px-3 py-1 text-xs font-bold tracking-wide text-amber-100">🔥 Portada VIP · GRAN LIGA 🔥</span>}
         </div>
-        <div className="px-6 pb-8">
-          <div className="-mt-12 flex items-end gap-4">
+        <div className="px-4 pb-6 sm:px-6 sm:pb-8">
+          <div className="-mt-12 flex flex-col items-center gap-4 text-center sm:flex-row sm:items-end sm:text-left">
             <div className="relative shrink-0">
-              <button type="button" onClick={() => own && avatarInput.current?.click()} disabled={!own || avatarUpload.isPending} aria-label={own ? "Cambiar y encuadrar foto de perfil" : "Foto de perfil"} className={`relative flex size-24 items-center justify-center overflow-hidden rounded-3xl border-4 border-background bg-pink-500/20 text-2xl font-bold ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""} ${own ? "cursor-pointer" : "cursor-default"}`}>
+              <button type="button" onClick={() => own && avatarInput.current?.click()} disabled={!own || avatarUpload.isPending} aria-label={own ? "Cambiar y encuadrar foto de perfil" : "Foto de perfil"} className={`relative flex size-24 items-center justify-center overflow-hidden rounded-full border-4 border-background bg-pink-500/20 text-2xl font-bold ${profileIsOnline ? "ring-2 ring-emerald-400" : ""} ${creator?.is_gran_liga ? "ring-2 ring-amber-300 shadow-[0_0_24px_rgba(251,191,36,0.75)]" : ""} ${own ? "cursor-pointer" : "cursor-default"}`}>
                 {avatarUrl ? (
                   <img src={avatarUrl} alt={displayName || "Perfil"} className="size-full object-cover" />
                 ) : (
@@ -573,8 +576,8 @@ function ProfilePage() {
               </button>
               {creator?.is_gran_liga && <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-2xl drop-shadow-[0_0_9px_rgba(251,191,36,0.95)] animate-bounce" aria-label="Estrella de Gran Liga">⭐</span>}
             </div>
-            <div className="pb-1">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="w-full min-w-0 pb-1 sm:flex-1">
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                 <h1 className="font-display text-2xl text-white">{displayLabel}</h1>
                 <VerifiedBadge
                   email={profileEmail}
@@ -605,6 +608,11 @@ function ProfilePage() {
                 <span className={`size-1.5 rounded-full ${profileIsOnline ? "animate-pulse bg-emerald-400" : "bg-zinc-500"}`} />
                 {profileIsOnline ? "En línea" : "Desconectado"}
               </p>
+              <div className="mx-auto mt-4 grid w-full max-w-sm grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/15 py-2 sm:mx-0 sm:max-w-md">
+                <button type="button" disabled={Boolean(officialProfile || (creator?.hide_followers && !own))} onClick={() => setFollowersOpen(true)} className="px-2 text-center disabled:cursor-default"><span className="block text-sm font-bold text-white">{followers.toLocaleString("es")}</span><span className="text-[10px] text-muted-foreground">Seguidores</span></button>
+                <div className="px-2 text-center"><span className="block text-sm font-bold text-white">{safeCount(profile.data?.actualFollowingCount).toLocaleString("es")}</span><span className="text-[10px] text-muted-foreground">Siguiendo</span></div>
+                <div className="px-2 text-center"><span className="block text-sm font-bold text-white">{safeCount(profile.data?.profileLikesCount).toLocaleString("es")}</span><span className="text-[10px] text-muted-foreground">Me gusta</span></div>
+              </div>
               {officialProfile ? (
                 <p className="mt-2 text-xs text-muted-foreground">La lista de seguidores de la Cuenta Oficial es privada</p>
               ) : creator?.hide_followers && !own ? (
@@ -664,7 +672,15 @@ function ProfilePage() {
 
           <div className="mt-6 flex flex-wrap gap-2">
             {own ? (
-              <Button onClick={() => setEditing((value) => !value)}>{editing ? "Cancelar" : "Editar perfil"}</Button>
+              <>
+                <Button onClick={() => setEditing((value) => !value)}>{editing ? "Cancelar" : "Editar perfil"}</Button>
+                <Button asChild variant="outline"><Link to="/tienda"><Gift className="size-4" /> Monedas / Billetera</Link></Button>
+                <Button variant="outline" onClick={() => {
+                  const url = `${window.location.origin}/perfil?userId=${encodeURIComponent(profileId!)}`;
+                  if (navigator.share) void navigator.share({ title: displayLabel, text: `Mira el perfil de ${displayLabel} en Cupido Leudy`, url }).then(() => toast.success("Perfil compartido.")).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === "AbortError")) void navigator.clipboard.writeText(url).then(() => toast.success("Enlace del perfil copiado.")).catch(() => toast.error("No se pudo compartir el perfil.")); });
+                  else void navigator.clipboard.writeText(url).then(() => toast.success("Enlace del perfil copiado.")).catch(() => toast.error("No se pudo copiar el enlace."));
+                }}><Share2 className="size-4" /> Compartir perfil</Button>
+              </>
             ) : viewerId ? (
               <>
                 <Button variant={Boolean(profile.data?.following) ? "outline" : "default"} onClick={() => toggleFollow.mutate()} disabled={toggleFollow.isPending}>
@@ -866,10 +882,6 @@ function ProfilePage() {
                   <Link to="/ajustes">Abrir ajustes</Link>
                 </Button>
               </div>
-              <ProfileSettings
-                email={profileEmail}
-                phone={safeText(privateProfile?.phone) || undefined}
-              />
             </div>
           )}
         </div>
@@ -917,22 +929,22 @@ function ProfilePage() {
         {own && viewerId && creator?.is_gran_liga && <GranLigaGroups userId={viewerId} />}
         {own ? (
           <>
-            <div className="flex gap-2" role="tablist" aria-label="Contenido del perfil">
+            <div className="grid grid-cols-3 border-y border-white/10" role="tablist" aria-label="Contenido del perfil">
               <button
                 type="button"
                 role="tab"
                 aria-selected={profileTab === "posts"}
                 onClick={() => setProfileTab("posts")}
-                className={`rounded-full border px-4 py-2 text-sm transition ${profileTab === "posts" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+                className={`flex min-h-12 items-center justify-center gap-2 border-b-2 px-2 text-xs transition sm:text-sm ${profileTab === "posts" ? "border-pink-300 text-pink-100" : "border-transparent text-muted-foreground hover:text-white"}`}
               >
-                Publicaciones
+                <Grid3X3 className="size-4" /> Publicaciones
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={profileTab === "saved"}
                 onClick={() => setProfileTab("saved")}
-                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${profileTab === "saved" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+                className={`flex min-h-12 items-center justify-center gap-2 border-b-2 px-2 text-xs transition sm:text-sm ${profileTab === "saved" ? "border-pink-300 text-pink-100" : "border-transparent text-muted-foreground hover:text-white"}`}
               >
                 <Save className="size-4" /> Guardados
               </button>
@@ -941,7 +953,7 @@ function ProfilePage() {
                 role="tab"
                 aria-selected={profileTab === "favorites"}
                 onClick={() => setProfileTab("favorites")}
-                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition ${profileTab === "favorites" ? "border-pink-400/40 bg-pink-500/15 text-pink-100" : "border-white/10 bg-white/[0.03] text-muted-foreground hover:text-white"}`}
+                className={`flex min-h-12 items-center justify-center gap-2 border-b-2 px-2 text-xs transition sm:text-sm ${profileTab === "favorites" ? "border-pink-300 text-pink-100" : "border-transparent text-muted-foreground hover:text-white"}`}
               >
                 <Heart className="size-4" /> Favoritos
               </button>

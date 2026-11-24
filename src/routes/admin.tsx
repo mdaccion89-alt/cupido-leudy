@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Save, ShieldCheck, Trash2, Upload, X } from "lucide-react";
+import { Check, Droplets, Flame, Gem, Loader2, Save, ShieldCheck, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { CupidoAdminPanel } from "@/components/cupido/cupido-admin-panel";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/auth-context";
 import { adminDeleteCupidoUser } from "@/lib/admin.functions";
 import { SUPREME_ADMIN_EMAIL } from "@/lib/posts";
 import { compressImageFile, safeExtension, uploadPublicImage } from "@/lib/storage";
+import type { BrandEffect } from "@/lib/app-logo";
 
 const moderationDb = supabase as unknown as {
   from: (table: string) => any;
@@ -40,6 +41,7 @@ type AdminSettings = {
   primary_color: string;
   accent_color: string;
   theme_preset: "cafe" | "dark" | "rosa" | "neon";
+  brand_effect: BrandEffect;
 };
 
 type AdminUser = {
@@ -153,6 +155,16 @@ const EMPTY_ADMIN_SETTINGS: AdminSettings = {
   primary_color: "",
   accent_color: "",
   theme_preset: "cafe",
+  brand_effect: "diamond",
+};
+
+type WalletMonitorRow = {
+  id: string;
+  email: string | null;
+  display_name: string;
+  coins: number;
+  withdrawable_balance: number;
+  has_purchased: boolean;
 };
 
 export const Route = createFileRoute("/admin")({
@@ -199,9 +211,16 @@ function AdminDashboard() {
       .channel(`admin-users-live-${crypto.randomUUID()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "wallet-monitor"] });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "creator_profiles" }, () => {
         void queryClient.invalidateQueries({ queryKey: ["admin-snapshot"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_credits" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "wallet-monitor"] });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "cupido_balances" }, () => {
+        void queryClient.invalidateQueries({ queryKey: ["cupido-admin", "wallet-monitor"] });
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -264,6 +283,32 @@ function AdminDashboard() {
   const [creditDrafts, setCreditDrafts] = useState<Record<string, number>>({});
   const [planDrafts, setPlanDrafts] = useState<Record<string, "free" | "pro" | "premium">>({});
   const [ticketReplies, setTicketReplies] = useState<Record<string, string>>({});
+  const [walletSearch, setWalletSearch] = useState("");
+
+  const walletMonitor = useQuery({
+    queryKey: ["cupido-admin", "wallet-monitor"],
+    queryFn: async (): Promise<WalletMonitorRow[]> => {
+      const [profilesResult, creditsResult] = await Promise.all([
+        moderationDb.from("profiles").select("id,email,display_name,full_name,coins,credits,credits_balance,withdrawable_balance,has_purchased").order("display_name").limit(1000),
+        moderationDb.from("user_credits").select("user_id,balance").limit(2000),
+      ]);
+      if (profilesResult.error) throw profilesResult.error;
+      if (creditsResult.error) throw creditsResult.error;
+      const balances = new Map<string, number>((creditsResult.data ?? []).map((row: { user_id: string; balance: number | null }) => [row.user_id, Number(row.balance ?? 0)]));
+      return (profilesResult.data ?? []).map((profile: Record<string, unknown>) => ({
+        id: String(profile["id"]),
+        email: typeof profile["email"] === "string" ? profile["email"] : null,
+        display_name: String(profile["display_name"] ?? profile["full_name"] ?? "Usuario"),
+        coins: balances.get(String(profile["id"])) ?? Number(profile["coins"] ?? profile["credits_balance"] ?? profile["credits"] ?? 0),
+        withdrawable_balance: Number(profile["withdrawable_balance"] ?? 0),
+        has_purchased: profile["has_purchased"] === true,
+      }));
+    },
+  });
+  const filteredWalletUsers = (walletMonitor.data ?? []).filter((user) => {
+    const query = walletSearch.trim().toLocaleLowerCase();
+    return !query || `${user.display_name} ${user.email ?? ""}`.toLocaleLowerCase().includes(query);
+  });
 
   const reports = useQuery({
     queryKey: ["cupido-admin", "reports"],
@@ -424,6 +469,7 @@ function AdminDashboard() {
         primary_color: value.primary_color,
         accent_color: value.accent_color,
         theme_preset: value.theme_preset,
+        brand_effect: value.brand_effect,
       }).eq("id", 1);
       if (error) throw error;
     },
@@ -446,6 +492,20 @@ function AdminDashboard() {
       toast.success("Tema principal actualizado.");
     },
     onError: () => toast.error("No se pudo guardar el tema."),
+  });
+
+  const saveBrandEffect = useMutation({
+    mutationFn: async (brand_effect: BrandEffect) => {
+      const { error } = await moderationDb.from("site_settings").update({ brand_effect }).eq("id", 1);
+      if (error) throw error;
+      return brand_effect;
+    },
+    onSuccess: (brand_effect) => {
+      setSettings((current) => ({ ...current, brand_effect }));
+      queryClient.setQueryData(["cupido-brand-effect"], brand_effect);
+      toast.success("Animación global del nombre actualizada.");
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "No se pudo actualizar la animación."),
   });
 
   return (
@@ -474,10 +534,11 @@ function AdminDashboard() {
       </section>
 
       <Tabs defaultValue="cupido">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
           <TabsTrigger value="cupido">Cupido</TabsTrigger>
           <TabsTrigger value="identidad">Identidad</TabsTrigger>
           <TabsTrigger value="usuarios">Usuarios</TabsTrigger>
+          <TabsTrigger value="monedas">Monedas</TabsTrigger>
           <TabsTrigger value="revisiones">Revisiones</TabsTrigger>
         </TabsList>
 
@@ -488,6 +549,22 @@ function AdminDashboard() {
         <TabsContent value="identidad" className="mt-6">
           <section className="panel grain space-y-5 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Animación global del nombre de la app">
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ["diamond", "Diamante", Gem],
+                    ["gold", "Oro Dorado", Sparkles],
+                    ["water", "Agua", Droplets],
+                    ["fire", "Fuego", Flame],
+                  ] as const).map(([value, label, Icon]) => (
+                    <Button key={value} type="button" variant={settings.brand_effect === value ? "hero" : "outline"} disabled={saveBrandEffect.isPending} onClick={() => saveBrandEffect.mutate(value)} className="h-20 flex-col gap-2 rounded-2xl">
+                      <span className={`app-name-effect app-name-effect--${value} text-sm font-bold`} data-label={label}>{label}</span>
+                      <Icon className="size-4" />
+                    </Button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">El cambio se guarda en Supabase y se refleja en tiempo real para todos.</p>
+              </Field>
               <Field label="Tema principal de la app">
                 <div className="grid grid-cols-2 gap-2">
                   {([
@@ -777,6 +854,36 @@ function AdminDashboard() {
               El rol de Admin Supremo y la insignia oficial se sincronizan desde Supabase para
               leudyfeliz81@gmail.com.
             </p>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="monedas" className="mt-6">
+          <section className="panel grain w-full max-w-full min-w-0 space-y-4 overflow-x-hidden p-4 sm:p-6">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-semibold">Monedas y saldo retirable</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Balances reales desde perfiles, billetera y compras confirmadas.</p>
+              </div>
+              <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground">{filteredWalletUsers.length} usuarios</span>
+            </div>
+            <Input value={walletSearch} onChange={(event) => setWalletSearch(event.target.value)} placeholder="Buscar por nombre o correo" aria-label="Buscar usuario en el monitor de monedas" className="h-11 w-full rounded-xl" />
+            {walletMonitor.isLoading && <p className="py-8 text-center text-sm text-muted-foreground">Cargando billeteras reales...</p>}
+            {walletMonitor.isError && <p role="alert" className="rounded-xl border border-rose-300/20 bg-rose-400/5 p-3 text-sm text-rose-100">No se pudo cargar el monitor. {walletMonitor.error instanceof Error ? walletMonitor.error.message : "Error de Supabase."}</p>}
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredWalletUsers.slice(0, 300).map((user) => (
+                <article key={user.id} className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <p className="truncate text-sm font-semibold text-white">{user.display_name}</p>
+                  <p className="break-all text-xs text-muted-foreground">{user.email ?? "Sin correo"}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-amber-400/[0.08] p-2"><p className="text-[10px] text-amber-100/70">Monedas</p><p className="text-sm font-bold text-amber-100">{user.email?.toLowerCase() === SUPREME_ADMIN_EMAIL ? "∞" : user.coins.toLocaleString("es")}</p></div>
+                    <div className="rounded-xl bg-emerald-400/[0.08] p-2"><p className="text-[10px] text-emerald-100/70">Retirable</p><p className="text-sm font-bold text-emerald-100">US${user.withdrawable_balance.toFixed(2)}</p></div>
+                  </div>
+                  <p className={`mt-2 text-[11px] ${user.has_purchased ? "text-sky-200" : "text-zinc-400"}`}>{user.has_purchased ? "Compra real confirmada" : "Sin compra real"}</p>
+                </article>
+              ))}
+              {!walletMonitor.isLoading && !filteredWalletUsers.length && <p className="col-span-full py-8 text-center text-sm text-muted-foreground">No hay usuarios que coincidan con esa búsqueda.</p>}
+              {filteredWalletUsers.length > 300 && <p className="col-span-full py-2 text-center text-xs text-muted-foreground">Busca por nombre o correo para filtrar; se muestran los primeros 300 resultados.</p>}
+            </div>
           </section>
         </TabsContent>
 

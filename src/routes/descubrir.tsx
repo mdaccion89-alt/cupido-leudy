@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Heart, Search } from "lucide-react";
 import { PeopleSuggestions } from "@/components/cupido/people-suggestions";
-import { WallFeed } from "@/components/cupido/wall-feed";
+import { TikTokFeed } from "@/components/cupido/tiktok-feed";
 import { Input } from "@/components/ui/input";
 import { SafeViewBoundary } from "@/components/cupido/safe-view-boundary";
 import { Button } from "@/components/ui/button";
@@ -43,18 +43,20 @@ function DiscoverPage() {
 
   return (
     <SafeViewBoundary label="Descubrir">
-      <main className="mx-auto w-full max-w-6xl space-y-7 px-4 py-6 sm:px-6">
-        <header>
-          <h1 className="mb-3 font-display text-2xl font-semibold text-white">Descubrir</h1>
+      <main className="mx-auto w-full max-w-6xl space-y-5 px-3 pb-24 pt-4 sm:px-6 sm:pt-6">
+        <header className="mx-auto w-full max-w-3xl">
+          <h1 className="mb-3 font-display text-xl font-semibold text-white sm:text-2xl">Descubrir</h1>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar personas o videos" aria-label="Buscar personas o videos" className="h-11 rounded-2xl border-white/10 bg-white/[0.04] pl-10 text-white" />
           </div>
         </header>
         <PeopleSuggestions search={search} />
-        <section aria-label="Videos cortos">
-          <h2 className="mb-3 font-display text-xl font-semibold text-white">Videos cortos</h2>
-          <WallFeed videoOnly hideUpload showScopeTabs={false} searchTerm={search} emptyText="Todavía no hay videos que coincidan con la búsqueda." />
+        <section aria-label="Videos cortos" className="-mx-3 overflow-hidden rounded-t-3xl border-t border-white/10 sm:mx-0 sm:rounded-3xl sm:border">
+          <h2 className="sr-only">Videos cortos</h2>
+          <Suspense fallback={<div className="flex h-[65dvh] items-center justify-center text-sm text-white/65">Cargando videos…</div>}>
+            <TikTokFeed embedded searchTerm={search} />
+          </Suspense>
         </section>
       </main>
       <Dialog open={Boolean(newMatch)} onOpenChange={(open) => !open && setNewMatch(null)}>

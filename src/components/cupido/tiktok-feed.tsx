@@ -34,7 +34,7 @@ import {
   type PostComment,
 } from "@/lib/posts";
 
-type TikTokFeedProps = { initialPostId?: string | undefined };
+type TikTokFeedProps = { initialPostId?: string | undefined; searchTerm?: string | undefined; embedded?: boolean | undefined };
 
 type SharePerson = { id: string; display_name: string };
 
@@ -79,7 +79,7 @@ function ActionButton({
   );
 }
 
-export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
+export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikTokFeedProps) {
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const navigate = useNavigate();
@@ -106,8 +106,8 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   const [publishOpen, setPublishOpen] = useState(false);
 
   const feed = useQuery({
-    queryKey: ["cupido-tiktok-feed", viewerId, followingOnly],
-    queryFn: () => fetchFeed({ viewerId, videoOnly: true, limit: 80, followingOnly }),
+    queryKey: ["cupido-tiktok-feed", viewerId, followingOnly, searchTerm?.trim() ?? ""],
+    queryFn: () => fetchFeed({ viewerId, videoOnly: true, limit: 80, followingOnly, searchTerm }),
     staleTime: 0,
   });
   const posts = feed.data?.posts ?? [];
@@ -168,12 +168,13 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   });
 
   useEffect(() => {
+    if (embedded) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
     };
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     const channelName = `cupido-tiktok-live-${viewerId ?? "guest"}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -509,12 +510,14 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
   };
 
   const shareTarget = posts.find((post) => post.id === sharePostId) ?? null;
+  const FeedShell = embedded ? "section" : "main";
+  const isSupremeAdmin = session?.user.email?.trim().toLowerCase() === "leudyfeliz81@gmail.com";
 
   return (
-    <main translate="no" className="fixed inset-0 z-20 h-[100dvh] overflow-hidden bg-black text-white">
-      <Button type="button" onClick={() => setPublishOpen(true)} className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[60] gap-2 shadow-lg"><span>＋</span> Publicar</Button>
+    <FeedShell translate="no" className={embedded ? "relative h-[100dvh] w-full overflow-hidden bg-black text-white" : "fixed inset-0 z-20 h-[100dvh] overflow-hidden bg-black text-white"}>
+      {!embedded && <Button type="button" onClick={() => setPublishOpen(true)} className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[60] gap-2 shadow-lg"><span>＋</span> Publicar</Button>}
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto pb-[calc(6rem+env(safe-area-inset-bottom))]">
+        <DialogContent className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 top-auto z-[9999] max-h-[85dvh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
           <DialogHeader><DialogTitle>Publicar</DialogTitle></DialogHeader>
           <Suspense fallback={<p className="p-5 text-center text-sm text-muted-foreground">Cargando editor…</p>}>
             <WallFeed composerOnly showScopeTabs={false} />
@@ -538,6 +541,10 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                 muted={muted}
                 preload={index <= currentIndex + 1 ? "auto" : "metadata"}
                 onClick={() => toggleVideoPlayback(post)}
+                onDoubleClick={() => {
+                  if (!viewerId) { toast.error("Inicia sesión para dar me gusta."); return; }
+                  if (!(likedLocal[post.id] ?? likedIds.has(post.id))) likeMutation.mutate(post);
+                }}
                 onTimeUpdate={(event) => reportWatch(post.id, event.currentTarget.currentTime)}
                 className="absolute inset-0 h-full w-full bg-black object-cover"
                 style={{ filter: mediaFilterCss(post.filter_name) }}
@@ -603,6 +610,21 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                       <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-white hover:bg-white/10">
                         <input type="checkbox" checked={post.hide_comments} onChange={(event) => void savePostVisibility(post, "hide_comments", event.target.checked)} /> Ocultar / desactivar comentarios
                       </label>
+                      {isSupremeAdmin && <div className="mt-1 border-t border-white/10 px-2 pt-2">
+                        <label className="mb-1 block text-[11px] text-white/70" htmlFor={`admin-views-${post.id}`}>Editar contador de vistas</label>
+                        <div className="flex gap-2">
+                          <input id={`admin-views-${post.id}`} type="number" min="0" step="1" defaultValue={post.views_count} className="h-9 min-w-0 flex-1 rounded-lg border border-white/15 bg-black/30 px-2 text-xs text-white" />
+                          <button type="button" className="rounded-lg bg-amber-400 px-2.5 text-xs font-semibold text-black" onClick={async (event) => {
+                            const count = Number(event.currentTarget.parentElement?.querySelector("input")?.value ?? post.views_count);
+                            if (!Number.isSafeInteger(count) || count < 0) { toast.error("Ingresa un número de vistas válido."); return; }
+                            const rpc = (supabase as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }> }).rpc;
+                            const { error } = await rpc("cupido_admin_set_post_views", { _post_id: post.id, _views_count: count });
+                            if (error) { toast.error(error.message || "No se pudieron actualizar las vistas."); return; }
+                            toast.success("Vistas actualizadas en tiempo real.");
+                            await queryClient.invalidateQueries({ queryKey: ["cupido-tiktok-feed"] });
+                          }}>Guardar</button>
+                        </div>
+                      </div>}
                     </div>
                   </details>
                 )}
@@ -631,6 +653,7 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
                   </p>
                 )}
                 <p className="mt-2 text-[11px] text-white/60">{new Date(post.created_at).toLocaleDateString("es")}</p>
+                <p className="mt-1 text-[11px] font-medium text-white/75">{formatCount(post.views_count)} reproducciones</p>
                 <p className="mt-1 flex items-center gap-1.5 text-[11px] text-white/70"><span aria-hidden="true">♫</span> Audio original · {post.display_name}</p>
               </div>
             </section>
@@ -642,9 +665,9 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-2 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
-        <button type="button" onClick={() => void navigate({ to: "/muro", search: { post: undefined, q: undefined } })} aria-label="Cerrar videos" className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/45 backdrop-blur">
+        {!embedded && <button type="button" onClick={() => void navigate({ to: "/muro", search: { post: undefined, q: undefined } })} aria-label="Cerrar videos" className="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/45 backdrop-blur">
           <X className="size-5" />
-        </button>
+        </button>}
         <div className="pointer-events-auto flex gap-1 rounded-full bg-black/45 p-1 backdrop-blur">
           <button type="button" onClick={() => void navigate({ to: "/directo", search: { liveId: undefined } })} className="rounded-full px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10">Live</button>
           <button
@@ -741,6 +764,6 @@ export function TikTokFeed({ initialPostId }: TikTokFeedProps) {
           </div>
         </DialogContent>
       </Dialog>
-    </main>
+    </FeedShell>
   );
 }

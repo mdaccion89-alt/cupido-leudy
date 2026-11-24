@@ -70,7 +70,14 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
   const cancelUploadRef = useRef(false);
   const [viewersStory, setViewersStory] = useState<string | null>(null);
   const [storyViewerId, setStoryViewerId] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const viewedStories = useRef(new Set<string>());
+
+  useEffect(() => {
+    const openComposer = () => setComposerOpen(true);
+    window.addEventListener("cupido:open-story-composer", openComposer);
+    return () => window.removeEventListener("cupido:open-story-composer", openComposer);
+  }, []);
 
   const stories = useQuery({
     queryKey: ["cupido-stories", viewerId, onlyUserId],
@@ -200,6 +207,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
       setEmojiOverlay([]);
       setBackgroundGradient(STORY_BACKGROUNDS[0].id);
       setDraft(null);
+      setComposerOpen(false);
       toast.success("Historia publicada durante 24 horas.");
       await client.invalidateQueries({ queryKey: ["cupido-stories"] });
     } catch (error) {
@@ -232,6 +240,7 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
       setCaption("");
       setEmojiOverlay([]);
       setBackgroundGradient(STORY_BACKGROUNDS[0].id);
+      setComposerOpen(false);
       toast.success("Historia publicada durante 24 horas.");
       await client.invalidateQueries({ queryKey: ["cupido-stories"] });
     } catch (error) {
@@ -371,8 +380,14 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
 
   return (
     <section className="space-y-5">
-      <div id="story-composer" className="scroll-mt-24 rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
-        <div className="mb-3 flex items-center gap-2 font-display text-sm text-white"><Clock3 className="size-4 text-pink-300" /> Comparte una historia · desaparece en 24 h</div>
+      <div id="story-composer" className="flex items-center justify-between gap-3 rounded-t-3xl rounded-b-2xl border border-pink-400/25 bg-gradient-to-r from-pink-500/[0.1] to-zinc-950/90 p-4 shadow-xl shadow-black/20 sm:rounded-3xl sm:p-5">
+        <div className="min-w-0"><p className="flex items-center gap-2 font-display text-sm text-white"><Clock3 className="size-4 shrink-0 text-pink-300" /> Historias · 24 horas</p><p className="mt-1 text-xs text-white/60">Comparte una foto o video corto.</p></div>
+        <Button type="button" onClick={() => setComposerOpen(true)} className="h-11 shrink-0 rounded-xl bg-pink-500 px-4"><Plus className="size-4" /> Crear</Button>
+      </div>
+      <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
+        <DialogContent className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 top-auto z-[9999] max-h-[85dvh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+        <DialogHeader><DialogTitle className="font-display text-white">Nueva historia</DialogTitle><DialogDescription>Elige una foto o video. Desaparecerá en 24 horas.</DialogDescription></DialogHeader>
+        <div className="space-y-3">
         <Input value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={300} placeholder="Escribe algo para acompañar la foto o el video..." className="mb-3" />
         {!viewerId && <p className="mb-3 text-xs text-muted-foreground">Inicia sesión para publicar historias.</p>}
         {!draft && <div className="mb-3"><EmojiOverlayPicker value={emojiOverlay} onChange={setEmojiOverlay} disabled={uploading} /></div>}
@@ -407,7 +422,9 @@ export function StoryFeed({ compact = false, initialStoryId, onlyUserId }: { com
           </div>
         )}
         {uploading && <div className="mt-3 flex items-center justify-center gap-3 text-xs text-pink-200"><span className="flex items-center gap-2"><Loader2 className="size-3.5 animate-spin" /> {cancelRequested ? "Cancelando subida..." : "Publicando..."}</span><Button type="button" size="sm" variant="outline" disabled={cancelRequested} onClick={() => { cancelUploadRef.current = true; setCancelRequested(true); }}>Cancelar subida</Button></div>}
-      </div>
+        </div>
+        </DialogContent>
+      </Dialog>
 
       {stories.isLoading ? <p className="py-8 text-center text-sm text-muted-foreground">Cargando historias...</p> : null}
       {!stories.isLoading && !visibleStories.length ? <p className="rounded-2xl border border-white/10 p-8 text-center text-sm text-muted-foreground">Todavía no hay historias activas. Publica la primera.</p> : null}

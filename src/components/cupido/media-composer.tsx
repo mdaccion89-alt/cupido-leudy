@@ -105,7 +105,7 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid w-full grid-cols-2 items-center gap-2">
       <label className="sr-only" htmlFor="cupido-media-filter">Filtro</label>
       <select
         id="cupido-media-filter"
@@ -116,30 +116,30 @@ export function MediaComposer({ disabled = false, onFile, galleryLabel = "Galer√
           setFilter(next);
           onFilterChange?.(next);
         }}
-        className="h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+        className="col-span-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground"
       >
         {MEDIA_FILTERS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
       </select>
-      <Button type="button" variant="outline" size="icon" onClick={() => setFacingMode((mode) => mode === "user" ? "environment" : "user")} disabled={disabled || working || recording} aria-label={facingMode === "user" ? "Cambiar a camara trasera" : "Cambiar a camara frontal"} title={facingMode === "user" ? "Camara frontal" : "Camara trasera"}>
+      <Button type="button" variant="outline" onClick={() => setFacingMode((mode) => mode === "user" ? "environment" : "user")} disabled={disabled || working || recording} aria-label={facingMode === "user" ? "Cambiar a camara trasera" : "Cambiar a camara frontal"} title={facingMode === "user" ? "Camara frontal" : "Camara trasera"} className="h-11 w-full rounded-xl">
         <RefreshCw className="size-4" />
       </Button>
       {!cameraOnly && <>
         <input ref={inputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(event) => void chooseFile(event)} />
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => inputRef.current?.click()} disabled={disabled || working || recording}>
+        <Button variant="outline" className="h-11 w-full gap-2 rounded-xl" onClick={() => inputRef.current?.click()} disabled={disabled || working || recording}>
           {working ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
           {working ? "Procesando..." : galleryLabel}
         </Button>
       </>}
       {!recording ? (
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => void startCamera()} disabled={disabled || working}>
+        <Button variant="outline" className="col-span-2 h-11 w-full gap-2 rounded-xl" onClick={() => void startCamera()} disabled={disabled || working}>
           <Camera className="size-4" /> Grabar video
         </Button>
       ) : (
-        <Button variant="destructive" size="sm" className="gap-2" onClick={stopCamera}>
+        <Button variant="destructive" className="col-span-2 h-11 w-full gap-2 rounded-xl" onClick={stopCamera}>
           <Square className="size-3.5 fill-current" /> Detener y publicar ({secondsLeft}s)
         </Button>
       )}
-      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={`${recording ? "aspect-[9/16] max-h-[75dvh] w-full max-w-sm rounded-xl object-cover" : "hidden"} ${facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} style={{ filter: mediaFilterCss(filter) }} />
+      <video ref={videoRef} muted playsInline webkit-playsinline="true" className={`${recording ? "col-span-2 mx-auto aspect-[9/16] max-h-[65dvh] w-full max-w-sm rounded-2xl object-cover" : "hidden"} ${facingMode === "user" ? "scale-x-[-1]" : "scale-x-100"}`} style={{ filter: mediaFilterCss(filter) }} />
     </div>
   );
 }
