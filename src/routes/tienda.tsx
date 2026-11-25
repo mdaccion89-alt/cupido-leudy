@@ -6,6 +6,7 @@ import { CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-re
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { ReferralCard } from "@/components/cupido/referral-card";
+import { ReviewModeCard } from "@/components/cupido/review-mode-card";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
@@ -366,7 +367,9 @@ function StorePage() {
 
       <ReferralCard userId={viewerId} />
 
-      {(
+      {account.isReviewMode && <ReviewModeCard className="mb-6" />}
+
+      {!account.isReviewMode && (
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-400/[0.10] to-pink-500/[0.07] p-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-amber-100">Monedas gratis</h2>
@@ -383,7 +386,7 @@ function StorePage() {
         </section>
       )}
 
-      {captureRetry && (
+      {!account.isReviewMode && captureRetry && (
         <section role="alert" className="mb-6 flex flex-col gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/[0.08] p-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-amber-100">{captureRetry.message}</p>
           <Button type="button" className="w-full whitespace-normal sm:w-auto" disabled={captureRetrying} onClick={() => {
@@ -415,18 +418,18 @@ function StorePage() {
                 <p className="text-xs text-pink-100/70">Enviar un regalo convierte su valor en saldo retirable.</p>
               </div>
             </div>
-            <Button asChild variant="outline">
+            {!account.isReviewMode && <Button asChild variant="outline">
               <Link to="/tienda">Ver paquetes de monedas</Link>
-            </Button>
+            </Button>}
           </div>
           <div className="mt-5 flex items-center gap-2">
             <Gift className="h-4 w-4 text-pink-300" />
             <h2 className="font-display text-lg text-white">99 regalos para enamorar</h2>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Las 500 monedas de bienvenida se desbloquean después de una recarga real confirmada. Solo PayPal Live y tarjeta acreditan monedas automáticamente.
+            {account.isReviewMode ? "Usa tus monedas de prueba para enviar regalos sin pagos reales." : "Las 500 monedas de bienvenida se desbloquean después de una recarga real confirmada. Solo PayPal Live y tarjeta acreditan monedas automáticamente."}
           </p>
-          {pendingGift && (
+          {pendingGift && !account.isReviewMode && (
             <div className="mt-3 space-y-3 rounded-2xl border border-amber-300/25 bg-amber-400/[0.06] p-4">
               <div>
                 <p className="font-semibold text-white">Desbloquea y envía {pendingGift.name}</p>
@@ -458,7 +461,7 @@ function StorePage() {
         </section>
       )}
 
-      <section className="mb-8">
+      {!account.isReviewMode && <section className="mb-8">
         <div className="mb-3 flex items-center gap-2">
           <CreditCard className="h-5 w-5 text-pink-300" />
           <h2 className="font-display text-xl text-white">Paquetes de monedas brillantes</h2>
@@ -500,9 +503,9 @@ function StorePage() {
             ? `Checkout Business real de ${paypalConfig.data.businessName}: paga con saldo PayPal o tarjeta. Las monedas se acreditan automáticamente.`
             : "El Admin Supremo debe guardar las credenciales de PayPal Business Live en /admin para habilitar pagos verificados y acreditación automática."}
         </p>
-      </section>
+      </section>}
 
-      <PayPalCheckoutScreen open={Boolean(selectedCheckoutPackageId)} onBack={closeCheckoutSheet}>
+      {!account.isReviewMode && <PayPalCheckoutScreen open={Boolean(selectedCheckoutPackageId)} onBack={closeCheckoutSheet}>
           <section className="space-y-4 pb-4">
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
               {selectedCheckoutPackage ? `${selectedCheckoutPackage.credits.toLocaleString("es")} monedas · US$${selectedCheckoutPackage.price}` : "Paga con PayPal o tarjeta."}
@@ -524,9 +527,9 @@ function StorePage() {
               <p className="rounded-xl bg-amber-50 p-3 text-center text-sm text-amber-900">Configura PayPal Business Live en /admin para habilitar pagos seguros con PayPal o tarjeta.</p>
             )}
           </section>
-      </PayPalCheckoutScreen>
+      </PayPalCheckoutScreen>}
 
-      <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+      {!account.isReviewMode && <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5">
           <div className="mb-4 flex items-center gap-2">
             <PayPalLogo className="h-7 w-[94px]" />
@@ -662,7 +665,7 @@ function StorePage() {
             <Link to="/perfil">Completar mi perfil</Link>
           </Button>
         </div>
-      </section>
+      </section>}
 
       <p className="mt-6 flex items-center gap-1 text-xs text-muted-foreground">
         <Gift className="h-3.5 w-3.5" /> Los regalos recibidos se guardan como saldo retirable en tu cuenta.

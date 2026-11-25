@@ -257,11 +257,11 @@ export function PayPalCheckoutButtons({
   return (
     <div translate="no" className="mt-2 space-y-2">
       {completedCredits !== null && (
-        <p role="status" className="rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-center text-sm text-emerald-100">
+        <p role="status" className="rounded-xl border border-emerald-400 bg-emerald-50 px-3 py-2 text-center text-sm font-medium text-emerald-950">
           Pago confirmado: {completedCredits.toLocaleString("es")} monedas acreditadas.
         </p>
       )}
-      {failureMessage && <p role="alert" className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-center text-sm text-amber-100">{failureMessage}</p>}
+      {failureMessage && <p role="alert" className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-center text-sm font-medium leading-snug text-amber-950">{failureMessage}</p>}
       {loading && (
         <div className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Conectando con PayPal…
@@ -271,8 +271,8 @@ export function PayPalCheckoutButtons({
       {failed && completedCredits === null && (
         <Button
           type="button"
-          variant="outline"
-          className="w-full"
+          variant="default"
+          className="w-full border border-zinc-800 bg-zinc-950 text-amber-100 shadow-none hover:bg-black hover:text-white"
           onClick={() => void retryCheckout()}
         >
           {captureOrderId.current ? "Reintentar confirmar pago" : "Reintentar PayPal"}

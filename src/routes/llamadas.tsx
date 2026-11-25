@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
 import { DailyReward } from "@/components/cupido/daily-reward";
 import { LiveRoom } from "@/components/cupido/live-room";
+import { ReviewModeCard } from "@/components/cupido/review-mode-card";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -292,12 +293,13 @@ function CallsPage() {
               <Phone className="size-4" /> Abrir chat
             </Link>
           </Button>
-          <Button asChild variant="glass" className="w-full max-w-full whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto">
+          {!account.isReviewMode && <Button asChild variant="glass" className="w-full max-w-full whitespace-normal px-3 py-2.5 text-center leading-tight sm:w-auto">
             <Link to="/tienda">
               <ShoppingBag className="size-4" /> Comprar monedas brillantes
             </Link>
-          </Button>
+          </Button>}
         </div>
+        {account.isReviewMode && <ReviewModeCard className="mt-4 max-w-xl" />}
       </header>
 
       <section className="mt-6 max-w-xl">

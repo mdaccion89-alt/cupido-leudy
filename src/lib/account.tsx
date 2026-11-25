@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getSiteSettings, type PublicSettings } from "./studio.functions";
 import { useAuth } from "./auth-context";
 import { SLOGAN } from "./cupido";
+import { REVIEW_MODE_CREDITS, isPlayStoreReviewMode } from "./review-mode";
 
 const IMMEDIATE_ADMIN_EMAIL = "leudyfeliz81@gmail.com";
 
@@ -26,6 +27,7 @@ export function useAccount() {
   const queryClient = useQueryClient();
   const userId = session?.user.id ?? null;
   const isImmediateAdmin = session?.user.email?.toLowerCase() === IMMEDIATE_ADMIN_EMAIL;
+  const isReviewMode = isPlayStoreReviewMode(session?.user.email);
   const query = useQuery({
     queryKey: ["account", userId],
     enabled: Boolean(userId),
@@ -93,17 +95,18 @@ export function useAccount() {
   });
   return {
     userId,
-    balance: isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
+    isReviewMode,
+    balance: isReviewMode ? REVIEW_MODE_CREDITS : isImmediateAdmin ? Infinity : (query.data?.balance ?? 0),
     balanceUnavailable: query.isError && !query.data,
     nextReset: query.data?.nextReset ?? null,
-    adRewardBalance: isImmediateAdmin ? Infinity : (query.data?.adRewardBalance ?? 0),
+    adRewardBalance: isReviewMode ? REVIEW_MODE_CREDITS : isImmediateAdmin ? Infinity : (query.data?.adRewardBalance ?? 0),
     isAdmin: isImmediateAdmin || Boolean(query.data?.isAdmin),
-    isInfiniteCreditsAdmin: isImmediateAdmin,
+    isInfiniteCreditsAdmin: isImmediateAdmin || isReviewMode,
     isSupremeAdmin: isImmediateAdmin || Boolean(query.data?.isSupremeAdmin),
     isOfficial: isImmediateAdmin || Boolean(query.data?.isOfficial),
-    isGranLiga: isImmediateAdmin || Boolean(query.data?.isGranLiga),
-    plan: isImmediateAdmin ? "premium" : (query.data?.plan ?? "free"),
-    hasPurchased: isImmediateAdmin || Boolean(query.data?.hasPurchased),
+    isGranLiga: isImmediateAdmin || isReviewMode || Boolean(query.data?.isGranLiga),
+    plan: isImmediateAdmin || isReviewMode ? "premium" : (query.data?.plan ?? "free"),
+    hasPurchased: isImmediateAdmin || isReviewMode || Boolean(query.data?.hasPurchased),
     dailyStreak: query.data?.dailyStreak ?? 0,
     lastDailyClaim: query.data?.lastDailyClaim ?? null,
     loading: query.isLoading,

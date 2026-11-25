@@ -1568,7 +1568,7 @@ function ChatPage() {
           <DialogHeader className="shrink-0 border-b border-white/10 px-4 py-3 text-left">
             <div className="flex items-center justify-between gap-3">
               <DialogTitle className="flex min-w-0 items-center gap-2 text-white">
-                {pendingGiftPurchase && !canSendGift(pendingGiftPurchase, account) ? (
+                {pendingGiftPurchase && !account.isReviewMode && !canSendGift(pendingGiftPurchase, account) ? (
                   <><CreditCard className="h-5 w-5 text-amber-300" /> Comprar Monedas</>
                 ) : (
                   <><Gift className="h-5 w-5 text-pink-300" /> Enviar regalo a {activeConversation?.other?.display_name ?? "tu pareja"}</>
@@ -1617,7 +1617,7 @@ function ChatPage() {
                 ) : (
                   <p className="text-center text-sm text-muted-foreground">PayPal no está configurado para completar la compra desde aquí.</p>
                 )}
-                <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>
+                {!account.isReviewMode && <div className="flex items-center justify-center gap-1 text-[11px] text-muted-foreground"><CreditCard className="size-3.5" /> PayPal o tarjeta de débito/crédito</div>}
               </section>
             );
           })()}
@@ -1626,7 +1626,7 @@ function ChatPage() {
         </DialogContent>
       </Dialog>
 
-      <PayPalCheckoutScreen open={paypalCheckoutOpen && Boolean(pendingGiftPurchase)} onBack={() => setPaypalCheckoutOpen(false)}>
+      <PayPalCheckoutScreen open={!account.isReviewMode && paypalCheckoutOpen && Boolean(pendingGiftPurchase)} onBack={() => setPaypalCheckoutOpen(false)}>
         {pendingGiftPurchase && (() => {
           const pack = packageForGift(pendingGiftPurchase, account.balance, account.hasPurchased);
           return (

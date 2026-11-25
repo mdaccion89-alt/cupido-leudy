@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { BRAND, SLOGAN } from "@/lib/cupido";
 import { fetchFeed, SUPREME_ADMIN_EMAIL, togglePostLike } from "@/lib/posts";
+import { isPlayStoreReviewMode } from "@/lib/review-mode";
 import { fetchBlockedUserIds } from "@/lib/safety";
 
 export const Route = createFileRoute("/")({
@@ -38,6 +39,7 @@ export const Route = createFileRoute("/")({
 
 function CupidoHome() {
   const { session } = useAuth();
+  const reviewMode = isPlayStoreReviewMode(session?.user.email);
   const userId = session?.user.id ?? null;
   const queryClient = useQueryClient();
   const [passed, setPassed] = useState<string[]>([]);
@@ -299,9 +301,9 @@ function CupidoHome() {
                 <Link to="/auth" search={{ ref: "" }}>Crear mi cuenta gratis</Link>
               </Button>
             )}
-            <Button asChild size="lg" variant="outline">
+            {!reviewMode && <Button asChild size="lg" variant="outline">
               <Link to="/tienda" className="w-full max-w-full rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-center text-sm font-medium text-amber-200 whitespace-normal leading-tight sm:w-auto">Comprar monedas brillantes desde 5,000</Link>
-            </Button>
+            </Button>}
           </div>
         </div>
         <div className="pointer-events-none absolute -right-10 -top-10 h-64 w-64 rounded-full bg-pink-500/30 blur-3xl" />

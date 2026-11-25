@@ -5,6 +5,7 @@ import { Loader2, LockKeyhole, Radio, ShoppingBag, Users, Video } from "lucide-r
 import { toast } from "sonner";
 import { LiveRoom } from "@/components/cupido/live-room";
 import { FaceVideoVerification } from "@/components/cupido/live-face-verification";
+import { ReviewModeCard } from "@/components/cupido/review-mode-card";
 import { GranLigaStar, VerifiedBadge } from "@/components/cupido/verified-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -279,9 +280,10 @@ function DirectPage() {
           Transmite desde tu cámara o entra a cualquier sala activa. Video, audio y chat en tiempo real.
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
-          <Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar monedas</Link></Button>
+          {!account.isReviewMode && <Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar monedas</Link></Button>}
           {!viewerId && <Button asChild><Link to="/auth" search={{ ref: "" }}>Iniciar sesión</Link></Button>}
         </div>
+        {account.isReviewMode && <ReviewModeCard className="mt-4" />}
       </header>
 
       <section className="mt-6 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
@@ -451,7 +453,7 @@ function DirectPage() {
         <DialogContent>
           <DialogHeader><DialogTitle className="flex items-center gap-2"><LockKeyhole className="size-5 text-amber-200" /> Live Premium</DialogTitle><DialogDescription>La entrada única desbloquea el video y el chat mientras el Live siga activo. El pago se acredita al saldo retirable del anfitrión.</DialogDescription></DialogHeader>
           <p className="text-center font-display text-2xl text-amber-100">{entryStream?.premium_coins.toLocaleString("es")} monedas · entrada única</p>
-          <div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void payAndEnter()} disabled={payingEntry}>{payingEntry ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />} Pagar y desbloquear</Button><Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar con PayPal / tarjeta</Link></Button></div>
+          <div className="flex flex-wrap justify-center gap-2"><Button onClick={() => void payAndEnter()} disabled={payingEntry}>{payingEntry ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />} Pagar y desbloquear</Button>{!account.isReviewMode && <Button asChild variant="outline"><Link to="/tienda"><ShoppingBag className="size-4" /> Recargar con PayPal / tarjeta</Link></Button>}</div>
         </DialogContent>
       </Dialog>
     </main>

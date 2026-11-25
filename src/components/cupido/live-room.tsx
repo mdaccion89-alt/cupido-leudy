@@ -1904,7 +1904,7 @@ export function LiveRoom({
                   <div className="min-w-0 flex-1">
                     <SheetTitle className="flex items-center gap-2 text-white"><Gift className="size-4 shrink-0 text-pink-300" />{giftCheckoutOpen ? "Pago seguro" : `Regalos para ${hostName}`}</SheetTitle>
                     <SheetDescription className="mt-1 flex items-center gap-1 text-xs">
-                      {giftCheckoutOpen ? "PayPal o tarjeta · recarga confirmada antes de enviar" : <><CoinIcon className="size-3.5" /> Saldo: {account.loading ? "…" : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}</>}
+                      {giftCheckoutOpen && !account.isReviewMode ? "PayPal o tarjeta · recarga confirmada antes de enviar" : <><CoinIcon className="size-3.5" /> Saldo: {account.loading ? "…" : account.balanceUnavailable ? "—" : account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")}</>}
                     </SheetDescription>
                   </div>
                 </div>
@@ -1974,7 +1974,7 @@ export function LiveRoom({
             </SheetContent>
           </Sheet>
         )}
-        <PayPalCheckoutScreen open={giftCheckoutOpen && giftPanelOpen && role === "viewer" && Boolean(liveCheckoutPackageId)} onBack={() => setGiftCheckoutOpen(false)}>
+        <PayPalCheckoutScreen open={!account.isReviewMode && giftCheckoutOpen && giftPanelOpen && role === "viewer" && Boolean(liveCheckoutPackageId)} onBack={() => setGiftCheckoutOpen(false)}>
           {liveCheckoutPackage && paypalConfig.data?.configured && paypalConfig.data.clientId && liveCheckoutPackageId ? (
             <section className="space-y-4">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

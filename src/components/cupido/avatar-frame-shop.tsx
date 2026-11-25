@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ReviewModeCard } from "@/components/cupido/review-mode-card";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccount } from "@/lib/account";
@@ -93,12 +94,13 @@ export function AvatarFrameShop({ open, onOpenChange, userId, avatarUrl, display
       <DialogContent className="flex h-[88dvh] max-h-[88dvh] max-w-2xl flex-col overflow-hidden border-amber-300/20 bg-zinc-950 p-0 text-white">
         <DialogHeader className="shrink-0 border-b border-white/10 px-4 py-4 pr-12">
           <DialogTitle className="flex items-center gap-2"><Sparkles className="size-5 text-amber-200" />59 Marcos de Avatar</DialogTitle>
-          <DialogDescription className="text-xs leading-relaxed text-white/60">Aros animados para perfil, feed, chat y Live. Se compran solo con monedas respaldadas por pagos PayPal capturados; bonos y anuncios quedan excluidos.</DialogDescription>
+          <DialogDescription className="text-xs leading-relaxed text-white/60">{account.isReviewMode ? "Aros animados para perfil, feed, chat y Live. Prueba la colección con monedas de revisión." : "Aros animados para perfil, feed, chat y Live. Se compran solo con monedas respaldadas por pagos PayPal capturados; bonos y anuncios quedan excluidos."}</DialogDescription>
         </DialogHeader>
+        {account.isReviewMode && <ReviewModeCard className="mx-4 mt-3" />}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 [touch-action:pan-y]">
           <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/10 bg-zinc-950/95 py-3 backdrop-blur">
-            <span className="text-xs text-white/70">Saldo: {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas · {wallet.data?.toLocaleString("es") ?? "…"} compradas disponibles</span>
-            {!account.hasPurchased && <Button asChild size="sm" variant="outline" className="h-8 text-xs"><Link to="/tienda">Comprar monedas</Link></Button>}
+            <span className="text-xs text-white/70">Saldo: {account.balance === Infinity ? "∞" : account.balance.toLocaleString("es")} monedas{account.isReviewMode ? " de prueba" : ` · ${wallet.data?.toLocaleString("es") ?? "…"} compradas disponibles`}</span>
+            {!account.hasPurchased && !account.isReviewMode && <Button asChild size="sm" variant="outline" className="h-8 text-xs"><Link to="/tienda">Comprar monedas</Link></Button>}
             {equipped && <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={equip.isPending} onClick={() => equip.mutate(null)}>Quitar marco</Button>}
           </div>
           {catalog.isLoading ? <p className="py-10 text-center text-sm text-white/60">Cargando colección…</p> : catalog.isError ? <p className="py-10 text-center text-sm text-rose-200">No se pudo cargar la colección de marcos.</p> : (
@@ -106,7 +108,7 @@ export function AvatarFrameShop({ open, onOpenChange, userId, avatarUrl, display
               {(catalog.data ?? []).map((frame) => {
                 const isOwned = owned.data?.has(frame.id) ?? false;
                 const isEquipped = equipped?.frame_id === frame.id;
-                const enoughPaidCredits = Boolean(account.hasPurchased && (wallet.data ?? 0) >= frame.coin_cost);
+                const enoughPaidCredits = account.isReviewMode || Boolean(account.hasPurchased && (wallet.data ?? 0) >= frame.coin_cost);
                 return (
                   <article key={frame.id} className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-center">
                     <Avatar userId={userId} previewFrame={{ frame_id: frame.id, color_a: frame.color_a, color_b: frame.color_b, effect: frame.effect }} className="mx-auto size-14 overflow-visible border border-white/10">
@@ -120,7 +122,7 @@ export function AvatarFrameShop({ open, onOpenChange, userId, avatarUrl, display
                         : enoughPaidCredits ? <Button size="sm" variant="outline" className="mt-2 h-8 w-full text-xs" disabled={purchase.isPending} onClick={() => purchase.mutate(frame.id)}>
                           {purchase.isPending && purchase.variables === frame.id ? <Loader2 className="size-3.5 animate-spin" /> : "Adquirir"}
                         </Button>
-                          : <Button asChild size="sm" variant="outline" className="mt-2 h-8 w-full text-xs"><Link to="/tienda">{account.hasPurchased ? "Recargar" : "Comprar monedas"}</Link></Button>}
+                          : !account.isReviewMode && <Button asChild size="sm" variant="outline" className="mt-2 h-8 w-full text-xs"><Link to="/tienda">{account.hasPurchased ? "Recargar" : "Comprar monedas"}</Link></Button>}
                   </article>
                 );
               })}
