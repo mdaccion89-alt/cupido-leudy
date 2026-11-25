@@ -33,11 +33,12 @@ jobs:
         env:
           CAPACITOR_BUILD: "1"
           NODE_OPTIONS: "--max-old-space-size=4096"
+          VITE_PLAY_STORE_BUILD: "true"
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || secrets.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.SUPABASE_PUBLISHABLE_KEY || secrets.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           VITE_SUPABASE_PROJECT_ID: ${{ secrets.VITE_SUPABASE_PROJECT_ID || secrets.SUPABASE_PROJECT_ID }}
-        run: VITE_PLAY_STORE_BUILD=true npm run build
+        run: npm run build
 
       - name: Verify web bundle
         run: test -f dist/index.html
@@ -45,21 +46,72 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Decode release keystore
+      - name: Prepare release keystore
+        id: keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || vars.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || vars.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || vars.ANDROID_KEY_PASSWORD }}
         run: |
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
-            if [ -z "${!name:-}" ]; then
-              echo "Missing $name secret"
-              exit 1
-            fi
-          done
+          set -euo pipefail
           mkdir -p android/app
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/app/release.keystore"
+
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            : "${ANDROID_KEYSTORE_PASSWORD:?Falta ANDROID_KEYSTORE_PASSWORD}"
+            : "${ANDROID_KEY_ALIAS:?Falta ANDROID_KEY_ALIAS}"
+            : "${ANDROID_KEY_PASSWORD:?Falta ANDROID_KEY_PASSWORD}"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+            KEY_ALIAS="$ANDROID_KEY_ALIAS"
+            KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+            GENERATED="false"
+          else
+            if [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ]; then
+              STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+            elif [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
+              STORE_PASSWORD="$ANDROID_KEY_PASSWORD"
+            else
+              STORE_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+            fi
+            KEY_PASSWORD="${ANDROID_KEY_PASSWORD:-$STORE_PASSWORD}"
+            KEY_ALIAS="${ANDROID_KEY_ALIAS:-cupido-key}"
+            keytool -genkeypair \
+              -keystore "$KEYSTORE_PATH" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -dname "CN=Cupido Leudy, OU=Mobile, O=Cupido Leudy, L=Santo Domingo, ST=Distrito Nacional, C=DO"
+            GENERATED="true"
+          fi
+
+          base64 -w0 "$KEYSTORE_PATH" > android/app/release.keystore.base64
+          printf '%s\n' "$STORE_PASSWORD" > android/app/release.keystore.password
+          printf '%s\n' "$KEY_ALIAS" > android/app/release.keystore.alias
+
+          {
+            printf 'path=%s\n' "$KEYSTORE_PATH"
+            printf 'password=%s\n' "$STORE_PASSWORD"
+            printf 'alias=%s\n' "$KEY_ALIAS"
+            printf 'key-password=%s\n' "$KEY_PASSWORD"
+            printf 'generated=%s\n' "$GENERATED"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload keystore backup
+        if: ${{ steps.keystore.outputs.generated == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cupido-leudy-keystore-respaldo
+          path: |
+            android/app/release.keystore
+            android/app/release.keystore.base64
+            android/app/release.keystore.password
+            android/app/release.keystore.alias
+          if-no-files-found: error
 
       - name: Make Gradle wrapper executable
         run: chmod +x android/gradlew
@@ -67,10 +119,10 @@ jobs:
       - name: Build signed release AAB
         working-directory: android
         env:
-          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.keystore
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ steps.keystore.outputs.password }}
+          ANDROID_KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+          ANDROID_KEY_PASSWORD: ${{ steps.keystore.outputs.key-password }}
         run: ./gradlew bundleRelease
 
       - name: Upload AAB artifact
