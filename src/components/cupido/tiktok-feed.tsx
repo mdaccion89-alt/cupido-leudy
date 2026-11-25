@@ -516,7 +516,7 @@ export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikT
   const isSupremeAdmin = session?.user.email?.trim().toLowerCase() === "leudyfeliz81@gmail.com";
 
   return (
-    <FeedShell translate="no" className={embedded ? "relative h-[100dvh] w-full overflow-hidden bg-black text-white" : "fixed inset-0 z-20 h-[100dvh] overflow-hidden bg-black text-white"}>
+    <FeedShell translate="no" className={embedded ? "relative h-[calc(100dvh_-_10.5rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] w-full overflow-hidden bg-black text-white md:h-[calc(100dvh_-_6.5rem_-_env(safe-area-inset-top))]" : "fixed inset-0 z-20 h-[100dvh] overflow-hidden bg-black text-white"}>
       {!embedded && <Button type="button" onClick={() => setPublishOpen(true)} className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] z-[60] gap-2 shadow-lg"><span>＋</span> Publicar</Button>}
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
         <DialogContent className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 top-auto z-[9999] max-h-[85dvh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-t-3xl border-white/10 bg-zinc-950 pb-8 text-white sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
@@ -533,7 +533,7 @@ export function TikTokFeed({ initialPostId, searchTerm, embedded = false }: TikT
           const isFollowingAuthor = following.data?.has(post.user_id) ?? false;
           const likeCount = Math.max(0, displayedLikeCount(post) + (isLiked === likedIds.has(post.id) ? 0 : isLiked ? 1 : -1));
           return (
-            <section key={post.id} data-video-slide={index} className="relative flex h-[100dvh] w-full snap-start items-center justify-center overflow-hidden">
+            <section key={post.id} data-video-slide={index} className="relative flex h-full w-full snap-start items-center justify-center overflow-hidden">
               <video
                 ref={(element) => { videoRefs.current[index] = element; }}
                 src={post.media_url}

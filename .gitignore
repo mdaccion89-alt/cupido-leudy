@@ -42,3 +42,6 @@ android/.gradle/
 android/app/build/
 android/local.properties
 *.apk
+*.aab
+*.jks
+*.keystore
