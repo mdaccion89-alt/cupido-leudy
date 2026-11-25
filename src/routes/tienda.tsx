@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CreditCard, Gift, Loader2, Play, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { CoinIcon } from "@/components/cupido/coin-icon";
+import { ReferralCard } from "@/components/cupido/referral-card";
 import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
 import { GiftGrid } from "@/components/cupido/gift-grid";
 import { PayPalCheckoutButtons } from "@/components/cupido/paypal-checkout-buttons";
@@ -362,6 +363,8 @@ function StorePage() {
           </p>
         </div>
       </header>
+
+      <ReferralCard userId={viewerId} />
 
       {(
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300/25 bg-gradient-to-r from-amber-400/[0.10] to-pink-500/[0.07] p-4">

@@ -15,6 +15,7 @@ import { Route as AjustesRouteImport } from './routes/ajustes'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ComunidadRouteImport } from './routes/comunidad'
+import { Route as DescargarRouteImport } from './routes/descargar'
 import { Route as DescubrirRouteImport } from './routes/descubrir'
 import { Route as DirectoRouteImport } from './routes/directo'
 import { Route as EliminarCuentaRouteImport } from './routes/eliminar-cuenta'
@@ -55,6 +56,11 @@ const ChatRoute = ChatRouteImport.update({
 const ComunidadRoute = ComunidadRouteImport.update({
   id: '/comunidad',
   path: '/comunidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DescargarRoute = DescargarRouteImport.update({
+  id: '/descargar',
+  path: '/descargar',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DescubrirRoute = DescubrirRouteImport.update({
@@ -120,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descargar': typeof DescargarRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/eliminar-cuenta': typeof EliminarCuentaRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descargar': typeof DescargarRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/eliminar-cuenta': typeof EliminarCuentaRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/chat': typeof ChatRoute
   '/comunidad': typeof ComunidadRoute
+  '/descargar': typeof DescargarRoute
   '/descubrir': typeof DescubrirRoute
   '/directo': typeof DirectoRoute
   '/eliminar-cuenta': typeof EliminarCuentaRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descargar'
     | '/descubrir'
     | '/directo'
     | '/eliminar-cuenta'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descargar'
     | '/descubrir'
     | '/directo'
     | '/eliminar-cuenta'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/chat'
     | '/comunidad'
+    | '/descargar'
     | '/descubrir'
     | '/directo'
     | '/eliminar-cuenta'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ChatRoute: typeof ChatRoute
   ComunidadRoute: typeof ComunidadRoute
+  DescargarRoute: typeof DescargarRoute
   DescubrirRoute: typeof DescubrirRoute
   DirectoRoute: typeof DirectoRoute
   EliminarCuentaRoute: typeof EliminarCuentaRoute
@@ -293,6 +306,13 @@ declare module '@tanstack/react-router' {
       path: '/comunidad'
       fullPath: '/comunidad'
       preLoaderRoute: typeof ComunidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/descargar': {
+      id: '/descargar'
+      path: '/descargar'
+      fullPath: '/descargar'
+      preLoaderRoute: typeof DescargarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/descubrir': {
@@ -382,6 +402,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ChatRoute: ChatRoute,
   ComunidadRoute: ComunidadRoute,
+  DescargarRoute: DescargarRoute,
   DescubrirRoute: DescubrirRoute,
   DirectoRoute: DirectoRoute,
   EliminarCuentaRoute: EliminarCuentaRoute,

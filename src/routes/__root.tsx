@@ -182,7 +182,7 @@ function ReferralTracker() {
 
   useEffect(() => {
     if (!session || handled.current) return;
-    const ref = getStoredReferral();
+    const ref = getStoredReferral() || String(session.user.user_metadata?.["referral_code"] ?? "");
     if (!ref) return;
     handled.current = true;
     void register({ data: { ref } })
@@ -253,6 +253,7 @@ function RootComponent() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [messageKeyboardOpen, setMessageKeyboardOpen] = useState(false);
   const isMessageRoute = pathname === "/chat" || pathname === "/mensajes";
+  const isDownloadRoute = pathname === "/descargar";
   const immersiveVideos = pathname.startsWith("/videos");
   const immersiveMessages = pathname === "/chat";
   const discoverWithBanner = pathname.startsWith("/descubrir");
@@ -309,20 +310,20 @@ function RootComponent() {
         <AdController />
         <ReferralTracker />
         <AndroidBackHandler />
-        <div className="relative flex h-[100dvh] min-h-[100svh] flex-col overflow-x-hidden">
-          {!immersive && <SiteHeader />}
-          {!immersive && <RouteShortcuts />}
+        <div className={`relative flex min-h-[100svh] flex-col overflow-x-hidden ${isDownloadRoute ? "min-h-[100dvh]" : "h-[100dvh]"}`}>
+          {!immersive && !isDownloadRoute && <SiteHeader />}
+          {!immersive && !isDownloadRoute && <RouteShortcuts />}
           <div
             translate="no"
-            className={`min-h-0 flex-1 overflow-x-hidden ${immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
+            className={`min-h-0 flex-1 overflow-x-hidden ${isDownloadRoute || immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
             style={discoverWithBanner ? { paddingBottom: "calc(14rem + env(safe-area-inset-bottom))" } : undefined}
           >
             <AccountScopedOutlet />
           </div>
-          {!immersive && !messageKeyboardOpen && <BottomNav />}
+          {!immersive && !isDownloadRoute && !messageKeyboardOpen && <BottomNav />}
         </div>
-        <EscudoWidget />
-        <TermsModal />
+        {!isDownloadRoute && <EscudoWidget />}
+        {!isDownloadRoute && <TermsModal />}
         <Toaster theme={theme} position="top-center" />
         </WeeklyRankingProvider>
       </AuthProvider>

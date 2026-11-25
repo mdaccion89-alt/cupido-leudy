@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getSupabaseServiceClient } from "@/lib/paypal-admin.server";
 import { COUNTRIES } from "@/lib/cupido";
 import { normalizeLoginPhone, phoneLoginEmail } from "@/lib/phone-identity";
+import { normalizeReferralCode } from "@/lib/referral";
 
 type PhoneAccountInput = {
   phone: string;
@@ -17,6 +18,7 @@ type PhoneAccountInput = {
   hasKids: boolean;
   hobbies: string;
   surveyCompleted: boolean;
+  referralCode: string;
 };
 
 function validatePhoneAccount(input: PhoneAccountInput) {
@@ -49,6 +51,7 @@ function validatePhoneAccount(input: PhoneAccountInput) {
     hasKids: Boolean(input.hasKids),
     hobbies: String(input.hobbies || "").trim().slice(0, 240),
     surveyCompleted: Boolean(input.surveyCompleted),
+    referralCode: normalizeReferralCode(input.referralCode),
   };
 }
 
@@ -73,6 +76,7 @@ export const createPhonePasswordAccount = createServerFn({ method: "POST" })
         has_kids: data.hasKids,
         hobbies: data.hobbies,
         survey_completed: data.surveyCompleted,
+        referral_code: data.referralCode,
       },
     });
     if (error) {

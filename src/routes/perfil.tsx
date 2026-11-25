@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { InviteButton } from "@/components/cupido/invite-button";
+import { ReferralCard } from "@/components/cupido/referral-card";
 import { AvatarFrameShop } from "@/components/cupido/avatar-frame-shop";
 import { FaceSelfieVerification } from "@/components/cupido/live-face-verification";
 import { ImageCropDialog } from "@/components/cupido/image-crop-dialog";
@@ -866,17 +866,7 @@ function ProfilePage() {
             </div>
           )}
 
-          {own && viewerId && (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-pink-400/25 bg-pink-500/[0.06] p-4">
-              <div>
-                <p className="text-sm font-medium text-white">Invita y gana +200 monedas brillantes</p>
-                <p className="mt-1 text-xs text-pink-100/70">
-                  Comparte tu enlace. Recibirás la recompensa cuando tu invitado apruebe su verificación facial.
-                </p>
-              </div>
-              <InviteButton userId={viewerId} />
-            </div>
-          )}
+          {own && viewerId && <ReferralCard userId={viewerId} />}
 
           {own && viewerId && (
             <div className="mt-6 space-y-3">

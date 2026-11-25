@@ -507,6 +507,7 @@ export type Database = {
           plan: string;
           plan_expires_at: string | null;
           referred_by: string | null;
+          referral_code: string | null;
           terms_accepted_at: string | null;
           updated_at: string;
         };
@@ -550,6 +551,7 @@ export type Database = {
           plan?: string;
           plan_expires_at?: string | null;
           referred_by?: string | null;
+          referral_code?: string | null;
           terms_accepted_at?: string | null;
           updated_at?: string;
         };
@@ -593,6 +595,7 @@ export type Database = {
           plan?: string;
           plan_expires_at?: string | null;
           referred_by?: string | null;
+          referral_code?: string | null;
           terms_accepted_at?: string | null;
           updated_at?: string;
         };
@@ -1555,7 +1558,7 @@ export type Database = {
       Args: { _account_details: string; _amount: number; _country_code: string; _method: string };
       Returns: string;
     };
-    cupido_register_referral: { Args: { _referrer: string }; Returns: undefined };
+    cupido_register_referral: { Args: { _referee: string; _referral_code: string }; Returns: boolean };
     cupido_review_verification: {
       Args: { _approve: boolean; _frames?: string[]; _user_id: string };
       Returns: undefined;

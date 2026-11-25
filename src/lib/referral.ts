@@ -1,30 +1,48 @@
 export const REFERRAL_KEY = "cupido_ref";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REFERRAL_CODE_PATTERN = /^[A-Z0-9]{6}$/;
 
-export function isValidReferralId(value: string | null | undefined): value is string {
-  return Boolean(value && UUID_PATTERN.test(value));
+export function normalizeReferralCode(value: string | null | undefined): string {
+  const code = value?.trim().toUpperCase() ?? "";
+  return REFERRAL_CODE_PATTERN.test(code) ? code : "";
 }
 
-export function captureReferralFromUrl(): void {
-  if (typeof window === "undefined") return;
-  const ref = new URLSearchParams(window.location.search).get("ref");
-  if (!isValidReferralId(ref)) return;
-  window.localStorage.setItem(REFERRAL_KEY, ref);
+export function isValidReferralCode(value: string | null | undefined): value is string {
+  return Boolean(normalizeReferralCode(value));
+}
+
+export function captureReferralFromUrl(): string {
+  if (typeof window === "undefined") return "";
+  const code = normalizeReferralCode(new URLSearchParams(window.location.search).get("ref"));
+  if (!code) return "";
+  try {
+    window.localStorage.setItem(REFERRAL_KEY, code);
+  } catch {
+    // The signup field can still keep the code in memory if storage is disabled.
+  }
+  return code;
 }
 
 export function getStoredReferral(): string {
   if (typeof window === "undefined") return "";
-  const ref = window.localStorage.getItem(REFERRAL_KEY);
-  return isValidReferralId(ref) ? ref : "";
+  try {
+    return normalizeReferralCode(window.localStorage.getItem(REFERRAL_KEY));
+  } catch {
+    return "";
+  }
 }
 
 export function clearStoredReferral(): void {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(REFERRAL_KEY);
-  window.localStorage.removeItem("cupido_referrer");
+  try {
+    window.localStorage.removeItem(REFERRAL_KEY);
+    window.localStorage.removeItem("cupido_referrer");
+  } catch {
+    // Storage may be disabled by the browser.
+  }
 }
 
-export function invitationLink(userId: string): string {
-  return `${window.location.origin}/?ref=${userId}`;
+export function invitationLink(referralCode: string): string {
+  const code = normalizeReferralCode(referralCode);
+  return `https://leudyia.onrender.com/descargar?ref=${encodeURIComponent(code)}`;
 }

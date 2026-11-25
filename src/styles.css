@@ -374,6 +374,36 @@
   animation: logo-float 4.2s ease-in-out infinite;
 }
 
+.download-page {
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(190, 24, 93, 0.16), transparent 36rem),
+    radial-gradient(ellipse at 100% 100%, rgba(217, 119, 6, 0.08), transparent 32rem),
+    #0d090f;
+}
+
+.download-progress-track {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.download-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #fb7185, #f9a8d4, #fbbf24);
+  box-shadow: 0 0 16px rgba(251, 113, 133, 0.38);
+  animation: download-progress 1.25s ease-in-out infinite;
+}
+
+@keyframes download-progress {
+  0% { transform: translateX(-105%); }
+  100% { transform: translateX(245%); }
+}
+
 .app-name-effect {
   position: relative;
   display: inline-block;

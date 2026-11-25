@@ -14,7 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { useAppLogo } from "@/lib/app-logo";
 import { BRAND, COUNTRIES, LOOKING_FOR, SLOGAN, countryFlag } from "@/lib/cupido";
-import { captureReferralFromUrl } from "@/lib/referral";
+import { captureReferralFromUrl, getStoredReferral, normalizeReferralCode } from "@/lib/referral";
 import { createPhonePasswordAccount } from "@/lib/phone-auth.functions";
 import { normalizeLoginPhone, phoneLoginEmail, phonePrefixForCountry } from "@/lib/phone-identity";
 
@@ -123,6 +123,7 @@ function AuthPage() {
   const [drinks, setDrinks] = useState(false);
   const [hasKids, setHasKids] = useState(false);
   const [hobbies, setHobbies] = useState("");
+  const [referralCode, setReferralCode] = useState(() => normalizeReferralCode(ref));
 
   const changePhoneCountry = (value: string) => {
     const currentPrefix = phonePrefixForCountry(countryCode);
@@ -133,7 +134,9 @@ function AuthPage() {
   };
 
   useEffect(() => {
-    captureReferralFromUrl();
+    const fromUrl = captureReferralFromUrl() || normalizeReferralCode(ref);
+    const stored = getStoredReferral();
+    if (fromUrl || stored) setReferralCode(fromUrl || stored);
   }, [ref]);
 
   useEffect(() => {
@@ -181,6 +184,11 @@ function AuthPage() {
       setSignupStep(1);
       return;
     }
+    if (referralCode && !normalizeReferralCode(referralCode)) {
+      toast.error("El código de invitación debe tener 6 letras o números.");
+      setSignupStep(1);
+      return;
+    }
     if (!isAdultDate(birthDate)) {
       toast.error("Debes tener al menos 18 años. Revisa tu fecha de nacimiento.");
       setSignupStep(1);
@@ -200,7 +208,7 @@ function AuthPage() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: authRedirectUrl(ref),
+          emailRedirectTo: authRedirectUrl(referralCode),
           data: {
             full_name: fullName.trim() || displayName.trim(),
             display_name: displayName.trim() || fullName.trim(),
@@ -214,6 +222,7 @@ function AuthPage() {
             has_kids: skipSurvey ? false : hasKids,
             hobbies: skipSurvey ? "" : hobbies.trim(),
             survey_completed: !skipSurvey,
+            referral_code: normalizeReferralCode(referralCode) || "",
           },
         },
       });
@@ -267,6 +276,10 @@ function AuthPage() {
       toast.error("Para crear la cuenta, completa tu nombre y confirma que tienes 18 anos o mas.");
       return;
     }
+    if (phoneSignup && referralCode && !normalizeReferralCode(referralCode)) {
+      toast.error("El código de invitación debe tener 6 letras o números.");
+      return;
+    }
     setBusy(true);
     try {
       if (phoneSignup) {
@@ -284,6 +297,7 @@ function AuthPage() {
           hasKids: phoneSurveySkipped ? false : hasKids,
           hobbies: phoneSurveySkipped ? "" : hobbies.trim(),
           surveyCompleted: !phoneSurveySkipped,
+          referralCode: normalizeReferralCode(referralCode),
         } });
         if (!result.ok) throw new Error("PHONE_ACCOUNT_CREATE_FAILED");
       }
@@ -317,7 +331,7 @@ function AuthPage() {
       const native = Capacitor.isNativePlatform();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: oauthRedirectUrl(ref), ...(native ? { skipBrowserRedirect: true } : {}) },
+        options: { redirectTo: oauthRedirectUrl(referralCode), ...(native ? { skipBrowserRedirect: true } : {}) },
       });
       if (error) throw error;
       if (native) {
@@ -467,6 +481,10 @@ function AuthPage() {
                   <Label htmlFor="signup-phone">Teléfono con código de país</Label>
                   <Input id="signup-phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="+1 809 555 1234" value={phone} onChange={(event) => setPhone(event.target.value)} />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-referral-code">Código de invitación (opcional)</Label>
+                  <Input id="signup-referral-code" autoComplete="off" maxLength={6} value={referralCode} onChange={(event) => setReferralCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="ABC123" className="uppercase tracking-[0.18em]" />
+                </div>
                 <Button type="button" className="w-full" disabled={busy} onClick={continueSignup}>Continuar</Button>
               </>
             ) : (
@@ -578,6 +596,10 @@ function AuthPage() {
                 <div className="space-y-2">
                   <Label htmlFor="phone-signup-birth">Fecha de nacimiento (+18)</Label>
                   <Input id="phone-signup-birth" type="date" max={new Date(new Date().setFullYear(new Date().getFullYear() - 18)).toISOString().slice(0, 10)} value={birthDate} onChange={(event) => setBirthDate(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone-signup-referral-code">Código de invitación (opcional)</Label>
+                  <Input id="phone-signup-referral-code" autoComplete="off" maxLength={6} value={referralCode} onChange={(event) => setReferralCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))} placeholder="ABC123" className="uppercase tracking-[0.18em]" />
                 </div>
                 <div className="space-y-2">
                   <Label>País</Label>
