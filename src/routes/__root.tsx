@@ -269,10 +269,9 @@ function GlobalFeedBanner() {
 
 function IntroSplash() {
   const [visible, setVisible] = useState(true);
-  const walletLabel = import.meta.env["VITE_PLAY_STORE_BUILD"] === "true" ? "Billetera Cupido" : "Saldo PayPal";
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => setVisible(false), 3000);
+    const timeout = window.setTimeout(() => setVisible(false), 4500);
     return () => window.clearTimeout(timeout);
   }, []);
 
@@ -304,8 +303,7 @@ function IntroSplash() {
           <Star className="absolute left-1/2 top-0 size-9 animate-splash-star fill-amber-200 text-amber-100 drop-shadow-[0_0_16px_rgba(251,191,36,0.95)]" />
         </div>
         <div className="text-center">
-          <p className="font-display text-2xl text-white drop-shadow-lg">Cupido Leudy ❤️</p>
-          <p className="mt-2 text-sm font-semibold text-amber-100">{walletLabel}</p>
+          <p className="font-display text-2xl text-white drop-shadow-lg">Bienvenido a Cupido Leudy ❤️</p>
         </div>
       </div>
     </div>
