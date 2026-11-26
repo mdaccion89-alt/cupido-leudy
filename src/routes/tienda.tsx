@@ -377,11 +377,12 @@ function StorePage() {
           </div>
           <Button
             type="button"
-            disabled={!siteSettings.ads_enabled || !areAdsEnabled()}
+            disabled={!siteSettings.ads_enabled || !areAdsEnabled() || adRewardOpen}
             onClick={() => setAdRewardOpen(true)}
             className="h-auto min-h-10 w-full whitespace-normal rounded-xl bg-amber-400 px-4 py-2 text-center text-xs font-bold text-amber-950 hover:bg-amber-300 sm:w-auto"
           >
-            <Play className="size-4 shrink-0 fill-current" /> Ver video y ganar 15 monedas gratis
+            {adRewardOpen ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Play className="size-4 shrink-0 fill-current" />}
+            {adRewardOpen ? "Cargando anuncio..." : "Ver anuncio · Reclamar 15 monedas"}
           </Button>
         </section>
       )}

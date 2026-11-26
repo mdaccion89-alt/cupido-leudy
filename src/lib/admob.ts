@@ -147,8 +147,8 @@ export async function maybeShowInterstitialAd(): Promise<void> {
 
 export type RewardedAdResult = "rewarded" | "dismissed" | "unavailable";
 
-export async function showRewardedAd(userId: string, sessionId: string): Promise<RewardedAdResult> {
-  if (!isNativeAds() || !adsEnabled || !userId || !sessionId) return "unavailable";
+export async function showRewardedAd(): Promise<RewardedAdResult> {
+  if (!isNativeAds() || !adsEnabled) return "unavailable";
   const ready = await initializeAdMob();
   if (!ready || !adsEnabled) return "unavailable";
 
@@ -176,10 +176,7 @@ export async function showRewardedAd(userId: string, sessionId: string): Promise
       settle("unavailable");
     }));
 
-    await AdMob.prepareRewardVideoAd({
-      adId: REWARDED_ID,
-      ssv: { userId, customData: sessionId },
-    });
+    await AdMob.prepareRewardVideoAd({ adId: REWARDED_ID });
 
     timeoutId = window.setTimeout(() => settle(rewarded ? "rewarded" : "unavailable"), 45_000);
     await AdMob.showRewardVideoAd({ adId: REWARDED_ID });

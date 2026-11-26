@@ -1217,6 +1217,7 @@ function ChatPage() {
           </nav>
           <Button
             type="button"
+            disabled={adOpen}
             onClick={() => {
               if (!viewerId) {
                 toast.info("Inicia sesión para ganar monedas viendo anuncios.");
@@ -1227,7 +1228,8 @@ function ChatPage() {
             }}
             className="mb-3 h-11 w-full shrink-0 justify-center gap-2 rounded-2xl bg-gradient-to-r from-amber-300 to-yellow-400 text-xs font-extrabold tracking-wide text-amber-950 shadow-md shadow-amber-500/15 hover:from-amber-200 hover:to-yellow-300"
           >
-            <CoinIcon className="size-5" /> GANA MONEDAS GRATIS
+            {adOpen ? <Loader2 className="size-5 animate-spin" /> : <CoinIcon className="size-5" />}
+            {adOpen ? "Cargando anuncio..." : "GANA MONEDAS GRATIS"}
           </Button>
       </div>
 

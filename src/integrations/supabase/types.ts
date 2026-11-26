@@ -1470,6 +1470,7 @@ export type Database = {
       cupido_live_heartbeat: { Args: { _room: string }; Returns: boolean };
       cupido_claim_daily_reward: { Args: never; Returns: Json };
       cupido_claim_ad_reward: { Args: { _user_id: string }; Returns: Json };
+      cupido_claim_ad_reward_authenticated: { Args: { _claim_key: string }; Returns: Json };
       cupido_admob_start_reward_session: { Args: { _user_id: string }; Returns: Json };
       cupido_admob_cancel_reward_session: { Args: { _user_id: string; _session_id: string }; Returns: boolean };
       cupido_admob_reward_status: { Args: { _user_id: string; _session_id: string }; Returns: Json };
