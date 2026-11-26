@@ -1,6 +1,37 @@
 ALTER TABLE public.user_credits
   ADD COLUMN IF NOT EXISTS ad_reward_balance integer NOT NULL DEFAULT 0;
 
+CREATE TABLE IF NOT EXISTS public.cupido_reward_claims (
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  reward_type text NOT NULL,
+  claim_key text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  CONSTRAINT cupido_reward_claims_user_type_key_key UNIQUE (user_id, reward_type, claim_key)
+);
+
+ALTER TABLE public.cupido_reward_claims
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'public.cupido_reward_claims'::regclass
+       AND conname = 'cupido_reward_claims_user_type_key_key'
+  ) THEN
+    ALTER TABLE public.cupido_reward_claims
+      ADD CONSTRAINT cupido_reward_claims_user_type_key_key UNIQUE (user_id, reward_type, claim_key);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS cupido_reward_claims_user_day_idx
+  ON public.cupido_reward_claims (user_id, created_at DESC);
+
+ALTER TABLE public.cupido_reward_claims ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.cupido_reward_claims FROM PUBLIC, anon, authenticated;
+GRANT ALL ON TABLE public.cupido_reward_claims TO service_role;
+
 INSERT INTO public.cupido_reward_claims (user_id, reward_type, claim_key, created_at)
 SELECT user_id, 'ad', 'ssv:' || transaction_id, confirmed_at
   FROM public.cupido_admob_reward_sessions
