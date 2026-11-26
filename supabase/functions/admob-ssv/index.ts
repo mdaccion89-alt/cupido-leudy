@@ -1,6 +1,6 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const EXPECTED_AD_UNIT = "ca-app-pub-9590752647129001/6042940724";
+const EXPECTED_AD_UNIT = "ca-app-pub-9590752647129001/3275280950";
 const EXPECTED_REWARD = 15;
 const GOOGLE_KEYS_URL = "https://www.gstatic.com/admob/reward/verifier-keys.json";
 

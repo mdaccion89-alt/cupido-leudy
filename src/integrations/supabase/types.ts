@@ -1473,6 +1473,7 @@ export type Database = {
       cupido_admob_start_reward_session: { Args: { _user_id: string }; Returns: Json };
       cupido_admob_cancel_reward_session: { Args: { _user_id: string; _session_id: string }; Returns: boolean };
       cupido_admob_reward_status: { Args: { _user_id: string; _session_id: string }; Returns: Json };
+      cupido_admob_claim_client_reward: { Args: { _user_id: string; _session_id: string; _claim_key: string }; Returns: Json };
       cupido_admob_confirm_reward: { Args: { _session_id: string; _user_id: string; _transaction_id: string; _reward_amount: number }; Returns: Json };
       cupido_get_my_gift_balance: { Args: never; Returns: number };
       cupido_get_live_earnings: {

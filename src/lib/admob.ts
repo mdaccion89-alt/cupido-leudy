@@ -10,7 +10,7 @@ import {
 export const APP_ID = "ca-app-pub-9590752647129001~4817488960";
 export const BANNER_ID = "ca-app-pub-9590752647129001/7954788199";
 export const INTERSTITIAL_ID = "ca-app-pub-9590752647129001/6833278215";
-export const REWARDED_ID = "ca-app-pub-9590752647129001/6042940724";
+export const REWARDED_ID = "ca-app-pub-9590752647129001/3275280950";
 
 const BANNER_BOTTOM_MARGIN = 168;
 const INTERSTITIAL_COOLDOWN_MS = 5 * 60_000;
@@ -47,20 +47,23 @@ export function initializeAdMob(): Promise<boolean> {
   if (!isNativeAds() || !adsEnabled) return Promise.resolve(false);
   if (!initialization) {
     initialization = (async () => {
+      let consentAllowsAds = true;
       try {
         const consent = await AdMob.requestConsentInfo();
-        let mayRequestAds = consent.canRequestAds;
         if (consent.isConsentFormAvailable && consent.status === AdmobConsentStatus.REQUIRED) {
           const updated = await AdMob.showConsentForm();
-          mayRequestAds = updated.canRequestAds;
+          consentAllowsAds = updated.canRequestAds;
         }
-        if (!mayRequestAds || !adsEnabled) return false;
-        await AdMob.initialize();
-        return true;
       } catch {
-        return false;
+        consentAllowsAds = true;
       }
-    })().catch(() => false);
+      if (!consentAllowsAds || !adsEnabled) return false;
+      await AdMob.initialize();
+      return true;
+    })().catch(() => {
+      initialization = null;
+      return false;
+    });
   }
   return initialization;
 }
@@ -149,23 +152,43 @@ export async function showRewardedAd(userId: string, sessionId: string): Promise
   const ready = await initializeAdMob();
   if (!ready || !adsEnabled) return "unavailable";
 
-  let listener: PluginListenerHandle | null = null;
+  const listeners: PluginListenerHandle[] = [];
   let rewarded = false;
+  let failed = false;
+  let timeoutId: number | undefined;
+  let settle!: (result: RewardedAdResult) => void;
+  const outcome = new Promise<RewardedAdResult>((resolve) => { settle = resolve; });
+
   try {
-    listener = await AdMob.addListener(RewardAdPluginEvents.Rewarded, () => {
-      // This local event only tells the UI that the ad completed. Credit is issued
-      // exclusively by the server after Google's signed SSV callback is verified.
+    listeners.push(await AdMob.addListener(RewardAdPluginEvents.Rewarded, () => {
       rewarded = true;
-    });
+      settle("rewarded");
+    }));
+    listeners.push(await AdMob.addListener(RewardAdPluginEvents.Dismissed, () => {
+      settle(failed ? "unavailable" : rewarded ? "rewarded" : "dismissed");
+    }));
+    listeners.push(await AdMob.addListener(RewardAdPluginEvents.FailedToLoad, () => {
+      failed = true;
+      settle("unavailable");
+    }));
+    listeners.push(await AdMob.addListener(RewardAdPluginEvents.FailedToShow, () => {
+      failed = true;
+      settle("unavailable");
+    }));
+
     await AdMob.prepareRewardVideoAd({
       adId: REWARDED_ID,
       ssv: { userId, customData: sessionId },
     });
-    await AdMob.showRewardVideoAd();
-    return rewarded ? "rewarded" : "dismissed";
+
+    timeoutId = window.setTimeout(() => settle(rewarded ? "rewarded" : "unavailable"), 45_000);
+    await AdMob.showRewardVideoAd({ adId: REWARDED_ID });
+    return await outcome;
   } catch {
-    return rewarded ? "rewarded" : "unavailable";
+    if (rewarded) return "rewarded";
+    return "unavailable";
   } finally {
-    if (listener) void listener.remove().catch(() => undefined);
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    for (const listener of listeners) await listener.remove().catch(() => undefined);
   }
 }

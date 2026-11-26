@@ -23,10 +23,31 @@ function rewardSessionId(value: unknown): string {
   return value;
 }
 
+function rewardClaimKey(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error("La clave de la recompensa no es válida.");
+  }
+  return value;
+}
+
+function readAdClaimResult(value: unknown): { awarded: number; balance: number; remaining: number } {
+  if (!value || typeof value !== "object") throw new Error("Supabase no confirmó la recompensa.");
+  const result = value as Record<string, unknown>;
+  const awarded = Number(result["awarded"]);
+  const balance = Number(result["balance"]);
+  const remaining = Number(result["remaining"]);
+  if (![awarded, balance, remaining].every(Number.isFinite)) {
+    throw new Error("Supabase no confirmó la recompensa del anuncio.");
+  }
+  return { awarded, balance, remaining };
+}
+
 function rewardError(error: { message?: string } | null, fallback: string): never {
   const message = error?.message ?? fallback;
   if (message.includes("AD_REWARD_DAILY_LIMIT")) throw new Error("Ya viste los 5 anuncios de hoy. Vuelve mañana ❤️");
   if (message.includes("AD_REWARD_SESSION_NOT_FOUND")) throw new Error("No encontramos la sesión de este anuncio.");
+  if (message.includes("AD_REWARD_SESSION_EXPIRED")) throw new Error("La sesión del anuncio venció. Vuelve a intentarlo.");
+  if (message.includes("AD_REWARD_INVALID")) throw new Error("No pudimos validar la recompensa del anuncio.");
   if (message.includes("NOT_ALLOWED")) throw new Error("La recompensa requiere una confirmación segura de AdMob.");
   throw new Error(message || fallback);
 }
@@ -70,6 +91,23 @@ export const cancelAdRewardSession = createServerFn({ method: "POST" })
     });
     if (error) rewardError(error, "No se pudo cerrar la sesión del anuncio.");
     return { ok: true };
+  });
+
+export const claimAdReward = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { sessionId: string; claimKey: string }) => ({
+    sessionId: rewardSessionId(input?.sessionId),
+    claimKey: rewardClaimKey(input?.claimKey),
+  }))
+  .handler(async ({ data, context }) => {
+    const admin = await getAdminClient();
+    const { data: result, error } = await admin.rpc("cupido_admob_claim_client_reward", {
+      _user_id: context.userId,
+      _session_id: data.sessionId,
+      _claim_key: data.claimKey,
+    });
+    if (error) rewardError(error, "No se pudo acreditar la recompensa del anuncio.");
+    return readAdClaimResult(result);
   });
 
 export const getAdRewardStatus = createServerFn({ method: "POST" })
