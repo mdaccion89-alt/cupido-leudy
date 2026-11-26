@@ -183,11 +183,11 @@ describe("credit and plan rules", () => {
 
   it("sells the current credit packages", () => {
     expect(CREDIT_PACKAGES.map((p) => [p.credits, p.price])).toEqual([
-      [5000, "19.99"],
-      [12000, "39.99"],
-      [30000, "89.99"],
-      [80000, "199.99"],
-      [1000000, "100.00"],
+      [5000, "17.99"],
+      [12000, "31.99"],
+      [30000, "62.99"],
+      [80000, "129.99"],
+      [1000000, "60.00"],
     ]);
     expect(findPackage("pack-999")).toBeUndefined();
   });

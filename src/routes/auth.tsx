@@ -701,7 +701,7 @@ function AuthPage() {
         </div>
 
         <p className="mt-5 text-center text-xs text-muted-foreground">
-          El invitado puede probar una sola vez. Al continuar aceptas nuestras condiciones de uso.
+          El invitado puede probar una sola vez. Al continuar aceptas nuestras condiciones de uso. Cupido Leudy es solo para mayores de 18 años.
         </p>
         <LegalLinks className="mt-3" />
       </div>

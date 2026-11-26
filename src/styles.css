@@ -41,6 +41,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-teal: var(--teal);
+  --color-mint: var(--mint);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-destructive: var(--destructive);
@@ -93,6 +94,7 @@
   --accent: oklch(0.27 0.02 50);
   --accent-foreground: oklch(0.96 0.01 75);
   --teal: oklch(0.78 0.11 200);
+  --mint: oklch(0.84 0.13 165);
   --destructive: oklch(0.65 0.21 25);
   --destructive-foreground: oklch(0.98 0 0);
   --border: oklch(1 0 0 / 9%);
@@ -146,6 +148,7 @@
   --primary: #e85d75;
   --primary-foreground: #ffffff;
   --primary-glow: #fb7185;
+  --mint: #0f766e;
   --gradient-panel: linear-gradient(160deg, #ffffff 0%, #f8fafc 100%);
   --shadow-panel: 0 12px 32px -24px rgb(15 23 42 / 20%);
   --sidebar: var(--surface);
