@@ -12,6 +12,7 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Star, Wallet } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 
 import appCss from "../styles.css?url";
@@ -266,6 +267,51 @@ function GlobalFeedBanner() {
   );
 }
 
+function IntroSplash() {
+  const [visible, setVisible] = useState(true);
+  const walletLabel = import.meta.env["VITE_PLAY_STORE_BUILD"] === "true" ? "Billetera Cupido" : "Saldo PayPal";
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setVisible(false), 3000);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] overflow-hidden bg-[#080607]" role="dialog" aria-label="Bienvenida a Cupido Leudy">
+      <video
+        src="/intro-cupido.mp4"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        className="absolute inset-0 size-full object-cover opacity-70"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/85" />
+      <button
+        type="button"
+        onClick={() => setVisible(false)}
+        className="absolute right-5 top-[calc(env(safe-area-inset-top)+1.25rem)] z-10 rounded-full border border-white/20 bg-black/45 px-4 py-2 text-xs font-semibold text-white backdrop-blur-xl transition hover:bg-black/65"
+      >
+        Saltar
+      </button>
+      <div className="absolute inset-0 z-0 flex flex-col items-center justify-center gap-6 text-white">
+        <div className="relative grid size-24 place-items-center rounded-[1.75rem] border border-amber-200/25 bg-black/45 shadow-[0_20px_80px_-20px_rgba(244,63,94,0.75)] backdrop-blur-xl">
+          <span className="absolute inset-0 rounded-[1.75rem] animate-pulse-glow" />
+          <Wallet className="size-11 text-amber-100" strokeWidth={1.6} />
+          <Star className="absolute left-1/2 top-0 size-9 animate-splash-star fill-amber-200 text-amber-100 drop-shadow-[0_0_16px_rgba(251,191,36,0.95)]" />
+        </div>
+        <div className="text-center">
+          <p className="font-display text-2xl text-white drop-shadow-lg">Cupido Leudy ❤️</p>
+          <p className="mt-2 text-sm font-semibold text-amber-100">{walletLabel}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -320,6 +366,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <IntroSplash />
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <AuthProvider>
         <WeeklyRankingProvider>

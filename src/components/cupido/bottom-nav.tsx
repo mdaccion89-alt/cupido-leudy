@@ -251,7 +251,7 @@ export function BottomNav() {
       </nav>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent translate="no" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] top-auto left-3 max-h-[88dvh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-3xl border-amber-200/15 bg-gradient-to-b from-[#211710] via-[#17130f] to-[#17130f] p-5 text-white sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2">
+        <DialogContent translate="no" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] top-auto left-3 h-auto max-h-[45vh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-[1.75rem] border-amber-200/15 bg-gradient-to-b from-[#211710] via-[#17130f] to-[#17130f] p-5 text-white sm:inset-x-auto sm:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] sm:left-1/2 sm:top-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:translate-y-0">
           <DialogHeader className="text-left">
             <DialogTitle className="font-display text-lg text-white">Crear en Cupido</DialogTitle>
             <DialogDescription>Publica al instante o elige una experiencia.</DialogDescription>
