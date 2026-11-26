@@ -247,6 +247,25 @@ function AdController() {
   return null;
 }
 
+function GlobalFeedBanner() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const settings = useQuery(siteSettingsQuery);
+  if (pathname !== "/" && pathname !== "/descubrir") return null;
+
+  const text = settings.data?.banner_text?.trim() ?? "";
+  const image = settings.data?.banner_image?.trim() ?? "";
+  if (!text && !image) return null;
+
+  return (
+    <aside className="sticky top-2 z-30 mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-[1.5rem] border border-pink-300/20 bg-gradient-to-r from-pink-500/15 via-[#17130f]/90 to-amber-300/15 px-4 py-3 text-center shadow-[0_18px_50px_-28px_rgba(244,63,94,0.65)] backdrop-blur-xl">
+      <div className="flex items-center justify-center gap-3">
+        {image ? <img src={image} alt="" className="h-10 w-14 shrink-0 rounded-xl object-cover ring-1 ring-white/15" /> : null}
+        <p className="text-sm font-semibold text-white drop-shadow-sm">{text || "Cupido Leudy ❤️"}</p>
+      </div>
+    </aside>
+  );
+}
+
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -318,6 +337,7 @@ function RootComponent() {
             className={`min-h-0 flex-1 overflow-x-hidden ${isDownloadRoute || immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
             style={discoverWithBanner ? { paddingBottom: "calc(14rem + env(safe-area-inset-bottom))" } : undefined}
           >
+            <GlobalFeedBanner />
             <AccountScopedOutlet />
           </div>
           {!immersive && !isDownloadRoute && !messageKeyboardOpen && <BottomNav />}

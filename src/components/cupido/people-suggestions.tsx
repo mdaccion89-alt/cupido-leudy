@@ -123,7 +123,7 @@ export function PeopleSuggestions({ search = "", title = "Sugerencias para ti" }
                 ? `${countryFlag(person.country_code)} ${countryName(person.country_code)}`
                 : person.hobbies?.split(",")[0]?.trim() || "Descubre su perfil";
             return (
-              <article key={person.id} className="relative flex w-36 shrink-0 flex-col items-center rounded-2xl border border-white/10 bg-zinc-900/90 p-3">
+              <article key={person.id} className="relative flex w-36 shrink-0 flex-col items-center rounded-2xl border border-pink-300/10 bg-gradient-to-b from-white/[0.07] via-zinc-900/90 to-amber-200/[0.05] p-3 shadow-[0_16px_45px_-28px_rgba(244,63,94,0.55)] backdrop-blur">
                 <button type="button" aria-label={`Descartar a ${name}`} title="Descartar" onClick={() => setDismissedIds((current) => [...current, person.id])} className="absolute right-2 top-2 grid size-6 place-items-center rounded-full text-white/55 transition hover:bg-white/10 hover:text-white"><X className="size-3.5" /></button>
                 <Link to="/perfil" search={{ userId: person.id }} aria-label={`Ver perfil de ${name}`} className="mb-2 rounded-full bg-[linear-gradient(135deg,#ec4899,#f59e0b)] p-[3px]">
                   <Avatar userId={person.id} className="size-14 border-2 border-zinc-900">

@@ -24,10 +24,11 @@ type VideoCardProps = {
 
 export function VideoCard({ video, liked, onLike }: VideoCardProps) {
   return (
-    <article className="overflow-hidden rounded-3xl border border-white/10 bg-black/40">
+    <article className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-gradient-to-b from-white/[0.08] via-black/40 to-amber-200/[0.06] shadow-[0_20px_70px_-30px_rgba(244,63,94,0.55)] backdrop-blur">
       <div className="relative aspect-[9/14] max-h-[520px] w-full bg-black">
         <CupidoVideoPlayer src={video.media_url} controls loop className="h-full w-full object-cover" />
-        <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-pink-500/10 via-transparent to-amber-300/10" />
+        <span className="pointer-events-none absolute left-3 top-3 rounded-full border border-white/15 bg-black/60 px-2.5 py-1 text-[11px] text-white backdrop-blur">
           <Play className="mr-1 inline h-3 w-3 fill-white" /> Short
         </span>
       </div>

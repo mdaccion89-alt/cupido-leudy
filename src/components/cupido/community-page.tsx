@@ -342,20 +342,22 @@ export function CommunityPage({ highlightPostId, searchTerm }: { highlightPostId
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <section className="mb-6">
-        <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
-          <Users className="h-3.5 w-3.5 text-pink-300" /> Comunidad
-        </p>
-        <h1 className="font-display text-3xl text-white sm:text-4xl">Personas reales, conexiones reales</h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          Filtra por país, intereses e insignia azul. Envía un me gusta, sigue o agrega como amigo.
-        </p>
+      <section className="panel grain mb-6 overflow-hidden">
+        <div className="border-b border-white/[0.06] px-5 py-5 sm:px-6">
+          <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs uppercase tracking-[0.2em] text-muted-foreground">
+            <Users className="h-3.5 w-3.5 text-pink-300" /> Comunidad
+          </p>
+          <h1 className="font-display text-3xl text-white sm:text-4xl">Personas reales, conexiones reales</h1>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Filtra por país, intereses e insignia azul. Envía un me gusta, sigue o agrega como amigo.
+          </p>
+        </div>
       </section>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Vistas de Descubrir" className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.03] p-1">
           {([["online", "En Línea"], ["live", "En directo"], ["following", "Siguiendo"]] as const).map(([value, label]) => (
-            <button key={value} type="button" aria-pressed={discoveryView === value} onClick={() => setDiscoveryView(value)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold ${discoveryView === value ? "bg-pink-500/20 text-pink-100" : "text-muted-foreground hover:text-white"}`}>{label}</button>
+            <button key={value} type="button" aria-pressed={discoveryView === value} onClick={() => setDiscoveryView(value)} className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold ${discoveryView === value ? "bg-gradient-to-r from-pink-500/30 to-amber-300/20 text-white shadow-[0_8px_22px_-12px_rgba(244,63,94,0.8)]" : "text-muted-foreground hover:text-white"}`}>{label}</button>
           ))}
         </nav>
         <div className="flex min-w-44 items-center gap-2">

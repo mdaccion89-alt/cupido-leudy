@@ -1,10 +1,28 @@
 import { useEffect, useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Compass, MessageCircle, Plus, Radio, UserRound, Video } from "lucide-react";
+import { Clapperboard, Coins, Compass, Loader2, MessageCircle, Plus, Radio, UploadCloud, UserRound, Video } from "lucide-react";
+import { toast } from "sonner";
+import { AdRewardDialog } from "@/components/cupido/ad-reward-dialog";
+import { MediaComposer } from "@/components/cupido/media-composer";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth-context";
+import { mediaFilterCss, type MediaFilterId } from "@/lib/media-filters";
+import { createPost } from "@/lib/posts";
+import { compressImageFile, isVideoFile, readVideoDuration, safeExtension, videoContentType, videoFileExtension } from "@/lib/storage";
 import { supabase } from "@/integrations/supabase/client";
+
+function errorMessage(value: unknown, fallback: string): string {
+  if (value instanceof Error) return value.message || fallback;
+  if (value && typeof value === "object" && "message" in value) {
+    const message = String((value as { message?: unknown }).message ?? "");
+    if (message) return message;
+  }
+  return fallback;
+}
 
 function matchesVideos(path: string) {
   return path.startsWith("/videos");
@@ -77,10 +95,16 @@ export function RouteShortcuts() {
 
 export function BottomNav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navigate = useNavigate();
   const { session } = useAuth();
   const viewerId = session?.user.id ?? null;
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
+  const [rewardOpen, setRewardOpen] = useState(false);
+  const [draft, setDraft] = useState<{ file: File; filter: MediaFilterId } | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [caption, setCaption] = useState("");
+  const [uploading, setUploading] = useState(false);
   const unread = useQuery({
     queryKey: ["cupido-unread-messages", viewerId],
     enabled: Boolean(viewerId),
@@ -100,6 +124,89 @@ export function BottomNav() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [queryClient, viewerId]);
+
+  useEffect(() => {
+    if (!draft) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(draft.file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [draft]);
+
+  const handlePick = (file: File, filter: MediaFilterId) => {
+    setDraft({ file, filter });
+  };
+
+  const handlePublish = async () => {
+    if (!viewerId) {
+      setCreateOpen(false);
+      toast.error("Inicia sesión para publicar.");
+      void navigate({ to: "/auth", search: { ref: "" } });
+      return;
+    }
+    if (!draft) {
+      toast.error("Elige una foto o un video primero.");
+      return;
+    }
+
+    const file = draft.file;
+    const isVideo = isVideoFile(file);
+    const isImage = file.type.startsWith("image/");
+    if (!isVideo && !isImage) {
+      toast.error("Elige una foto o un video corto.");
+      return;
+    }
+    const extension = isVideo ? videoFileExtension(file) : safeExtension(file.name, isImage ? (file.type.split("/")[1] ?? "jpg").replace(/^jpeg$/, "jpg") : "").toLowerCase();
+    const imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "heic", "avif"];
+    if (!isVideo && !imageExtensions.includes(extension)) {
+      toast.error("Formato de imagen no admitido.");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error(isVideo ? "El video debe pesar menos de 50 MB." : "La foto debe pesar menos de 50 MB.");
+      return;
+    }
+
+    setUploading(true);
+    let uploadedPath: string | null = null;
+    let uploadedBucket: "cupido-media" | "media" = "cupido-media";
+    try {
+      let uploadFile = file;
+      if (isVideo) {
+        const duration = await readVideoDuration(uploadFile);
+        if (duration !== null && duration > 30) throw new Error("Los videos deben durar máximo 30 segundos.");
+      } else {
+        uploadFile = await compressImageFile(uploadFile, 200 * 1024);
+      }
+      const finalExtension = isVideo ? extension : safeExtension(uploadFile.name, extension);
+      const path = `${viewerId}/${Date.now()}.${finalExtension}`;
+      const contentType = isVideo ? videoContentType(uploadFile, finalExtension) : uploadFile.type || "image/jpeg";
+      let uploadResult = await supabase.storage.from("cupido-media").upload(path, uploadFile, { contentType, upsert: true });
+      if (uploadResult.error) {
+        uploadedBucket = "media";
+        uploadResult = await supabase.storage.from("media").upload(path, uploadFile, { contentType, upsert: true });
+      }
+      if (uploadResult.error) throw uploadResult.error;
+      uploadedPath = path;
+      const { data: publicData } = supabase.storage.from(uploadedBucket).getPublicUrl(path);
+      const url = publicData?.publicUrl ?? "";
+      if (!url) throw new Error("No se pudo obtener la URL pública del archivo.");
+      await createPost({ userId: viewerId, caption, url, isVideo, kind: isVideo ? "video" : "photo", filterName: draft.filter });
+      setCaption("");
+      setDraft(null);
+      toast.success(isVideo ? "Video publicado en tu muro ❤️" : "Foto publicada en tu muro ❤️");
+      await queryClient.invalidateQueries({ queryKey: ["cupido-media"] });
+      await queryClient.invalidateQueries({ queryKey: ["cupido-profile-posts"] });
+      setCreateOpen(false);
+    } catch (error) {
+      if (uploadedPath) void supabase.storage.from(uploadedBucket).remove([uploadedPath]);
+      toast.error(errorMessage(error, "No se pudo publicar. Inténtalo de nuevo."));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   return (
     <>
@@ -144,18 +251,60 @@ export function BottomNav() {
       </nav>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent translate="no" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] top-auto left-3 w-auto max-w-none translate-x-0 translate-y-0 rounded-3xl border-amber-200/15 bg-[#17130f] p-5 sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2">
+        <DialogContent translate="no" className="fixed inset-x-3 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] top-auto left-3 max-h-[88dvh] w-auto max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-3xl border-amber-200/15 bg-gradient-to-b from-[#211710] via-[#17130f] to-[#17130f] p-5 text-white sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2">
           <DialogHeader className="text-left">
             <DialogTitle className="font-display text-lg text-white">Crear en Cupido</DialogTitle>
-            <DialogDescription>Comparte algo nuevo o saluda en directo.</DialogDescription>
+            <DialogDescription>Publica al instante o elige una experiencia.</DialogDescription>
           </DialogHeader>
+
           <div className="grid gap-2">
-            <CreateAction to="/muro" label="Subir video" description="Publica un video en tu muro" icon={Video} onSelect={() => setCreateOpen(false)} />
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <Label className="text-xs text-amber-100/90">Vista previa</Label>
+                <span className="text-[11px] text-muted-foreground">Foto o video hasta 30 s</span>
+              </div>
+              <MediaComposer disabled={uploading} onFile={handlePick} galleryLabel="Elegir foto o video" />
+              {draft && previewUrl ? (
+                <div className="mt-3 overflow-hidden rounded-2xl border border-pink-300/15 bg-black/40">
+                  {isVideoFile(draft.file) ? (
+                    <video src={previewUrl} controls playsInline className="max-h-64 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+                  ) : (
+                    <img src={previewUrl} alt="Vista previa de tu publicación" className="max-h-64 w-full object-contain" style={{ filter: mediaFilterCss(draft.filter) }} />
+                  )}
+                  <p className="truncate px-3 py-2 text-[11px] text-white/70">{draft.file.name}</p>
+                </div>
+              ) : (
+                <div className="mt-3 grid h-32 place-items-center rounded-2xl border border-dashed border-white/10 bg-black/20 text-center text-xs text-muted-foreground">
+                  Elige un archivo para verlo aquí antes de publicar.
+                </div>
+              )}
+              <Textarea
+                value={caption}
+                onChange={(event) => setCaption(event.target.value)}
+                placeholder="Escribe un mensaje para tu publicación…"
+                className="mt-3 min-h-20 resize-none"
+                disabled={uploading}
+              />
+              <Button type="button" variant="hero" className="mt-2 w-full" disabled={uploading || !draft} onClick={() => void handlePublish()}>
+                {uploading ? <Loader2 className="size-4 animate-spin" /> : <UploadCloud className="size-4" />}
+                {uploading ? "Publicando…" : "Publicar ahora"}
+              </Button>
+            </div>
+            <Button type="button" variant="glass" className="w-full justify-start" onClick={() => { setCreateOpen(false); setRewardOpen(true); }}>
+              <Coins className="size-5 text-amber-200" />
+              <span className="min-w-0"><span className="block text-sm font-semibold">Ganar 15 monedas</span><span className="block text-xs text-muted-foreground">Ver un anuncio patrocinado</span></span>
+            </Button>
+          </div>
+
+          <div className="my-1 h-px bg-white/10" />
+          <div className="grid gap-2">
+            <CreateAction to="/muro" label="Subir desde el muro" description="Más opciones para publicar" icon={Video} onSelect={() => setCreateOpen(false)} />
             <CreateAction to="/historia" label="Historia 24h" description="Foto, video o estado con emojis" icon={Clapperboard} onSelect={() => setCreateOpen(false)} />
             <CreateAction to="/directo" label="Iniciar Live" description="Transmite en vivo con tu comunidad" icon={Radio} onSelect={() => setCreateOpen(false)} />
           </div>
         </DialogContent>
       </Dialog>
+      <AdRewardDialog open={rewardOpen} onOpenChange={setRewardOpen} onRewarded={() => void queryClient.invalidateQueries()} />
     </>
   );
 }

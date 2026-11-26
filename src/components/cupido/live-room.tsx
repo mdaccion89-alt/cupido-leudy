@@ -1651,7 +1651,7 @@ export function LiveRoom({
       }
       exitLive();
     }}>
-      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-black p-0 pt-11 pb-24 text-white sm:!max-w-md">
+      <DialogContent className="!fixed !inset-y-0 !left-1/2 !top-0 !z-[80] !m-0 !mx-auto !h-[100dvh] !min-h-[100dvh] !max-h-[100dvh] !w-full !max-w-md !-translate-x-1/2 !translate-y-0 overflow-hidden rounded-none border-0 bg-[radial-gradient(circle_at_top,rgba(244,63,94,0.18),transparent_38%),radial-gradient(circle_at_bottom,rgba(251,191,36,0.12),transparent_34%),#000] p-0 pt-11 pb-24 text-white shadow-[0_0_80px_-20px_rgba(244,63,94,0.5)] sm:!max-w-md">
         {!cleanView && role === "viewer" && <DialogHeader className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-20 max-h-28 w-[min(72vw,19rem)] overflow-y-auto overscroll-contain rounded-2xl border border-white/15 bg-black/40 p-2 backdrop-blur-sm">
           <DialogTitle className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <Avatar userId={hostId} className="size-8 shrink-0 border border-pink-300/60"><AvatarImage src={hostAvatar} alt={hostName} /><AvatarFallback>{hostName.slice(0, 1) || "C"}</AvatarFallback></Avatar>

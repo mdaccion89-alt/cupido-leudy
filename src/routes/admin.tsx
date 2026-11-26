@@ -63,7 +63,7 @@ type AdminUser = {
 type AdminSnapshot = {
   settings: Partial<AdminSettings>;
   users: AdminUser[];
-  stats: { userCount: number; credits: number; pendingWithdrawals: number };
+  stats: { userCount: number; postCount: number; activeLiveCount: number; credits: number; pendingWithdrawals: number };
   warnings: string[];
 };
 
@@ -91,7 +91,7 @@ async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     }
   };
 
-  const [settings, profiles, credits, roles, creators, loginMetadata, userCount, pendingWithdrawals] = await Promise.all([
+  const [settings, profiles, credits, roles, creators, loginMetadata, userCount, postCount, activeLiveCount, pendingWithdrawals] = await Promise.all([
     read("la configuración", () => moderationDb.from("site_settings").select("*").eq("id", 1).maybeSingle(), null),
     read("los usuarios", () => moderationDb.from("profiles")
       .select("id,email,display_name,full_name,plan,plan_expires_at,created_at,credits,credits_balance")
@@ -104,6 +104,19 @@ async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
       .select("user_id,country_code,language_code,last_ip"), [] as LoginMetadataRow[]),
     read("el total de usuarios", async () => {
       const result = await moderationDb.from("profiles").select("id", { count: "exact", head: true });
+      return { data: result.count ?? 0, error: result.error };
+    }, 0),
+    read("el total de publicaciones", async () => {
+      const result = await moderationDb.from("cupido_posts").select("id", { count: "exact", head: true });
+      return { data: result.count ?? 0, error: result.error };
+    }, 0),
+    read("las Lives activas", async () => {
+      const stale = await moderationDb.rpc("cupido_end_stale_lives", {});
+      if (stale.error) throw stale.error;
+      const result = await moderationDb.from("cupido_live_rooms")
+        .select("id", { count: "exact", head: true })
+        .eq("is_live", true)
+        .gt("last_heartbeat_at", new Date(Date.now() - 35_000).toISOString());
       return { data: result.count ?? 0, error: result.error };
     }, 0),
     read("el total de retiros", async () => {
@@ -139,6 +152,8 @@ async function fetchAdminSnapshot(): Promise<AdminSnapshot> {
     users,
     stats: {
       userCount: Number(userCount),
+      postCount: Number(postCount),
+      activeLiveCount: Number(activeLiveCount),
       credits: credits.reduce((sum, row) => sum + Number(row.balance ?? 0), 0) || users.reduce((sum, user) => sum + user.balance, 0),
       pendingWithdrawals: Number(pendingWithdrawals),
     },
@@ -203,7 +218,12 @@ function AdminDashboard() {
   const queryClient = useQueryClient();
   const snapshot = useQuery({ queryKey: ["admin-snapshot"], queryFn: fetchAdminSnapshot });
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState("");
   const users = snapshot.data?.users ?? [];
+  const userQuery = userSearch.trim().toLocaleLowerCase();
+  const filteredUsers = userQuery
+    ? users.filter((user) => `${user.display_name ?? ""} ${user.email ?? ""}`.toLocaleLowerCase().includes(userQuery))
+    : users;
   const selectedDeleteUser = users.find((user) => user.id === selectedUserId) ?? null;
 
   useEffect(() => {
@@ -475,6 +495,7 @@ function AdminDashboard() {
     },
     onSuccess: () => {
       invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["site-settings"] });
       toast.success("Identidad actualizada.");
     },
     onError: () => toast.error("No se pudo guardar la identidad."),
@@ -527,8 +548,10 @@ function AdminDashboard() {
         </p>
       )}
 
-      <section className="mb-6 grid gap-3 sm:grid-cols-3" aria-label="Estadísticas del panel">
+      <section className="mb-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Estadísticas del panel">
         <AdminStat label="Usuarios" value={snapshot.data?.stats.userCount ?? users.length} />
+        <AdminStat label="Publicaciones" value={snapshot.data?.stats.postCount ?? 0} />
+        <AdminStat label="Lives activas" value={snapshot.data?.stats.activeLiveCount ?? 0} />
         <AdminStat label="Monedas en circulación" value={(snapshot.data?.stats.credits ?? 0).toLocaleString("es")} />
         <AdminStat label="Retiros pendientes" value={snapshot.data?.stats.pendingWithdrawals ?? 0} />
       </section>
@@ -618,8 +641,8 @@ function AdminDashboard() {
                   />
                 )}
               </Field>
-              <Field label="Banner">
-                <div className="flex items-center gap-3">
+              <Field label="Banner global del feed">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     type="button"
                     size="sm"
@@ -628,6 +651,24 @@ function AdminDashboard() {
                     onClick={() => bannerInput.current?.click()}
                   >
                     <Upload /> Subir banner
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="hero"
+                    disabled={saveSettings.isPending || (!settings.banner_text.trim() && !settings.banner_image_url.trim())}
+                    onClick={() => saveSettings.mutate(settings)}
+                  >
+                    <Check /> Publicar arriba
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={saveSettings.isPending || (!settings.banner_text && !settings.banner_image_url)}
+                    onClick={() => saveSettings.mutate({ ...settings, banner_text: "", banner_image_url: "" })}
+                  >
+                    <X /> Quitar banner
                   </Button>
                   <input
                     ref={bannerInput}
@@ -681,9 +722,18 @@ function AdminDashboard() {
 
         <TabsContent value="usuarios" className="mt-6">
           <section className="panel grain w-full max-w-full min-w-0 overflow-x-hidden p-4 sm:p-6">
-            <h2 className="mb-4 font-semibold">Usuarios ({users.length})</h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-semibold">Usuarios ({filteredUsers.length})</h2>
+              <Input
+                value={userSearch}
+                onChange={(event) => setUserSearch(event.target.value)}
+                placeholder="Buscar por nombre o correo"
+                aria-label="Buscar usuarios por nombre o correo"
+                className="w-full sm:w-72"
+              />
+            </div>
             <div className="mb-4 space-y-3 md:hidden">
-              {users.map((user) => (
+              {filteredUsers.map((user) => (
                 <article
                   key={user.id}
                   data-delete-selected={selectedUserId === user.id}
@@ -763,7 +813,7 @@ function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <tr key={user.id} className="border-t border-border/60">
                     <td className="py-3">
                       <div className="font-medium">

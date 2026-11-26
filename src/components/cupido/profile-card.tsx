@@ -62,7 +62,7 @@ export function ProfileCard({
   const displayFollowers = displayedFollowerCount(profile.follower_count, profile.email, profile.isAdmin);
 
   return (
-    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] p-0 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.07] sm:p-5">
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-pink-500/[0.05] p-0 backdrop-blur transition hover:-translate-y-1 hover:border-pink-400/40 hover:bg-white/[0.08] sm:p-5">
       <div className="relative aspect-[3/4] overflow-hidden rounded-t-3xl bg-slate-900 sm:hidden">
         <Link to="/perfil" search={{ userId: profile.id }} aria-label={`Ver perfil de ${profile.display_name}`} className="absolute inset-0 block">
           {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.display_name} className="size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center bg-gradient-to-br from-violet-950 to-rose-950 text-4xl font-bold text-white/80">{initials}</div>}
@@ -124,6 +124,11 @@ export function ProfileCard({
             <span className={`size-1.5 rounded-full ${profile.isOnline ? "bg-emerald-400" : "bg-zinc-500"}`} />
             {profile.isOnline ? "En línea" : "Desconectado"}
           </p>
+          {profile.live_id && (
+            <Link to="/directo" search={{ liveId: profile.live_id }} className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-rose-300/20 bg-rose-500/15 px-2 py-1 text-[10px] font-semibold text-rose-100">
+              <span className="size-1.5 animate-pulse rounded-full bg-rose-300" /> En directo <Eye className="size-3" /> {profile.live_viewers ?? 0}
+            </Link>
+          )}
           <p className="mt-1 text-xs text-pink-300/80">
             {displayFollowers.toLocaleString("es")} seguidores · {profile.friend_count.toLocaleString("es")} amigos
           </p>
