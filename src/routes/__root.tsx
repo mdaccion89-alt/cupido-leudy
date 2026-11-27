@@ -12,7 +12,7 @@ import {
   type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Star, Wallet } from "lucide-react";
+import { Star, Wallet, X } from "lucide-react";
 import { useServerFn } from "@tanstack/react-start";
 
 import appCss from "../styles.css?url";
@@ -22,6 +22,7 @@ import { TermsModal } from "@/components/cupido/terms-modal";
 import { EscudoWidget } from "@/components/cupido/escudo-widget";
 import { WeeklyRankingProvider } from "@/components/cupido/weekly-ranking";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { hideFeedBanner, initializeAdMob, maybeShowInterstitialAd, setAdsEnabled, showFeedBanner } from "@/lib/admob";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { supabase } from "@/integrations/supabase/client";
@@ -31,6 +32,7 @@ import { registerCupidoReferral } from "@/lib/referral.functions";
 import { captureReferralFromUrl, clearStoredReferral, getStoredReferral } from "@/lib/referral";
 
 const NATIVE_SERVER_ORIGIN = "https://leudyia.onrender.com";
+const WELCOME_BANNER_SESSION_KEY = "cupido-welcome-banner-shown";
 
 if (typeof window !== "undefined" && Capacitor.isNativePlatform()) {
   const originalFetch = window.fetch.bind(window);
@@ -251,20 +253,40 @@ function AdController() {
 function GlobalFeedBanner() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const settings = useQuery(siteSettingsQuery);
-  if (pathname !== "/" && pathname !== "/descubrir") return null;
-
+  const started = useRef(false);
   const text = settings.data?.banner_text?.trim() ?? "";
   const image = settings.data?.banner_image?.trim() ?? "";
-  if (!text && !image) return null;
 
-  return (
-    <aside className="sticky top-2 z-30 mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-[1.5rem] border border-pink-300/20 bg-gradient-to-r from-pink-500/15 via-[#17130f]/90 to-amber-300/15 px-4 py-3 text-center shadow-[0_18px_50px_-28px_rgba(244,63,94,0.65)] backdrop-blur-xl">
-      <div className="flex items-center justify-center gap-3">
-        {image ? <img src={image} alt="" className="h-10 w-14 shrink-0 rounded-xl object-cover ring-1 ring-white/15" /> : null}
-        <p className="text-sm font-semibold text-white drop-shadow-sm">{text || "Cupido Leudy ❤️"}</p>
-      </div>
-    </aside>
-  );
+  useEffect(() => {
+    if (pathname !== "/" && pathname !== "/descubrir") return;
+    if (typeof window === "undefined" || started.current || !settings.data) return;
+    if (!text && !image) return;
+
+    started.current = true;
+    window.setTimeout(() => {
+      if (window.sessionStorage.getItem(WELCOME_BANNER_SESSION_KEY) === "true") return;
+      window.sessionStorage.setItem(WELCOME_BANNER_SESSION_KEY, "true");
+      toast.custom(
+        (id) => (
+          <div className="pointer-events-auto flex w-[min(92vw,28rem)] items-start gap-3 rounded-2xl border border-pink-300/25 bg-[#17130f]/95 px-4 py-3 text-left shadow-[0_18px_50px_-24px_rgba(244,63,94,0.75)] backdrop-blur-xl">
+            {image ? <img src={image} alt="" className="size-10 shrink-0 rounded-xl object-cover ring-1 ring-white/15" /> : null}
+            <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-white">{text || "Cupido Leudy ❤️"}</p>
+            <button
+              type="button"
+              aria-label="Cerrar aviso"
+              onClick={() => toast.dismiss(id)}
+              className="grid size-7 shrink-0 place-items-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:bg-white/15 hover:text-white"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        ),
+        { duration: 4000 },
+      );
+    }, 4700);
+  }, [pathname, settings.data, text, image]);
+
+  return null;
 }
 
 function IntroSplash() {
@@ -319,7 +341,6 @@ function RootComponent() {
   const isDownloadRoute = pathname === "/descargar";
   const immersiveVideos = pathname.startsWith("/videos");
   const immersiveMessages = pathname === "/chat";
-  const discoverWithBanner = pathname.startsWith("/descubrir");
   const immersive = immersiveVideos || immersiveMessages;
 
   useEffect(() => {
@@ -380,7 +401,6 @@ function RootComponent() {
           <div
             translate="no"
             className={`min-h-0 flex-1 overflow-x-hidden ${isDownloadRoute || immersive ? "overflow-hidden pb-0" : "overflow-y-auto overscroll-y-contain pb-[calc(4.5rem+env(safe-area-inset-bottom))]"}`}
-            style={discoverWithBanner ? { paddingBottom: "calc(14rem + env(safe-area-inset-bottom))" } : undefined}
           >
             <GlobalFeedBanner />
             <AccountScopedOutlet />
